@@ -1,0 +1,22 @@
+### IntelliJ IDEA ###
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Kotlin ###
+.kotlin
+
+### Gradle ###
+build/
+.gradle/
+local.properties
+
+### IntelliJ / Android Studio ###
+.idea/
+*.iml
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store

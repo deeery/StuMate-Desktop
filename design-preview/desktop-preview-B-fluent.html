@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StuMate 桌面端 · 设计预览 B：Windows 11 Fluent</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: #101114;
+  color: #E8EAED;
+  font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5;
+  padding: 32px 24px 80px;
+}
+.review-head { max-width: 1180px; margin: 0 auto 28px; }
+.review-head h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; letter-spacing: .2px; }
+.review-head p { margin: 0 0 6px; color: #9AA0A6; font-size: 13px; }
+.review-head .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.review-head .badge {
+  font-size: 12px; padding: 4px 10px; border-radius: 6px;
+  background: #23252A; color: #C6C9CE; border: 1px solid #33363C;
+}
+.review-head .badge b { color: #60CDFF; font-weight: 600; }
+.skin-switch { margin-top: 18px; display: flex; gap: 8px; align-items: center; }
+.skin-switch button {
+  font: inherit; font-size: 13px; padding: 7px 16px; cursor: pointer;
+  border-radius: 5px; border: 1px solid #3C4043; background: #1E1F23; color: #C6C9CE;
+}
+.skin-switch button.on { background: #0067C0; border-color: #0067C0; color: #fff; }
+
+.mock-wrap { max-width: 1180px; margin: 0 auto 44px; }
+.mock-wrap > .caption { font-size: 13px; color: #9AA0A6; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; }
+.mock-wrap > .caption b { color: #E8EAED; font-size: 15px; font-weight: 600; }
+.mock-wrap > .caption .hint { color: #6B7076; }
+
+.win {
+  width: 1180px; height: 720px; border-radius: 8px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08);
+  font-size: 13px;
+}
+.win-titlebar {
+  height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 8px;
+  padding: 0 0 0 12px; font-size: 12px;
+}
+.win-titlebar .tb-icon { width: 14px; height: 14px; border-radius: 3px; display: grid; place-items: center; font-size: 9px; font-weight: 700; }
+.win-titlebar .tb-title { flex: 1; }
+.win-titlebar .tb-btns { display: flex; }
+.win-titlebar .tb-btns i { width: 46px; height: 34px; display: grid; place-items: center; font-style: normal; font-size: 11px; }
+.win-body { flex: 1; display: flex; min-height: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   皮肤 B：Windows 11 Fluent —— 设计 token
+   ═══════════════════════════════════════════════════════════════ */
+.skin-b {
+  --bg: #F3F3F3;
+  --surface: #FFFFFF;
+  --surface-2: #EBEBEB;
+  --surface-3: #E0E0E0;
+  --on-surface: #1A1A1A;
+  --on-surface-variant: #5C5C5C;
+  --on-surface-faint: #8A8A8A;
+  --outline: #E5E5E5;
+  --outline-strong: #C8C8C8;
+  --accent: #0067C0;
+  --on-accent: #FFFFFF;
+  --accent-tint: rgba(0,103,192,.09);
+  --accent-hover: rgba(0,103,192,.06);
+  --error: #C42B1C;
+  --warning: #9D5D00;
+  --success: #0F7B0F;
+  --hover: rgba(0,0,0,.037);
+  --press: rgba(0,0,0,.06);
+  --shadow: 0 2px 4px rgba(0,0,0,.045);
+  --radius-card: 6px;
+  --radius-ctl: 4px;
+  --row-h: 34px;
+  background: var(--bg); color: var(--on-surface);
+}
+body.dark .skin-b {
+  --bg: #202020;
+  --surface: #2B2B2B;
+  --surface-2: #272727;
+  --surface-3: #333333;
+  --on-surface: #FFFFFF;
+  --on-surface-variant: #C5C5C5;
+  --on-surface-faint: #8A8A8A;
+  --outline: #3A3A3A;
+  --outline-strong: #4A4A4A;
+  --accent: #60CDFF;
+  --on-accent: #003A5C;
+  --accent-tint: rgba(96,205,255,.12);
+  --accent-hover: rgba(96,205,255,.07);
+  --error: #FF99A4;
+  --warning: #FCE100;
+  --success: #6CCB5F;
+  --hover: rgba(255,255,255,.055);
+  --press: rgba(255,255,255,.085);
+  --shadow: 0 2px 4px rgba(0,0,0,.18);
+}
+.skin-b .win-titlebar { background: var(--surface-2); color: var(--on-surface-variant); border-bottom: 1px solid var(--outline); }
+.skin-b .tb-icon { background: var(--accent); color: var(--on-accent); }
+.skin-b .tb-btns i:hover { background: var(--hover); }
+
+/* Fluent NavigationView：选中项是「左侧强调条 + 淡底」，不是胶囊 */
+.skin-b .sidebar {
+  width: 212px; flex: 0 0 212px; background: var(--surface-2);
+  border-right: 1px solid var(--outline);
+  display: flex; flex-direction: column; padding: 10px 0;
+}
+.skin-b .brand { display: flex; align-items: center; gap: 10px; padding: 8px 16px 16px; }
+.skin-b .brand .logo {
+  width: 26px; height: 26px; border-radius: 6px; background: var(--accent); color: var(--on-accent);
+  display: grid; place-items: center; font-size: 13px; font-weight: 700;
+}
+.skin-b .brand .name { font-size: 15px; font-weight: 600; }
+.skin-b .brand .ver { font-size: 11px; color: var(--on-surface-faint); margin-left: auto; }
+
+.skin-b .nav { display: flex; flex-direction: column; }
+.skin-b .nav-item {
+  position: relative; display: flex; align-items: center; gap: 12px;
+  height: 38px; padding: 0 16px; color: var(--on-surface-variant);
+  cursor: pointer; font-size: 13.5px;
+}
+.skin-b .nav-item .ico { width: 18px; text-align: center; font-size: 15px; }
+.skin-b .nav-item:hover { background: var(--hover); }
+.skin-b .nav-item.on { background: var(--accent-tint); color: var(--on-surface); font-weight: 600; }
+.skin-b .nav-item.on::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 2px; background: var(--accent);
+}
+.skin-b .nav-item .count {
+  margin-left: auto; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+  background: var(--surface-3); color: var(--on-surface-variant);
+}
+.skin-b .nav-item.on .count { background: var(--surface-3); color: var(--on-surface); }
+
+.skin-b .side-foot { margin-top: auto; padding: 10px 16px 6px; border-top: 1px solid var(--outline); }
+.skin-b .svc { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--on-surface-variant); }
+.skin-b .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: 0 0 7px; }
+.skin-b .side-foot .week { margin-top: 4px; font-size: 11.5px; color: var(--on-surface-faint); }
+
+.skin-b .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.skin-b .topbar {
+  height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 12px;
+  padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--outline);
+}
+.skin-b .topbar h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.skin-b .topbar .sub { font-size: 12.5px; color: var(--on-surface-variant); }
+.skin-b .topbar .grow { flex: 1; }
+.skin-b .page { flex: 1; min-height: 0; padding: 16px 20px 20px; overflow: hidden; }
+
+/* Fluent 控件：4px 圆角、扁平、强调色底 */
+.skin-b .btn {
+  height: 32px; padding: 0 14px; border-radius: var(--radius-ctl); border: 1px solid transparent;
+  font: inherit; font-size: 13px; cursor: pointer;
+  background: var(--accent); color: var(--on-accent);
+  display: inline-flex; align-items: center; gap: 6px; box-shadow: var(--shadow);
+}
+.skin-b .btn:hover { filter: brightness(1.1); }
+.skin-b .btn.ghost {
+  background: var(--surface); color: var(--on-surface);
+  border-color: var(--outline-strong); box-shadow: none;
+}
+.skin-b .btn.ghost:hover { background: var(--hover); }
+.skin-b .btn.text { background: transparent; color: var(--accent); box-shadow: none; padding: 0 10px; }
+.skin-b .btn.text:hover { background: var(--accent-hover); }
+.skin-b .btn.sm { height: 28px; padding: 0 12px; font-size: 12.5px; }
+
+.skin-b .seg { display: inline-flex; background: var(--surface-3); border-radius: var(--radius-ctl); padding: 2px; }
+.skin-b .seg button {
+  height: 26px; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--on-surface-variant); border-radius: 3px;
+}
+.skin-b .seg button.on { background: var(--surface); color: var(--on-surface); font-weight: 600; box-shadow: var(--shadow); }
+
+.skin-b .field {
+  height: 32px; border: 1px solid var(--outline-strong); border-radius: var(--radius-ctl);
+  background: var(--surface); color: var(--on-surface); padding: 0 10px;
+  font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 8px;
+  border-bottom-width: 1px;
+}
+.skin-b .field input { border: 0; outline: 0; background: transparent; font: inherit; color: inherit; width: 100%; }
+
+.skin-b .card {
+  background: var(--surface); border: 1px solid var(--outline); border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+.skin-b .sec-title { font-size: 12px; font-weight: 700; color: var(--on-surface-variant); letter-spacing: .4px; margin: 0 0 8px; }
+
+/* ① 今天 */
+.skin-b .today { display: flex; gap: 16px; height: 100%; }
+.skin-b .today-main { flex: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.skin-b .hero {
+  background: linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 78%, #000) 100%);
+  color: var(--on-accent); border-radius: var(--radius-card); padding: 18px 20px;
+  position: relative; overflow: hidden; box-shadow: var(--shadow);
+}
+.skin-b .hero .state { display: flex; align-items: center; gap: 8px; font-size: 12px; opacity: .95; }
+.skin-b .hero .state .pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.skin-b .hero h3 { margin: 8px 0 4px; font-size: 22px; font-weight: 600; }
+.skin-b .hero .meta { font-size: 13px; opacity: .9; }
+.skin-b .hero .right { position: absolute; right: 20px; top: 18px; text-align: right; font-size: 12px; opacity: .92; }
+.skin-b .hero .right b { display: block; font-size: 26px; font-weight: 600; }
+
+.skin-b .list-card { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.skin-b .list-card > header {
+  display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--outline);
+  font-size: 12.5px; font-weight: 600; color: var(--on-surface-variant);
+}
+.skin-b .list-card > header .grow { flex: 1; }
+.skin-b .tbl { width: 100%; border-collapse: collapse; }
+.skin-b .tbl th {
+  text-align: left; font-size: 11.5px; font-weight: 600; color: var(--on-surface-faint);
+  padding: 8px 14px; border-bottom: 1px solid var(--outline);
+}
+.skin-b .tbl td { padding: 0 14px; height: var(--row-h); border-bottom: 1px solid var(--outline); font-size: 13px; }
+.skin-b .tbl tbody tr:hover { background: var(--hover); }
+.skin-b .tbl .t { color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 600; }
+.skin-b .tbl .muted { color: var(--on-surface-variant); }
+
+.skin-b .aside { width: 300px; flex: 0 0 300px; display: flex; flex-direction: column; min-height: 0; }
+.skin-b .aside .list-card { flex: 1; }
+.skin-b .note-row {
+  display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 40px;
+  border-bottom: 1px solid var(--outline); font-size: 13px;
+}
+.skin-b .note-row:hover { background: var(--hover); }
+.skin-b .note-row .bar { width: 3px; height: 18px; border-radius: 2px; flex: 0 0 3px; }
+.skin-b .note-row .txt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skin-b .chip {
+  font-size: 10.5px; padding: 2px 7px; border-radius: 4px; font-weight: 600;
+  background: var(--surface-3); color: var(--on-surface-variant); white-space: nowrap;
+}
+.skin-b .chip.dl { background: rgba(196,43,28,.12); color: var(--error); }
+.skin-b .chip.tmp { background: rgba(157,93,0,.14); color: var(--warning); }
+
+/* ② 课表 */
+.skin-b .week { display: flex; gap: 14px; height: 100%; }
+.skin-b .week-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.skin-b .week-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.skin-b .week-tools .navbtn {
+  width: 30px; height: 30px; border-radius: var(--radius-ctl); border: 1px solid var(--outline-strong);
+  background: var(--surface); color: var(--on-surface-variant); cursor: pointer; font-size: 14px;
+  display: grid; place-items: center;
+}
+.skin-b .week-tools .navbtn:hover { background: var(--hover); }
+.skin-b .week-tools .label { font-size: 14px; font-weight: 600; }
+.skin-b .week-tools .range { font-size: 12.5px; color: var(--on-surface-variant); }
+.skin-b .week-tools .grow { flex: 1; }
+
+.skin-b .grid {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: 58px repeat(7, 1fr);
+  grid-template-rows: 30px 1fr;
+  border: 1px solid var(--outline); border-radius: var(--radius-card);
+  background: var(--surface); overflow: hidden;
+}
+.skin-b .grid .hcell {
+  display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  color: var(--on-surface-variant); border-bottom: 1px solid var(--outline);
+  border-left: 1px solid var(--outline); position: relative;
+}
+.skin-b .grid .hcell:first-child { border-left: 0; }
+.skin-b .grid .hcell.today { color: var(--accent); background: var(--accent-tint); }
+.skin-b .grid .hcell.today::after {
+  content: ""; position: absolute; left: 14%; right: 14%; bottom: 0; height: 2px; background: var(--accent); border-radius: 2px;
+}
+.skin-b .grid .corner { border-bottom: 1px solid var(--outline); }
+.skin-b .grid .axis { position: relative; border-right: 1px solid var(--outline); }
+.skin-b .grid .axis span {
+  position: absolute; right: 8px; transform: translateY(-50%);
+  font-size: 10.5px; color: var(--on-surface-faint); font-variant-numeric: tabular-nums;
+}
+.skin-b .grid .col {
+  position: relative; border-left: 1px solid var(--outline);
+  background-image: repeating-linear-gradient(to bottom, var(--outline) 0 1px, transparent 1px 42px);
+}
+.skin-b .grid .col.today { background-color: var(--accent-tint); }
+.skin-b .blk {
+  position: absolute; left: 3px; right: 3px; border-radius: 4px;
+  background: var(--surface-3); border-left: 3px solid var(--accent);
+  padding: 5px 7px; overflow: hidden; cursor: pointer;
+}
+.skin-b .blk .n { font-size: 11.5px; font-weight: 600; line-height: 1.25; }
+.skin-b .blk .r { font-size: 10.5px; color: var(--on-surface-variant); margin-top: 1px; }
+.skin-b .blk.tmp { border-left-color: #C07800; }
+.skin-b .blk.sel { background: var(--accent-tint); box-shadow: inset 0 0 0 2px var(--accent); }
+.skin-b .blk.today-blk { background: var(--surface-3); }
+
+.skin-b .detail { width: 268px; flex: 0 0 268px; display: flex; flex-direction: column; }
+.skin-b .detail .card { padding: 16px; }
+.skin-b .detail .dbar { width: 4px; height: 30px; border-radius: 2px; background: var(--accent); }
+.skin-b .detail h4 { margin: 12px 0 6px; font-size: 16px; font-weight: 600; }
+.skin-b .detail .dmeta { font-size: 12.5px; color: var(--on-surface-variant); }
+.skin-b .detail .acts { display: flex; gap: 8px; margin-top: 16px; }
+.skin-b .detail .kv { display: flex; gap: 10px; font-size: 12.5px; padding: 5px 0; }
+.skin-b .detail .kv .k { color: var(--on-surface-faint); width: 48px; flex: 0 0 48px; }
+
+/* ③ 便签 */
+.skin-b .notes { display: flex; height: 100%; }
+.skin-b .notes-left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.skin-b .notes-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.skin-b .notes-tools .field { width: 260px; }
+.skin-b .notes-tools .grow { flex: 1; }
+.skin-b .ntbl-wrap { flex: 1; min-height: 0; border: 1px solid var(--outline); border-radius: var(--radius-card); overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.skin-b .ntbl { width: 100%; border-collapse: collapse; }
+.skin-b .ntbl th {
+  position: sticky; top: 0; text-align: left; font-size: 11.5px; font-weight: 600;
+  color: var(--on-surface-faint); padding: 9px 12px; background: var(--surface-2);
+  border-bottom: 1px solid var(--outline);
+}
+.skin-b .ntbl td { padding: 0 12px; height: 38px; border-bottom: 1px solid var(--outline); font-size: 13px; }
+.skin-b .ntbl tbody tr:hover { background: var(--hover); }
+.skin-b .ntbl tbody tr.sel { background: var(--accent-tint); }
+.skin-b .ntbl tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.skin-b .ntbl .grip { color: var(--on-surface-faint); cursor: grab; font-size: 13px; letter-spacing: -1px; }
+.skin-b .ntbl .cbar i { display: block; width: 3px; height: 18px; border-radius: 2px; }
+.skin-b .ntbl .tnum { color: var(--on-surface-variant); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.skin-b .ntbl .acts { opacity: 0; display: flex; gap: 2px; justify-content: flex-end; }
+.skin-b .ntbl tbody tr:hover .acts { opacity: 1; }
+.skin-b .iconbtn {
+  width: 26px; height: 26px; border-radius: var(--radius-ctl); border: 0; background: transparent;
+  color: var(--on-surface-variant); cursor: pointer; display: grid; place-items: center; font-size: 13px;
+}
+.skin-b .iconbtn:hover { background: var(--press); }
+
+.skin-b .editor {
+  width: 340px; flex: 0 0 340px; margin-left: 16px; border-left: 1px solid var(--outline);
+  padding-left: 16px; display: flex; flex-direction: column;
+}
+.skin-b .editor h3 { margin: 0 0 14px; font-size: 14px; font-weight: 600; }
+.skin-b .fld-label { font-size: 11.5px; font-weight: 600; color: var(--on-surface-faint); margin: 0 0 6px; }
+.skin-b .ta {
+  width: 100%; min-height: 96px; resize: none; border: 1px solid var(--outline-strong);
+  border-radius: var(--radius-ctl); background: var(--surface); color: var(--on-surface);
+  font: inherit; font-size: 13px; padding: 10px; outline: 0;
+}
+.skin-b .swatches { display: flex; gap: 8px; }
+.skin-b .sw { width: 26px; height: 26px; border-radius: 4px; cursor: pointer; position: relative; }
+.skin-b .sw.on::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 6px;
+  border: 2px solid var(--accent);
+}
+.skin-b .typechips { display: flex; flex-wrap: wrap; gap: 6px; }
+.skin-b .tchip {
+  font-size: 12px; padding: 4px 11px; border-radius: var(--radius-ctl); cursor: pointer;
+  border: 1px solid var(--outline-strong); color: var(--on-surface-variant); background: var(--surface);
+}
+.skin-b .tchip:hover { background: var(--hover); }
+.skin-b .tchip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.skin-b .editor .foot { margin-top: auto; display: flex; gap: 8px; padding-top: 16px; }
+.skin-b .editor .foot .grow { flex: 1; }
+
+/* ④ 设置 */
+.skin-b .settings { display: flex; height: 100%; }
+.skin-b .subnav { width: 176px; flex: 0 0 176px; display: flex; flex-direction: column; padding-right: 16px; gap: 1px; }
+.skin-b .subnav a {
+  position: relative; display: block; padding: 8px 12px; border-radius: var(--radius-ctl);
+  font-size: 13px; color: var(--on-surface-variant); text-decoration: none; cursor: pointer;
+}
+.skin-b .subnav a:hover { background: var(--hover); }
+.skin-b .subnav a.on { color: var(--on-surface); font-weight: 600; background: var(--accent-tint); }
+.skin-b .subnav a.on::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 16px; border-radius: 2px; background: var(--accent);
+}
+.skin-b .setpanel { flex: 1; min-width: 0; overflow: hidden; padding-right: 8px; }
+.skin-b .setgroup { margin-bottom: 22px; }
+.skin-b .setgroup h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.skin-b .setgroup p.desc { margin: 0 0 12px; font-size: 12.5px; color: var(--on-surface-variant); }
+.skin-b .setcard { background: var(--surface); border: 1px solid var(--outline); border-radius: var(--radius-card); overflow: hidden; box-shadow: var(--shadow); }
+.skin-b .setrow { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--outline); }
+.skin-b .setrow:last-child { border-bottom: 0; }
+.skin-b .setrow .lab { font-size: 13px; }
+.skin-b .setrow .sub2 { font-size: 11.5px; color: var(--on-surface-faint); margin-top: 2px; }
+.skin-b .setrow .grow { flex: 1; }
+.skin-b .num {
+  width: 74px; height: 32px; text-align: center; border: 1px solid var(--outline-strong);
+  border-radius: var(--radius-ctl); background: var(--surface); color: var(--on-surface);
+  font: inherit; font-size: 13px; outline: 0;
+}
+/* Fluent 开关：小尺寸、强调色填充、方形滑块 */
+.skin-b .sw-track {
+  width: 40px; height: 20px; border-radius: 10px; background: var(--surface-3);
+  border: 1px solid var(--outline-strong); position: relative; cursor: pointer; flex: 0 0 40px;
+}
+.skin-b .sw-track::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--on-surface-variant); transition: .15s;
+}
+.skin-b .sw-track.on { background: var(--accent); border-color: var(--accent); }
+.skin-b .sw-track.on::after { left: 23px; background: var(--on-accent); }
+.skin-b .radio-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--radius-ctl); cursor: pointer; font-size: 13px; }
+.skin-b .radio-row:hover { background: var(--hover); }
+.skin-b .radio-row.on { background: var(--accent-tint); }
+.skin-b .radio-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--on-surface-faint); position: relative; flex: 0 0 16px; }
+.skin-b .radio-row.on .radio-dot { border-color: var(--accent); }
+.skin-b .radio-row.on .radio-dot::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; background: var(--accent); }
+
+.skin-b .ctx {
+  position: absolute; z-index: 5; background: var(--surface); border: 1px solid var(--outline-strong);
+  border-radius: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.28); padding: 4px; min-width: 152px;
+}
+.skin-b .ctx div { padding: 7px 12px; border-radius: 3px; font-size: 13px; cursor: pointer; }
+.skin-b .ctx div:hover { background: var(--hover); }
+.skin-b .ctx hr { border: 0; border-top: 1px solid var(--outline); margin: 4px 0; }
+.skin-b .ctx .danger { color: var(--error); }
+.skin-b .rel { position: relative; }
+
+/* ── 自绘标题栏（系统标题栏已隐藏） ── */
+.skin-b .caption-btns { display: flex; height: 32px; margin-right: -20px; }
+.skin-b .caption-btns i {
+  width: 46px; height: 32px; display: grid; place-items: center;
+  font-style: normal; font-size: 11px; color: var(--on-surface); cursor: default;
+}
+.skin-b .caption-btns i:hover { background: var(--hover); }
+.skin-b .caption-btns i:last-child:hover { background: #C42B1C; color: #fff; }
+.skin-b .list-card > header .btn { margin-left: 12px; }
+.skin-b .list-card > header { padding: 8px 12px 8px 16px; }
+</style>
+</head>
+<body class="dark">
+
+<div class="review-head">
+  <h1>StuMate 桌面端 · 设计预览 B</h1>
+  <p>骨架：<b>左侧边栏 + 主内容区</b>　·　窗口：<b>1180 × 720，可自由缩放</b>　·　便签页：<b>表格 + 右侧编辑面板</b></p>
+  <p>皮肤 B：<b>Windows 11 Fluent</b> —— 更接近原生 Windows 应用：4px 控件圆角、扁平描边卡片、导航用「左侧强调条」而非胶囊、开关与分段控件走 Fluent 形态。</p>
+  <div class="badges">
+    <span class="badge">功能逻辑与手机版<b>完全一致</b>（课表/便签/提醒/备份/PDF 导入）</span>
+    <span class="badge">已通过 <b>145 个单元测试</b></span>
+    <span class="badge">视觉：<b>跟随系统强调色 · 浅/深双主题</b></span>
+  </div>
+  <div class="skin-switch">
+    <span style="color:#9AA0A6;font-size:13px">配色：</span>
+    <button id="btn-light" onclick="setTheme('light')">浅色</button>
+    <button id="btn-dark" class="on" onclick="setTheme('dark')">深色</button>
+  </div>
+</div>
+
+<!-- ① 今天 -->
+<div class="mock-wrap">
+  <div class="caption"><b>① 今天</b><span class="hint">两列：左侧「当前/下一节 + 今日时间轴」，右侧便签面板。示范时间：周三 14:32</span></div>
+  <div class="win skin-b">
+    <div class="win-body">
+      <aside class="sidebar">
+        <div class="brand"><span class="logo">S</span><span class="name">StuMate</span><span class="ver">1.0</span></div>
+        <nav class="nav">
+          <div class="nav-item on"><span class="ico">⌂</span>今天</div>
+          <div class="nav-item"><span class="ico">▦</span>课表</div>
+          <div class="nav-item"><span class="ico">✎</span>便签<span class="count">7</span></div>
+          <div class="nav-item"><span class="ico">⚙</span>设置</div>
+        </nav>
+        <div class="side-foot">
+          <div class="svc"><span class="dot"></span>提醒服务运行中</div>
+          <div class="week">第 4 周 · 提前 30 分钟提醒</div>
+        </div>
+      </aside>
+      <div class="main">
+        <div class="topbar">
+          <h2>下午好。</h2>
+          <span class="sub">9 月 30 日 周三 · 第 4 周</span>
+          <span class="grow"></span>
+          <span class="caption-btns"><i>&#9472;</i><i>&#9633;</i><i>&#10005;</i></span>
+        </div>
+        <div class="page">
+          <div class="today">
+            <div class="today-main">
+              <div class="hero">
+                <div class="state"><span class="pulse"></span>正在上课 · 还剩 1 小时 23 分钟</div>
+                <h3>大学物理</h3>
+                <div class="meta">14:20 – 15:55 · 理科楼 505 · 赵敏</div>
+                <div class="right"><b>14:20</b>开始</div>
+              </div>
+              <div class="card list-card">
+                <header><span>接下来的课</span><span class="grow"></span><span style="font-weight:400;color:var(--on-surface-faint)">共 2 节</span><button class="btn sm">＋ 新建提醒</button></header>
+                <table class="tbl">
+                  <thead><tr><th style="width:118px">时间</th><th>课程</th><th style="width:150px">教室</th><th style="width:90px">教师</th><th style="width:70px"></th></tr></thead>
+                  <tbody>
+                    <tr><td class="t">14:20 – 15:55</td><td>大学物理</td><td class="muted">理科楼 505</td><td class="muted">赵敏</td><td><span class="chip" style="background:var(--accent-tint);color:var(--accent)">进行中</span></td></tr>
+                    <tr><td class="t">18:30 – 20:05</td><td>程序设计实验</td><td class="muted">计算机楼机房</td><td class="muted">张伟</td><td><span class="chip tmp">临时</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <aside class="aside">
+              <div class="card list-card">
+                <header><span>便签 · 7 条</span><span class="grow"></span><span style="color:var(--accent);font-weight:500;cursor:pointer">全部 ›</span><button class="btn ghost sm">＋ 添加便签</button></header>
+                <div class="note-row"><span class="bar" style="background:#C42B1C"></span><span class="txt">周五前交实验报告</span><span class="chip dl">2 天后</span></div>
+                <div class="note-row"><span class="bar" style="background:#8430CE"></span><span class="txt">交社团报名表</span><span class="chip dl">1 天后</span></div>
+                <div class="note-row"><span class="bar" style="background:#0F7B0F"></span><span class="txt">复习高数第三章：多元函数微分</span><span class="chip">学</span></div>
+                <div class="note-row"><span class="bar" style="background:#0067C0"></span><span class="txt">预约图书馆研讨间</span><span class="chip">工</span></div>
+                <div class="note-row"><span class="bar" style="background:#C07800"></span><span class="txt">买牛奶和面包</span><span class="chip">生</span></div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ② 课表 -->
+<div class="mock-wrap">
+  <div class="caption"><b>② 课表</b><span class="hint">全宽时间轴网格 + 右侧课程详情面板；点课程块选中，双击进入编辑</span></div>
+  <div class="win skin-b">
+    <div class="win-body">
+      <aside class="sidebar">
+        <div class="brand"><span class="logo">S</span><span class="name">StuMate</span><span class="ver">1.0</span></div>
+        <nav class="nav">
+          <div class="nav-item"><span class="ico">⌂</span>今天</div>
+          <div class="nav-item on"><span class="ico">▦</span>课表</div>
+          <div class="nav-item"><span class="ico">✎</span>便签<span class="count">7</span></div>
+          <div class="nav-item"><span class="ico">⚙</span>设置</div>
+        </nav>
+        <div class="side-foot">
+          <div class="svc"><span class="dot"></span>提醒服务运行中</div>
+          <div class="week">第 4 周 · 提前 30 分钟提醒</div>
+        </div>
+      </aside>
+      <div class="main">
+        <div class="topbar">
+          <h2>课表</h2>
+          <span class="sub">第 4 周 · 09/28 ~ 10/04</span>
+          <span class="grow"></span>
+          <button class="btn ghost sm">校准周数</button>
+          <button class="btn sm">＋ 添加课程</button>
+          <span class="caption-btns"><i>&#9472;</i><i>&#9633;</i><i>&#10005;</i></span>
+        </div>
+        <div class="page">
+          <div class="week">
+            <div class="week-main">
+              <div class="week-tools">
+                <button class="navbtn">‹</button><span class="label">第 4 周</span><button class="navbtn">›</button>
+                <span class="range">09/28 ~ 10/04</span>
+                <span class="grow"></span>
+                <div class="seg"><button class="on">表格</button><button>列表</button></div>
+              </div>
+              <div class="grid">
+                <div class="corner"></div>
+                <div class="hcell">周一</div><div class="hcell">周二</div><div class="hcell today">周三</div>
+                <div class="hcell">周四</div><div class="hcell">周五</div><div class="hcell">周六</div><div class="hcell">周日</div>
+                <div class="axis">
+                  <span style="top:0">08:00</span><span style="top:42px">09:00</span><span style="top:84px">10:00</span>
+                  <span style="top:126px">11:00</span><span style="top:168px">12:00</span><span style="top:210px">13:00</span>
+                  <span style="top:252px">14:00</span><span style="top:294px">15:00</span><span style="top:336px">16:00</span>
+                  <span style="top:378px">17:00</span><span style="top:420px">18:00</span><span style="top:462px">19:00</span>
+                  <span style="top:504px">20:00</span><span style="top:546px">21:00</span>
+                </div>
+                <div class="col">
+                  <div class="blk" style="top:0;height:66px"><div class="n">高等数学</div><div class="r">教二 305</div></div>
+                  <div class="blk" style="top:112px;height:66px"><div class="n">大学英语</div><div class="r">外语楼 208</div></div>
+                  <div class="blk" style="top:266px;height:66px"><div class="n">程序设计基础</div><div class="r">计算机楼 401</div></div>
+                </div>
+                <div class="col">
+                  <div class="blk" style="top:35px;height:66px"><div class="n">数据结构</div><div class="r">计算机楼 401</div></div>
+                  <div class="blk" style="top:266px;height:66px"><div class="n">线性代数</div><div class="r">教三 112</div></div>
+                </div>
+                <div class="col today">
+                  <div class="blk today-blk" style="top:77px;height:66px"><div class="n">计算机网络</div><div class="r">计算机楼 302</div></div>
+                  <div class="blk today-blk sel" style="top:266px;height:66px"><div class="n">大学物理</div><div class="r">理科楼 505</div></div>
+                  <div class="blk today-blk tmp" style="top:437px;height:66px"><div class="n">程序设计实验</div><div class="r">计算机楼机房</div></div>
+                </div>
+                <div class="col">
+                  <div class="blk" style="top:336px;height:66px"><div class="n">体育（羽毛球）</div><div class="r">体育馆</div></div>
+                  <div class="blk" style="top:437px;height:66px"><div class="n">操作系统</div><div class="r">计算机楼 208</div></div>
+                </div>
+                <div class="col">
+                  <div class="blk" style="top:112px;height:66px"><div class="n">马克思主义基本原理</div><div class="r">文科楼 301</div></div>
+                  <div class="blk" style="top:266px;height:66px"><div class="n">编译原理</div><div class="r">计算机楼 405</div></div>
+                </div>
+                <div class="col"></div>
+                <div class="col"></div>
+              </div>
+            </div>
+            <aside class="detail">
+              <div class="card">
+                <div class="dbar"></div>
+                <h4>大学物理</h4>
+                <div class="dmeta">周三 14:20 – 15:55</div>
+                <div style="height:12px"></div>
+                <div class="kv"><span class="k">教室</span><span>理科楼 505</span></div>
+                <div class="kv"><span class="k">教师</span><span>赵敏</span></div>
+                <div class="kv"><span class="k">周次</span><span>1-16 周</span></div>
+                <div class="kv"><span class="k">类型</span><span>长期提醒</span></div>
+                <div class="acts"><button class="btn sm">编辑</button><button class="btn ghost sm">删除</button></div>
+              </div>
+              <div style="margin-top:12px" class="card">
+                <div style="padding:14px">
+                  <div class="sec-title">本周统计</div>
+                  <div class="kv"><span class="k">课程</span><span>12 节</span></div>
+                  <div class="kv"><span class="k">课时</span><span>18.5 小时</span></div>
+                  <div class="kv"><span class="k">最忙</span><span>周一 · 3 节</span></div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ③ 便签 -->
+<div class="mock-wrap">
+  <div class="caption"><b>③ 便签</b><span class="hint">左侧表格（拖拽把手 + 行内操作 + 右键菜单），右侧编辑面板；点行即选中</span></div>
+  <div class="win skin-b">
+    <div class="win-body">
+      <aside class="sidebar">
+        <div class="brand"><span class="logo">S</span><span class="name">StuMate</span><span class="ver">1.0</span></div>
+        <nav class="nav">
+          <div class="nav-item"><span class="ico">⌂</span>今天</div>
+          <div class="nav-item"><span class="ico">▦</span>课表</div>
+          <div class="nav-item on"><span class="ico">✎</span>便签<span class="count">7</span></div>
+          <div class="nav-item"><span class="ico">⚙</span>设置</div>
+        </nav>
+        <div class="side-foot">
+          <div class="svc"><span class="dot"></span>提醒服务运行中</div>
+          <div class="week">第 4 周 · 提前 30 分钟提醒</div>
+        </div>
+      </aside>
+      <div class="main">
+        <div class="topbar">
+          <h2>便签</h2>
+          <span class="sub">共 7 条 · 3 条带截止时间</span>
+          <span class="grow"></span>
+          <button class="btn ghost sm">↶ 撤销</button>
+          <button class="btn sm">＋ 新建便签</button>
+          <span class="caption-btns"><i>&#9472;</i><i>&#9633;</i><i>&#10005;</i></span>
+        </div>
+        <div class="page">
+          <div class="notes">
+            <div class="notes-left">
+              <div class="notes-tools">
+                <label class="field"><span style="color:var(--on-surface-faint)">⌕</span><input placeholder="搜索便签…"></label>
+                <label class="field" style="width:150px">分类：全部<span style="margin-left:auto;color:var(--on-surface-faint)">▾</span></label>
+                <span class="grow"></span>
+                <span style="font-size:12.5px;color:var(--on-surface-faint)">按截止时间排序 ▾</span>
+              </div>
+              <div class="ntbl-wrap rel">
+                <table class="ntbl">
+                  <thead><tr><th style="width:26px"></th><th style="width:20px"></th><th>内容</th><th style="width:96px">分类</th><th style="width:150px">截止</th><th style="width:64px"></th></tr></thead>
+                  <tbody>
+                    <tr class="sel"><td class="grip">⋮⋮</td><td class="cbar"><i style="background:#C42B1C"></i></td><td>周五前交实验报告</td><td><span class="chip dl">期</span></td><td class="tnum">10/02 23:59 · 2 天后</td><td><div class="acts"><button class="iconbtn">✎</button><button class="iconbtn">🗑</button></div></td></tr>
+                    <tr><td class="grip">⋮⋮</td><td class="cbar"><i style="background:#8430CE"></i></td><td>交社团报名表</td><td><span class="chip dl">社团</span></td><td class="tnum">10/01 20:00 · 1 天后</td><td><div class="acts"><button class="iconbtn">✎</button><button class="iconbtn">🗑</button></div></td></tr>
+                    <tr><td class="grip">⋮⋮</td><td class="cbar"><i style="background:#0F7B0F"></i></td><td>复习高数第三章：多元函数微分</td><td><span class="chip">学</span></td><td class="tnum" style="color:var(--on-surface-faint)">—</td><td><div class="acts"><button class="iconbtn">✎</button><button class="iconbtn">🗑</button></div></td></tr>
+                    <tr><td class="grip">⋮⋮</td><td class="cbar"><i style="background:#0067C0"></i></td><td>预约图书馆研讨间</td><td><span class="chip">工</span></td><td class="tnum" style="color:var(--on-surface-faint)">—</td><td><div class="acts"><button class="iconbtn">✎</button><button class="iconbtn">🗑</button></div></td></tr>
+                    <tr><td class="grip">⋮⋮</td><td class="cbar"><i style="background:#C07800"></i></td><td>买牛奶和面包</td><td><span class="chip">生</span></td><td class="tnum" style="color:var(--on-surface-faint)">—</td><td><div class="acts"><button class="iconbtn">✎</button><button class="iconbtn">🗑</button></div></td></tr>
+                    <tr><td class="grip">⋮⋮</td><td class="cbar"><i style="background:#CA5010"></i></td><td>读完《人类简史》第 4 章</td><td><span class="chip">读书</span></td><td class="tnum" style="color:var(--on-surface-faint)">—</td><td><div class="acts"><button class="iconbtn">✎</button><button class="iconbtn">🗑</button></div></td></tr>
+                    <tr><td class="grip">⋮⋮</td><td class="cbar"><i style="background:#038387"></i></td><td>准备下周的英语演讲</td><td><span class="chip dl">期</span></td><td class="tnum">10/05 18:00 · 5 天后</td><td><div class="acts"><button class="iconbtn">✎</button><button class="iconbtn">🗑</button></div></td></tr>
+                  </tbody>
+                </table>
+                <div class="ctx" style="left:180px;top:120px">
+                  <div>编辑便签</div><div>更换颜色 ›</div><div>设置分类 ›</div>
+                  <hr><div>在此上方插入</div><div class="danger">删除便签</div>
+                </div>
+              </div>
+            </div>
+            <aside class="editor">
+              <h3>编辑便签</h3>
+              <div class="fld-label">内容</div>
+              <textarea class="ta">周五前交实验报告</textarea>
+              <div style="height:14px"></div>
+              <div class="fld-label">颜色</div>
+              <div class="swatches">
+                <span class="sw" style="background:#0067C0"></span>
+                <span class="sw" style="background:#038387"></span>
+                <span class="sw" style="background:#0F7B0F"></span>
+                <span class="sw" style="background:#C07800"></span>
+                <span class="sw" style="background:#CA5010"></span>
+                <span class="sw on" style="background:#C42B1C"></span>
+                <span class="sw" style="background:#8430CE"></span>
+                <span class="sw" style="background:#5C5C5C"></span>
+              </div>
+              <div style="height:14px"></div>
+              <div class="fld-label">分类</div>
+              <div class="typechips">
+                <span class="tchip">空</span><span class="tchip">工作</span><span class="tchip">生活</span>
+                <span class="tchip">学习</span><span class="tchip on">Deadline</span>
+                <span class="tchip">自定义</span><span class="tchip">Deadline 自定义</span>
+              </div>
+              <div style="height:14px"></div>
+              <div class="fld-label">截止时间</div>
+              <div style="display:flex;gap:8px">
+                <label class="field" style="flex:1">2026-10-02</label>
+                <label class="field" style="width:92px">23:59</label>
+              </div>
+              <div style="margin-top:8px;font-size:12px;color:var(--error)">2 天后到期</div>
+              <div class="foot">
+                <button class="btn ghost sm" style="color:var(--error)">删除</button>
+                <span class="grow"></span>
+                <button class="btn ghost sm">取消</button>
+                <button class="btn sm">保存</button>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ④ 设置 -->
+<div class="mock-wrap">
+  <div class="caption"><b>④ 设置</b><span class="hint">左侧分类导航 + 右侧面板；所有开关即时生效并写入 <code>%APPDATA%\StuMate\settings.json</code></span></div>
+  <div class="win skin-b">
+    <div class="win-body">
+      <aside class="sidebar">
+        <div class="brand"><span class="logo">S</span><span class="name">StuMate</span><span class="ver">1.0</span></div>
+        <nav class="nav">
+          <div class="nav-item"><span class="ico">⌂</span>今天</div>
+          <div class="nav-item"><span class="ico">▦</span>课表</div>
+          <div class="nav-item"><span class="ico">✎</span>便签<span class="count">7</span></div>
+          <div class="nav-item on"><span class="ico">⚙</span>设置</div>
+        </nav>
+        <div class="side-foot">
+          <div class="svc"><span class="dot"></span>提醒服务运行中</div>
+          <div class="week">第 4 周 · 提前 30 分钟提醒</div>
+        </div>
+      </aside>
+      <div class="main">
+        <div class="topbar">
+          <h2>设置</h2>
+          <span class="grow"></span>
+          <span class="sub">数据目录：%APPDATA%\StuMate</span>
+          <span class="caption-btns"><i>&#9472;</i><i>&#9633;</i><i>&#10005;</i></span>
+        </div>
+        <div class="page">
+          <div class="settings">
+            <nav class="subnav">
+              <a class="on">提醒</a><a>外观</a><a>通知与启动</a><a>导入课表</a><a>数据备份</a><a>关于</a>
+            </nav>
+            <div class="setpanel">
+              <div class="setgroup">
+                <h3>提醒</h3>
+                <p class="desc">到点会弹出置顶提醒卡片，并在系统托盘发一条气泡通知。</p>
+                <div class="setcard">
+                  <div class="setrow">
+                    <div><div class="lab">提前提醒</div><div class="sub2">距离上课还有多少分钟时开始提醒（1 ~ 180）</div></div>
+                    <span class="grow"></span>
+                    <input class="num" value="30"><span style="font-size:12.5px;color:var(--on-surface-variant)">分钟</span>
+                  </div>
+                  <div class="setrow">
+                    <div><div class="lab">置顶提醒弹窗</div><div class="sub2">到点时弹出全屏置顶卡片，需手动关闭</div></div>
+                    <span class="grow"></span><div class="sw-track on"></div>
+                  </div>
+                  <div class="setrow">
+                    <div><div class="lab">托盘气泡通知</div><div class="sub2">在系统通知中心留一条记录</div></div>
+                    <span class="grow"></span><div class="sw-track on"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="setgroup">
+                <h3>外观</h3>
+                <div class="setcard" style="padding:6px">
+                  <div class="radio-row on"><span class="radio-dot"></span>跟随系统</div>
+                  <div class="radio-row"><span class="radio-dot"></span>浅色</div>
+                  <div class="radio-row"><span class="radio-dot"></span>深色</div>
+                </div>
+              </div>
+              <div class="setgroup">
+                <h3>通知与启动</h3>
+                <div class="setcard">
+                  <div class="setrow">
+                    <div><div class="lab">开机自启</div><div class="sub2">写入 HKCU\...\Run，登录后自动在托盘常驻</div></div>
+                    <span class="grow"></span><div class="sw-track"></div>
+                  </div>
+                  <div class="setrow">
+                    <div><div class="lab">立即检查一次</div><div class="sub2">按当前时间重新算一遍今日课程</div></div>
+                    <span class="grow"></span><button class="btn ghost sm">发送测试通知</button>
+                  </div>
+                  <div class="setrow">
+                    <div><div class="lab">数据目录</div><div class="sub2">%APPDATA%\StuMate</div></div>
+                    <span class="grow"></span><button class="btn ghost sm">在资源管理器中打开</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function setTheme(mode) {
+  document.body.classList.toggle('dark', mode === 'dark');
+  document.getElementById('btn-dark').classList.toggle('on', mode === 'dark');
+  document.getElementById('btn-light').classList.toggle('on', mode === 'light');
+}
+</script>
+</body>
+</html>
