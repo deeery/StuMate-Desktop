@@ -135,18 +135,6 @@ object Prefs {
 
     // ── 界面状态（下次打开时接着上次看） ──────────────────────────────
 
-    /**
-     * 上次停留的非设置页：0=今天，1=课表，2=便签。
-     * 设置页（3）不记录，所以从设置页退出后仍会回到之前那个页面。
-     */
-    fun getLastTab(): Int = obj().int("lastTab", 0).coerceIn(0, 2)
-
-    fun setLastTab(tab: Int) {
-        // 唯一的守卫放在这里：只记非设置页
-        if (tab !in 0..2) return
-        put("lastTab", tab.toJson())
-    }
-
     /** 课表默认按表格还是列表显示 */
     fun isWeekGrid(): Boolean = obj().bool("weekGrid", DEFAULT_WEEK_GRID)
 

@@ -4,6 +4,8 @@
   info <标题子串>                 打印窗口位置与尺寸
   click <x> <y>                   在屏幕绝对坐标点击一次
   click-win <标题子串> <x> <y>    在窗口内的相对坐标点击（自动换算绝对坐标并置顶窗口）
+  move-win <标题子串> <x> <y>     只把光标移到窗口内相对坐标（不点击），用于验证 hover
+  dblclick-win <标题子串> <x> <y> 在窗口内相对坐标双击（两次按下间隔 120ms）
   key <名称> [标题子串]           发送一个按键，如 enter / esc / tab
 
 坐标以「截图像素」为准：截图脚本会外扩 8px，所以 click-win 内部按 -8 偏移还原。
@@ -155,6 +157,51 @@ def main():
         y = t - CAPTURE_MARGIN + float(sys.argv[4])
         click_abs(x, y)
         print(f"clicked window({sys.argv[3]},{sys.argv[4]}) -> screen({x:.0f},{y:.0f})")
+        return 0
+
+    if cmd == "dblclick-win":
+        hwnd, title = find_window(sys.argv[2])
+        if hwnd is None:
+            print("NOT FOUND")
+            return 1
+        if not focus(hwnd):
+            print("警告：窗口没能提到最前，点击可能落到别的窗口上")
+        time.sleep(0.3)
+        l, t, _r, _b = rect_of(hwnd)
+        click_abs(l - CAPTURE_MARGIN + 150, t - CAPTURE_MARGIN + 400)  # 热身
+        time.sleep(0.2)
+        x = l - CAPTURE_MARGIN + float(sys.argv[3])
+        y = t - CAPTURE_MARGIN + float(sys.argv[4])
+        user32.SetCursorPos(int(x), int(y))
+        time.sleep(0.25)
+        for i in range(2):
+            user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            time.sleep(0.03)
+            user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            if i == 0:
+                time.sleep(0.12)
+        time.sleep(0.6)
+        print(f"double-clicked window({sys.argv[3]},{sys.argv[4]}) -> screen({x:.0f},{y:.0f})")
+        return 0
+
+    if cmd == "move-win":
+        hwnd, title = find_window(sys.argv[2])
+        if hwnd is None:
+            print("NOT FOUND")
+            return 1
+        if not focus(hwnd):
+            print("警告：窗口没能提到最前，hover 可能落到别的窗口上")
+        time.sleep(0.3)
+        l, t, _r, _b = rect_of(hwnd)
+        x = l - CAPTURE_MARGIN + float(sys.argv[3])
+        y = t - CAPTURE_MARGIN + float(sys.argv[4])
+        # 分两步挪：Compose 的 hover 需要指针真的「移动」才派发 Enter/Move，
+        # 直接瞬移有时不触发，所以先挪到附近再落到目标点。
+        user32.SetCursorPos(int(x) - 6, int(y) - 6)
+        time.sleep(0.12)
+        user32.SetCursorPos(int(x), int(y))
+        time.sleep(0.5)
+        print(f"moved to window({sys.argv[3]},{sys.argv[4]}) -> screen({x:.0f},{y:.0f})")
         return 0
 
     if cmd == "key":

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate 图标替换 · 验收页 v1.0</title>
+<style>
+  :root{
+    --bg:#1b1b1b; --panel:#242424; --panel2:#2b2b2b; --line:#3a3a3a;
+    --fg:#e8e8e8; --fg2:#a8a8a8; --fg3:#7a7a7a;
+    --accent:#60CDFF; --ink:#003A5C; --hl:#FFB900;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:32px 28px 64px;background:var(--bg);color:var(--fg);
+       font:14px/1.7 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  h1{font-size:20px;margin:0 0 6px;font-weight:600}
+  h2{font-size:15px;margin:34px 0 12px;font-weight:600;color:var(--accent);
+     border-left:3px solid var(--accent);padding-left:10px}
+  h3{font-size:13px;margin:20px 0 8px;font-weight:600;color:var(--fg2)}
+  p{margin:8px 0;color:var(--fg2)}
+  .sub{color:var(--fg3);font-size:13px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin:12px 0}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end}
+  .cell{text-align:center}
+  .cell .cap{font-size:11px;color:var(--fg3);margin-top:6px}
+  .box{padding:10px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center}
+  .dark{background:#272727}
+  .light{background:#EBEBEB}
+  img{max-width:100%;display:block;border-radius:6px}
+  code{background:#2f2f2f;padding:1px 5px;border-radius:3px;font-size:12.5px;color:#9cdcff}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--fg2);font-weight:600}
+  .swatch{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;border:1px solid #0004}
+  .ba{display:flex;gap:28px;flex-wrap:wrap;align-items:center}
+  .ba .item{text-align:center}
+  .ba .item .cap{font-size:12px;color:var(--fg3);margin-top:10px}
+  .frame{background:#272727;padding:14px;border-radius:8px;border:1px solid var(--line)}
+  .note{background:#2a2418;border:1px solid #5a4a1c;border-radius:6px;padding:12px 14px;color:#e8d9a8;font-size:13px}
+</style>
+</head>
+<body>
+
+<h1>StuMate 图标替换 · 验收页</h1>
+<div class="sub">版本 v1.0 · 2026-10-01 · 以「课表提醒」核心功能重绘，外轮廓沿用旧版圆角方块比例</div>
+
+<h2>一、改了什么</h2>
+<div class="ba">
+  <div class="item">
+    <div class="frame" style="background:#272727">
+      <img src="icon-before-original.png" width="144" height="136" style="image-rendering:pixelated" alt="旧图标">
+    </div>
+    <div class="cap">改动前 · 侧栏品牌方块（原样截屏）<br>26dp 强调色方块 + 纯文字「S」</div>
+  </div>
+  <div class="item" style="font-size:28px;color:var(--fg3);padding-bottom:40px">→</div>
+  <div class="item">
+    <div class="frame" style="background:#272727">
+      <svg viewBox="0 0 512 512" width="144" height="144" style="display:block">
+        <defs><clipPath id="t1"><path d="M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z"/></clipPath></defs>
+        <g clip-path="url(#t1)">
+          <rect width="512" height="512" fill="#60CDFF"/>
+          <g fill="#003A5C" fill-opacity="0.18">
+            <rect x="88" y="88" width="96" height="96" rx="24"/><rect x="208" y="88" width="96" height="96" rx="24"/>
+            <rect x="88" y="208" width="96" height="96" rx="24"/><rect x="208" y="208" width="96" height="96" rx="24"/>
+            <rect x="328" y="208" width="96" height="96" rx="24"/><rect x="88" y="328" width="96" height="96" rx="24"/>
+            <rect x="208" y="328" width="96" height="96" rx="24"/><rect x="328" y="328" width="96" height="96" rx="24"/>
+          </g>
+          <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+          <path d="M312 200 A56 56 0 0 0 200 200 A56 56 0 0 0 256 256 A56 56 0 0 1 256 368 A56 56 0 0 1 200 312"
+                fill="none" stroke="#003A5C" stroke-width="48" stroke-linecap="round"/>
+        </g>
+      </svg>
+    </div>
+    <div class="cap">改动后 · 课表九宫格 + 高亮待提醒课格 + S</div>
+  </div>
+</div>
+
+<h2>二、图形怎么来的</h2>
+<div class="card">
+  <table>
+    <tr><th style="width:150px">图层</th><th>含义</th><th style="width:230px">几何</th></tr>
+    <tr><td>外轮廓</td><td>沿用旧版品牌方块：圆角方块，视觉上不跳</td>
+        <td>512 画布，圆角 <code>118</code>（≈23%，与旧版 <code>RoundedCornerShape(6.dp)</code> / 26dp 同比例）</td></tr>
+    <tr><td>九宫格</td><td><b>课表</b>的时间格</td>
+        <td>9 个 <code>96×96</code> 圆角格，间距 24，墨色 18%</td></tr>
+    <tr><td>琥珀格</td><td><b>提醒</b>：即将开始、等着被提醒的那节课</td>
+        <td>右上角格实心 <code>#FFB900</code></td></tr>
+    <tr><td>字母 S</td><td>品牌</td>
+        <td>上下两个半径 <code>56</code> 的圆在 (256,256) <b>外切</b>，笔画 48，圆头收笔</td></tr>
+  </table>
+  <p class="sub">S 用「双圆外切」而不是随手画曲线：两圆在切点处切线方向天然连续，中间不会出现折角；
+      外径 80 / 内径 32，笔画与留白比例接近字体里的粗体 S。</p>
+</div>
+
+<div class="card">
+  <h3>配色</h3>
+  <table>
+    <tr><th style="width:150px">位置</th><th>深色主题</th><th>浅色主题</th><th>来源</th></tr>
+    <tr><td>方块底色</td>
+        <td><span class="swatch" style="background:#60CDFF"></span><code>#60CDFF</code></td>
+        <td><span class="swatch" style="background:#0067C0"></span><code>#0067C0</code></td>
+        <td>主题 <code>accent</code>（与旧版完全一致）</td></tr>
+    <tr><td>九宫格 / S</td>
+        <td><span class="swatch" style="background:#003A5C"></span><code>#003A5C</code></td>
+        <td><span class="swatch" style="background:#FFFFFF"></span><code>#FFFFFF</code></td>
+        <td>主题 <code>onAccent</code>（与旧版完全一致）</td></tr>
+    <tr><td>高亮课格</td>
+        <td colspan="2"><span class="swatch" style="background:#FFB900"></span><code>#FFB900</code>（固定，不跟主题）</td>
+        <td>浅色主题的 <code>warning</code> 是 <code>#9D5D00</code>（深褐），压在 <code>#0067C0</code> 上会糊掉，所以固定用琥珀</td></tr>
+  </table>
+</div>
+
+<h2>三、多尺寸渲染（深色底 / 浅色底）</h2>
+<div class="card">
+  <h3>深色主题配色</h3>
+  <div class="row" id="rowDark"></div>
+  <h3>浅色主题配色</h3>
+  <div class="row" id="rowLight"></div>
+  <p class="sub">16dp 是系统托盘量级，26dp 是侧栏实际尺寸。九宫格在 16dp 会淡到几乎看不见，
+     字母 S 与琥珀格仍然成立 —— 属于「优雅降级」，不会糊成一团。</p>
+</div>
+
+<h2>四、实机验证（真实运行截图）</h2>
+<div class="card">
+  <h3>深色主题 · 侧栏品牌行</h3>
+  <img src="icon-after-brand-dark.png" width="752" alt="深色主题品牌行" style="border:1px solid var(--line)">
+  <h3>浅色主题 · 侧栏品牌行</h3>
+  <img src="icon-after-brand-light.png" width="752" alt="浅色主题品牌行" style="border:1px solid var(--line)">
+  <h3>深色主题 · 整窗</h3>
+  <img src="icon-after-window-dark.png" width="820" alt="深色主题整窗" style="border:1px solid var(--line)">
+  <h3>浅色主题 · 整窗</h3>
+  <img src="icon-after-window-light.png" width="820" alt="浅色主题整窗" style="border:1px solid var(--line)">
+  <h3>任务栏 / Alt-Tab 图标（32×32，从窗口句柄 <code>WM_GETICON</code> 取出后放大 8 倍）</h3>
+  <img src="icon-after-winicon32.png" width="256" alt="窗口图标" style="image-rendering:pixelated;border:1px solid var(--line)">
+  <p class="sub">改动前窗口没有设 <code>icon</code>，任务栏是 AWT 默认图标；现在换成品牌标识。</p>
+</div>
+
+<h2>五、落到代码里的位置</h2>
+<div class="card">
+  <table>
+    <tr><th style="width:330px">文件</th><th>改动</th></tr>
+    <tr><td><code>ui/fluent/StuMateMark.kt</code>（新增）</td>
+        <td>手写 <code>ImageVector</code>（512 viewport），提供 <code>stuMateMark()</code>（跟主题）
+            与 <code>stuMateMark(tile, ink)</code>（指定配色）。参照既有的 <code>GitHubMark.kt</code> 模式</td></tr>
+    <tr><td><code>ui/fluent/AppShell.kt</code></td>
+        <td>侧栏品牌行：<code>Box + Text("S")</code> → <code>Icon(stuMateMark(), tint = Color.Unspecified)</code></td></tr>
+    <tr><td><code>Main.kt</code></td>
+        <td>托盘图标：<code>Icons.Default.DateRange</code> → 品牌标识；<code>Window(icon = …)</code> 补上任务栏图标</td></tr>
+    <tr><td><code>design-preview/stumate-mark-v1.0.svg</code><br><code>design-preview/stumate-mark-light-v1.0.svg</code></td>
+        <td>设计源文件（深 / 浅两套配色），改图先改 SVG 再同步到 Kotlin</td></tr>
+  </table>
+  <div class="note" style="margin-top:14px">
+    <b>关键约束</b>：渲染时必须 <code>Icon(…, tint = Color.Unspecified)</code>。
+    Material3 的 <code>Icon</code> 默认会把整张矢量图刷成单色 —— 那样底色、九宫格、琥珀高亮格会一起消失，
+    只剩一个单色剪影。
+  </div>
+</div>
+
+<script>
+const INK_D="#003A5C", TILE_D="#60CDFF", INK_L="#FFFFFF", TILE_L="#0067C0";
+const tile='M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z';
+const sPath='M312 200 A56 56 0 0 0 200 200 A56 56 0 0 0 256 256 A56 56 0 0 1 256 368 A56 56 0 0 1 200 312';
+function body(ink,bg,op){
+  let g='';
+  [88,208,328].forEach(y=>[88,208,328].forEach(x=>{
+    if(x===328&&y===88)return;
+    g+=`<rect x="${x}" y="${y}" width="96" height="96" rx="24" fill="${ink}" fill-opacity="${op}"/>`;
+  }));
+  return `<rect width="512" height="512" fill="${bg}"/>${g}
+    <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+    <path d="${sPath}" fill="none" stroke="${ink}" stroke-width="48" stroke-linecap="round"/>`;
+}
+function svg(ink,bg,op,size,id){
+  return `<svg viewBox="0 0 512 512" width="${size}" height="${size}" style="display:block">
+    <defs><clipPath id="${id}"><path d="${tile}"/></clipPath></defs>
+    <g clip-path="url(#${id})">${body(ink,bg,op)}</g></svg>`;
+}
+const SIZES=[256,128,64,32,26,16];
+function fill(el,ink,bg,op,cls,idp){
+  el.innerHTML = SIZES.map((s,i)=>
+    `<div class="cell"><div class="box ${cls}">${svg(ink,bg,op,s,idp+i)}</div><div class="cap">${s}dp</div></div>`
+  ).join('');
+}
+fill(document.getElementById("rowDark"), INK_D, TILE_D, 0.18, "dark", "dk");
+fill(document.getElementById("rowLight"), INK_L, TILE_L, 0.20, "light", "lt");</script>
+</body>
+</html>

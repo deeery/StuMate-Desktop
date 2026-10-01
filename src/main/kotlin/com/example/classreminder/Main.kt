@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,19 +45,24 @@ import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
 import com.example.classreminder.data.Db
 import com.example.classreminder.data.MainViewModel
+import com.example.classreminder.data.sync.AccountSession
 import com.example.classreminder.platform.DesktopFileDialogs
 import com.example.classreminder.platform.ReminderEngine
 import com.example.classreminder.platform.ToastBus
 import com.example.classreminder.platform.ToastHost
 import com.example.classreminder.ui.fluent.AppShell
+import com.example.classreminder.ui.fluent.ApplyWindowCorners
 import com.example.classreminder.ui.fluent.FlButton
 import com.example.classreminder.ui.fluent.FlButtonVariant
 import com.example.classreminder.ui.fluent.FlDialog
 import com.example.classreminder.ui.fluent.FluentTheme
 import com.example.classreminder.ui.fluent.LocalWindowChrome
 import com.example.classreminder.ui.fluent.OverlayWindow
+import com.example.classreminder.ui.fluent.StuMateBrandInk
+import com.example.classreminder.ui.fluent.StuMateBrandTile
 import com.example.classreminder.ui.fluent.WindowChrome
 import com.example.classreminder.ui.fluent.WindowResizeHandles
+import com.example.classreminder.ui.fluent.stuMateMark
 import com.example.classreminder.ui.fluent.toThemeMode
 import com.example.classreminder.ui.fluent.workAreaOf
 import kotlinx.coroutines.launch
@@ -107,7 +111,8 @@ fun main() = application {
 
     // ── 系统托盘（替代安卓的前台常驻通知） ──
     val trayState = rememberTrayState()
-    val trayIcon = rememberVectorPainter(Icons.Default.DateRange)
+    // 托盘与任务栏图标在主题作用域之外，固定用品牌配色（深色主题的强调色）
+    val trayIcon = rememberVectorPainter(remember { stuMateMark(StuMateBrandTile, StuMateBrandInk) })
     val status by ReminderEngine.status.collectAsState()
     val running by ReminderEngine.running.collectAsState()
     val alert by ReminderEngine.alert.collectAsState()
@@ -119,6 +124,12 @@ fun main() = application {
                 trayState.sendNotification(Notification(title, body, Notification.Type.Info))
             }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        // 有本机凭证就先恢复登录态（断网时也能显示「已登录」），再在后台核验一次。
+        // 这是**唯一**一处主动拉起账号会话的地方 —— 启动流程不等待它，界面不会被登录卡住
+        AccountSession.restore()
     }
 
     if (isTraySupported) {
@@ -145,6 +156,8 @@ fun main() = application {
             onCloseRequest = { handleCloseRequest() },
             title = "StuMate",
             state = windowState,
+            // 任务栏 / Alt-Tab 图标。与托盘共用品牌标识，不用 AWT 默认的咖啡杯
+            icon = trayIcon,
             // 隐藏系统标题栏：标题、拖动、最小化/最大化/关闭全部由应用自绘
             // （见 ui/fluent/WindowChrome.kt）
             undecorated = true,
@@ -158,6 +171,8 @@ fun main() = application {
             val chrome = remember(window) {
                 WindowChrome(
                     window = window,
+                    // 拖动时 chrome.moveTo 会同步它，否则最大化/还原会跳回屏幕居中
+                    windowState = windowState,
                     isMaximized = { maximized },
                     onMinimize = { windowState.isMinimized = true },
                     onToggleMaximize = {
@@ -181,6 +196,8 @@ fun main() = application {
             Box(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalWindowChrome provides chrome) {
                     FluentTheme(themeMode = themeMode) {
+                        // 无边框窗口的 Win11 原生圆角 + 跟随主题的 1px 描边
+                        ApplyWindowCorners(window)
                         Box(modifier = Modifier.fillMaxSize()) {
                             AppShell(
                                 viewModel = viewModel,

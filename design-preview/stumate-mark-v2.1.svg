@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="StuMate">
+  <title>StuMate 应用图标</title>
+  <desc>圆角方块 + 课表九宫格 + 高亮待提醒课格 + 提醒铃铛。深色主题配色。</desc>
+  <defs>
+    <!-- 外轮廓：圆角方块。半径 118/512 ≈ 23%，与旧版 26dp 方块上的 6dp 圆角同比例 -->
+    <clipPath id="smTileV21">
+      <path d="M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#smTileV21)">
+    <!-- 底色 = Windows 11 深色强调色（与截图实测 rgb(96,205,255) 一致） -->
+    <rect width="512" height="512" fill="#60CDFF"/>
+
+    <!-- 课表九宫格：8 个时间格（右上角那格是待提醒的，单独画） -->
+    <g fill="#003A5C" fill-opacity="0.18">
+      <rect x="88"  y="88"  width="96" height="96" rx="24"/>
+      <rect x="208" y="88"  width="96" height="96" rx="24"/>
+      <rect x="88"  y="208" width="96" height="96" rx="24"/>
+      <rect x="208" y="208" width="96" height="96" rx="24"/>
+      <rect x="328" y="208" width="96" height="96" rx="24"/>
+      <rect x="88"  y="328" width="96" height="96" rx="24"/>
+      <rect x="208" y="328" width="96" height="96" rx="24"/>
+      <rect x="328" y="328" width="96" height="96" rx="24"/>
+    </g>
+
+    <!-- 待提醒的课格：右上角实心琥珀 -->
+    <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+
+    <!--
+      提醒铃铛。比例对齐 Lucide bell（ISC）：圆顶直径 = 底沿宽的 75%，
+      铃身 236×208（高宽比 0.88）。没有顶钮 —— 顶钮会读成「圣诞球」。
+    -->
+    <g fill="#003A5C">
+      <path d="M148 336 C148 306 168 276 168 216 A88 88 0 0 1 344 216 C344 276 364 306 364 336 Z"/>
+      <rect x="138" y="300" width="236" height="36" rx="18"/>
+      <circle cx="256" cy="358" r="26"/>
+    </g>
+  </g>
+</svg>

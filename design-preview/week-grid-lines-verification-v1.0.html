@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StuMate 桌面端 · 课表时间格描边验收 v1.0</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #101114;
+    color: #E8EAED;
+    font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.65;
+    padding: 40px 28px 96px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  header { margin-bottom: 34px; }
+  header h1 { font-size: 24px; font-weight: 600; margin: 0 0 10px; letter-spacing: .2px; }
+  header .sub { color: #9AA0A6; font-size: 13.5px; margin: 0 0 18px; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; padding: 5px 11px; border-radius: 6px;
+    background: #23252A; color: #C6C9CE; border: 1px solid #33363C;
+  }
+  .badge b { color: #60CDFF; font-weight: 600; }
+  .badge.ok b { color: #6CCB5F; }
+
+  .scoreboard { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 40px; }
+  .score { background: #17181C; border: 1px solid #2A2D33; border-radius: 8px; padding: 16px 18px; }
+  .score .n { font-size: 26px; font-weight: 650; letter-spacing: -.5px; }
+  .score .n.pass { color: #6CCB5F; }
+  .score .n.info { color: #60CDFF; }
+  .score .k { font-size: 12.5px; color: #9AA0A6; margin-top: 3px; }
+  .score .note { font-size: 11.5px; color: #6B7076; margin-top: 6px; }
+
+  h2 { font-size: 17px; font-weight: 600; margin: 46px 0 6px; padding-bottom: 10px; border-bottom: 1px solid #2A2D33; }
+  h2 .num { color: #60CDFF; margin-right: 8px; font-weight: 600; }
+  h3 { font-size: 14.5px; font-weight: 600; margin: 26px 0 8px; color: #DDE1E6; }
+  p { margin: 10px 0; color: #BFC4CA; }
+  ul { margin: 10px 0; padding-left: 22px; color: #BFC4CA; }
+  li { margin: 5px 0; }
+  code {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 12.5px; background: #1E2025; border: 1px solid #2E3138;
+    border-radius: 4px; padding: 1px 5px; color: #9CDCFE;
+  }
+  pre { background: #17181C; border: 1px solid #2A2D33; border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 12px 0; }
+  pre code { background: none; border: none; padding: 0; color: #C8CDD3; font-size: 12.5px; line-height: 1.7; }
+  pre .add { color: #7ED08A; }
+  pre .del { color: #E08A8A; }
+  pre .cmt { color: #6B7076; }
+  a { color: #60CDFF; }
+
+  figure { margin: 0 0 34px; background: #17181C; border: 1px solid #2A2D33; border-radius: 10px; overflow: hidden; }
+  figure img { display: block; width: 100%; height: auto; background: #0C0D0F; }
+  figcaption { padding: 14px 18px 16px; border-top: 1px solid #2A2D33; }
+  figcaption .t { font-size: 14px; font-weight: 600; color: #E8EAED; margin-bottom: 5px; }
+  figcaption .t .tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; margin-right: 9px; vertical-align: 1px; }
+  .tag.before { background: #2C1414; color: #F0A8A8; border: 1px solid #5C1F1F; }
+  .tag.after  { background: #10331C; color: #6CCB5F; border: 1px solid #1F5B2E; }
+  .tag.real   { background: #0F2A3D; color: #60CDFF; border: 1px solid #1B4A6B; }
+  figcaption .d { font-size: 13px; color: #9AA0A6; }
+  figcaption .proves { font-size: 13px; color: #BFC4CA; margin-top: 8px; }
+  figcaption .proves b { color: #6CCB5F; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #2A2D33; vertical-align: top; }
+  th { color: #9AA0A6; font-weight: 600; font-size: 12.5px; background: #17181C; }
+  td { color: #BFC4CA; }
+  td.pass { color: #6CCB5F; font-weight: 600; white-space: nowrap; }
+  td.fail { color: #F0A8A8; font-weight: 600; white-space: nowrap; }
+  td.num { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; color: #9CDCFE; white-space: nowrap; }
+  td.sw { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; white-space: nowrap; }
+  .chip { display: inline-block; width: 34px; height: 14px; border-radius: 3px; border: 1px solid #3A3D44; vertical-align: -2px; margin-right: 7px; }
+
+  .callout { border-radius: 8px; padding: 14px 18px; margin: 16px 0; border: 1px solid; font-size: 13.5px; }
+  .callout.warn { background: #2A1F0E; border-color: #5C4415; color: #E8C87A; }
+  .callout.bad  { background: #2C1414; border-color: #5C1F1F; color: #F0A8A8; }
+  .callout.ok   { background: #101A12; border-color: #1F5B2E; color: #A8DCB4; }
+  .callout.info { background: #17181C; border-color: #2A2D33; color: #BFC4CA; }
+  .callout .h { font-weight: 650; display: block; margin-bottom: 5px; }
+  .callout code { background: #00000055; }
+
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pair figure { margin-bottom: 14px; }
+  @media (max-width: 860px) { .pair { grid-template-columns: 1fr; } .scoreboard { grid-template-columns: repeat(2,1fr); } }
+
+  .steps { counter-reset: s; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: s; position: relative; padding-left: 34px; margin: 12px 0; }
+  .steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px;
+    width: 22px; height: 22px; border-radius: 50%; background: #1E3A4D; color: #60CDFF;
+    font-size: 12px; font-weight: 700; text-align: center; line-height: 22px;
+  }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid #2A2D33; color: #6B7076; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>StuMate 桌面端 · 课表时间格描边验收</h1>
+  <p class="sub">版本 v1.0 · 2026-10-01 · 依据验收意见：<em>「给表格界面每一个时间用刚刚的颜色做一个描边，使其区别于背景；浅色模式可以用更白的线段」</em></p>
+  <div class="badges">
+    <span class="badge">编译 <b>BUILD SUCCESSFUL</b></span>
+    <span class="badge ok">单测 <b>145 / 145</b></span>
+    <span class="badge">告警 <b>0</b></span>
+    <span class="badge ok">双主题实测 <b>深色 + 浅色</b></span>
+    <span class="badge">改动文件 <b>1 个</b></span>
+  </div>
+</header>
+
+<div class="scoreboard">
+  <div class="score">
+    <div class="n pass">1</div>
+    <div class="k">改动项</div>
+    <div class="note">时间格横向描边线</div>
+  </div>
+  <div class="score">
+    <div class="n info">1</div>
+    <div class="k">改动文件</div>
+    <div class="note">WeekPage.kt</div>
+  </div>
+  <div class="score">
+    <div class="n pass">23</div>
+    <div class="k">深色线/面灰阶差</div>
+    <div class="note">改前仅 1（等于没有线）</div>
+  </div>
+  <div class="score">
+    <div class="n info">1px</div>
+    <div class="k">线宽（吸附整像素）</div>
+    <div class="note">抗锯齿不再摊薄</div>
+  </div>
+</div>
+
+<div class="callout ok">
+  <span class="h">结论：已实现，且实测到位</span>
+  表格视图每个整点都有一条 <b>1 像素</b>横向描边线，把每一列切成一个个时间格。深色下用底板色
+  <code>#141414</code>（比卡片面 <code>#2B2B2B</code> 暗 23 级），浅色下同一 token 落在
+  <code>#F3F3F3</code>（比纯白卡片面浅 12 级，即「更白的线段」）。跨节的课程卡片会把线盖住，
+  不会出现「线从课程块中间穿过去」。
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">1</span>整体效果</h2>
+
+<p>先看两张整页截图。表格视图里每个整点都被一条横线切开，节次一眼可辨。</p>
+
+<figure>
+  <img src="week-grid-09-dark-full.png" alt="深色整页">
+  <figcaption>
+    <div class="t"><span class="tag real">实机</span>深色模式 · 整页</div>
+    <div class="d">课表页 → 表格视图。注意纵轴「08:00 / 09:00 / …」每一行右侧都拖出一条横线，横跨七天。</div>
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="week-grid-10-light-full.png" alt="浅色整页">
+  <figcaption>
+    <div class="t"><span class="tag real">实机</span>浅色模式 · 整页</div>
+    <div class="d">同一界面切成浅色。线是浅灰而不是深灰，符合「更白的线段」。</div>
+  </figcaption>
+</figure>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">2</span>改前 / 改后（1:1 原始像素）</h2>
+
+<p>下面四张都是 <b>1:1 裁剪</b>（未缩放），取表格右下角「周五 / 周六 / 周日」三列、四个小时格。</p>
+
+<div class="pair">
+  <figure>
+    <img src="week-grid-01-dark-before.png" alt="深色改前">
+    <figcaption>
+      <div class="t"><span class="tag before">改前</span>深色</div>
+      <div class="d">小时之间只有斑马纹的明暗交界（<code>#333333</code> ↔ <code>#2B2B2B</code>，差 8 级），
+      没有任何描边线——节次边界靠猜。</div>
+    </figcaption>
+  </figure>
+  <figure>
+    <img src="week-grid-02-dark-after.png" alt="深色改后">
+    <figcaption>
+      <div class="t"><span class="tag after">改后</span>深色</div>
+      <div class="d">每个整点一条 <code>#141414</code> 的 1px 线，与底色拉开 23~31 级，格子边界明确。</div>
+    </figcaption>
+  </figure>
+  <figure>
+    <img src="week-grid-03-light-before.png" alt="浅色改前">
+    <figcaption>
+      <div class="t"><span class="tag before">改前</span>浅色</div>
+      <div class="d">同样只有斑马纹交界（<code>#FFFFFF</code> ↔ <code>#F9F9F9</code>，差 6 级）。</div>
+    </figcaption>
+  </figure>
+  <figure>
+    <img src="week-grid-04-light-after.png" alt="浅色改后">
+    <figcaption>
+      <div class="t"><span class="tag after">改后</span>浅色</div>
+      <div class="d">每个整点一条 <code>#F3F3F3</code> 的 1px 线——比纯白面浅一档，是「更白」的方向。</div>
+    </figcaption>
+  </figure>
+</div>
+
+<div class="callout warn">
+  <span class="h">诚实说明：浅色下的对比度偏弱</span>
+  浅色线 <code>#F3F3F3</code> 对纯白卡片面只差 12 级，落在斑马纹 <code>#F9F9F9</code> 上只差 6 级。
+  这是「比白面更白」这个约束的物理上限（白色已经是 255，没法再白），所以只能取浅灰。
+  1:1 下看得见，但确实比深色弱。若你希望浅色也醒目一点，把 <code>timeLine</code> 在浅色分支换成
+  <code>#E8E8E8</code>（对白面差 23 级、对斑马纹差 17 级）即可——见第 6 节待拍板项。
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">3</span>放大看（4× 最近邻）</h2>
+
+<p>把两列三格放大 4 倍，可以直接数出线的位置：每 53 像素一条，正好一小时。</p>
+
+<figure>
+  <img src="week-grid-05-zoom-dark.png" alt="深色 4 倍放大">
+  <figcaption>
+    <div class="t"><span class="tag real">实机 4×</span>深色</div>
+    <div class="d">上浅（<code>#333333</code> 斑马纹）下深（<code>#2B2B2B</code> 卡片面）交替，
+    交界处是一条独立的深色线，不是渐变。</div>
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="week-grid-06-zoom-light.png" alt="浅色 4 倍放大">
+  <figcaption>
+    <div class="t"><span class="tag real">实机 4×</span>浅色</div>
+    <div class="d">同样每 53 像素一条浅灰线，白面与 <code>#F9F9F9</code> 斑马纹被它切开。</div>
+  </figcaption>
+</figure>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">4</span>像素实测</h2>
+
+<p>采样点：周日列（该列无课程，不受课程卡片遮挡）纵向扫描，取 09:00 整点线所在行及其上下各一行。</p>
+
+<table>
+  <thead>
+    <tr><th>模式</th><th>行</th><th>含义</th><th>改前</th><th>改后</th><th>结论</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>深色</td><td class="num">y=194</td><td>线上方（斑马纹）</td>
+      <td class="sw">#333333</td><td class="sw">#333333</td><td class="pass">未动</td>
+    </tr>
+    <tr>
+      <td>深色</td><td class="num">y=195</td><td><b>整点线</b></td>
+      <td class="sw">#2C2C2C</td><td class="sw"><b>#141414</b></td><td class="pass">Δ 1 → 23</td>
+    </tr>
+    <tr>
+      <td>深色</td><td class="num">y=196</td><td>线下方（卡片面）</td>
+      <td class="sw">#2B2B2B</td><td class="sw">#2B2B2B</td><td class="pass">未动</td>
+    </tr>
+    <tr>
+      <td>浅色</td><td class="num">y=194</td><td>线上方（斑马纹）</td>
+      <td class="sw">#F9F9F9</td><td class="sw">#F9F9F9</td><td class="pass">未动</td>
+    </tr>
+    <tr>
+      <td>浅色</td><td class="num">y=195</td><td><b>整点线</b></td>
+      <td class="sw">#FEFEFE</td><td class="sw"><b>#F3F3F3</b></td><td class="pass">Δ 1 → 12</td>
+    </tr>
+    <tr>
+      <td>浅色</td><td class="num">y=196</td><td>线下方（卡片面）</td>
+      <td class="sw">#FFFFFF</td><td class="sw">#FFFFFF</td><td class="pass">未动</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>线色与底色的灰阶差</h3>
+
+<table>
+  <thead>
+    <tr><th>模式</th><th>线色</th><th>卡片面</th><th>灰阶差</th><th>斑马纹</th><th>灰阶差</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>深色</td>
+      <td class="sw"><span class="chip" style="background:#141414"></span>#141414</td>
+      <td class="sw"><span class="chip" style="background:#2B2B2B"></span>#2B2B2B</td>
+      <td class="num">23</td>
+      <td class="sw"><span class="chip" style="background:#333333"></span>#333333</td>
+      <td class="num">31</td>
+    </tr>
+    <tr>
+      <td>浅色</td>
+      <td class="sw"><span class="chip" style="background:#F3F3F3"></span>#F3F3F3</td>
+      <td class="sw"><span class="chip" style="background:#FFFFFF"></span>#FFFFFF</td>
+      <td class="num">12</td>
+      <td class="sw"><span class="chip" style="background:#F9F9F9"></span>#F9F9F9</td>
+      <td class="num">6</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>线位一致性</h3>
+
+<p>逐列扫描（周一 ~ 周日各取列中心），每列都命中同一组 y 坐标：</p>
+
+<pre><code>首条 y=142   末条 y=784   相邻间隔 = 53 px（= 1 小时）
+周一  n=11  周二  n=11  周三  n=11  周四  n=11  周五  n=11  周六  n=14  周日  n=14
+
+缺口全部来自课程卡片遮挡（例如周一「高等数学」占 2 格 → 缺 2 条；
+周三「计算机网络」跨 09:00~11:00 → 缺 248 / 301 两条）。</code></pre>
+
+<p>n=11 的列表示有 2 条被课程卡片盖住，n=14 表示该列无课、14 条线全部可见。
+<b>各列的线位完全一致，不存在「有的列有线、有的列没有」。</b></p>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">5</span>途中发现并修掉的一个回归</h2>
+
+<div class="callout bad">
+  <span class="h">问题：刻度线从时间数字正中间穿过去，看着像「删除线」</span>
+  纵轴刻度线原本是 <code>c.outline</code>（<code>#3A3A3A</code>），只比底色深 11 级，压在标签上几乎看不出来。
+  换成底板色 <code>#141414</code> 之后深了 23 级，而时间标签是<b>垂直居中压在刻度线上</b>的，
+  于是「08:00 / 09:00 / 10:00」全部被划了一道横线。
+</div>
+
+<div class="pair">
+  <figure>
+    <img src="week-grid-07-axis-before.png" alt="轴区 改前">
+    <figcaption>
+      <div class="t"><span class="tag before">问题态</span>刻度线穿过数字（4×）</div>
+      <div class="d">这条线其实改前就存在，只是太淡看不出来；线色加深后立刻穿帮。</div>
+    </figcaption>
+  </figure>
+  <figure>
+    <img src="week-grid-08-axis-after.png" alt="轴区 改后">
+    <figcaption>
+      <div class="t"><span class="tag after">已修复</span>线在文字处断开（4×）</div>
+      <div class="d">给标签垫了一层与卡片同色的底，线在文字处自然断开，读起来是标准的
+      「09:00 ————」样式。</div>
+    </figcaption>
+  </figure>
+</div>
+
+<p>顺带把画线方式从 <code>drawLine</code> 换成 <b>吸附到整像素的 <code>drawRect</code></b>：</p>
+
+<div class="callout info">
+  <span class="h">为什么要吸附整像素</span>
+  抗锯齿会把 1px 的线按小数部分摊到相邻两行、各占约一半浓度。这条线本来就只比底色深 20 来级，
+  摊薄一半就基本看不见了——<b>实测恰好有一半的整点落在半像素位置上</b>（例如渲染成
+  <code>#272727</code> + <code>#1D1D1D</code>，其中 <code>#272727</code> 只比底色深 4 级，等于白画）。
+  改成 <code>roundToInt()</code> 吸附后，1 行就是实打实的 1 行：全部整点都是干净的
+  <code>#141414</code> / <code>#F3F3F3</code>。
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">6</span>代码改动</h2>
+
+<p>只动了一个文件：<code>src/main/kotlin/com/example/classreminder/ui/fluent/WeekPage.kt</code> 的
+<code>WeekGrid()</code>，共 4 处。</p>
+
+<h3>① 新增描边色 —— 直接复用底板 token</h3>
+<pre><code>    val lineColor = c.outline
+<span class="add">+   // 时间格的描边线，用**底板色**（就是刚调深的那一层）：</span>
+<span class="add">+   //  · 深色下它是 #141414，比卡片面 (#2B2B2B) 暗 —— 每个整点把这一列切开，</span>
+<span class="add">+   //    格子底色本来和卡片面一模一样，不描边就是一大片，分不出节次；</span>
+<span class="add">+   //  · 浅色下它就是底板那层 #F3F3F3，比纯白卡片面更浅一档，即「更白的线段」。</span>
+<span class="add">+   // 直接复用 c.bg 而不是另立 token，是因为需求就是「和底板同色」；</span>
+<span class="add">+   // 哪天要让网格线与底板脱钩，这里换成独立 token 即可。</span>
+<span class="add">+   val timeLine = c.bg</span>
+    val zebraColor = if (c.isDark) Color(0x0AFFFFFF) else Color(0x06000000)</code></pre>
+
+<h3>② 取坐标时吸附到整像素</h3>
+<pre><code><span class="add">+   /**</span>
+<span class="add">+    * 把「分钟 → 纵坐标（像素）」算出来后**吸附到整像素**，再交给 drawRect 画 1 像素高的实心块。</span>
+<span class="add">+    *</span>
+<span class="add">+    * 为什么不用 `drawLine(y = 小数)`：抗锯齿会把 1px 的线按小数部分摊到相邻两行上，</span>
+<span class="add">+    * 各占约一半浓度。而这条线本身只比底色深 20 来级，摊薄一半就基本看不出来了。</span>
+<span class="add">+    */</span>
+<span class="add">+   fun lineY(heightPx: Float, minute: Int): Float =</span>
+<span class="add">+       (heightPx * mapping.fractionOf(minute)).roundToInt().toFloat()</span></code></pre>
+
+<h3>③ 纵轴刻度线改用同色（原来只画在轴宽内、且是 outline 色）</h3>
+<pre><code>    marks.forEach { m ->
+<span class="del">-       val y = size.height * mapping.fractionOf(m)</span>
+<span class="del">-       drawLine(lineColor, Offset(0f, y), Offset(size.width, y), 1f)</span>
+<span class="add">+       // 用 timeLine 而不是 lineColor：这条刻度线在视觉上</span>
+<span class="add">+       // 与右边横跨各列的网格线是**同一条线**，两段不同色会像画错了</span>
+<span class="add">+       drawRect(</span>
+<span class="add">+           color = timeLine,</span>
+<span class="add">+           topLeft = Offset(0f, lineY(size.height, m)),</span>
+<span class="add">+           size = Size(size.width, 1f)</span>
+<span class="add">+       )</span>
+    }</code></pre>
+
+<h3>④ 每天列内逐格画线 + 标签垫底</h3>
+<pre><code>    // 每天列：斑马纹之后、hover 之前
+    bands.forEach { band -> ... }
+<span class="add">+   // 每个整点拉一条横线，把这一列切成一个个时间格。</span>
+<span class="add">+   // 画在斑马纹之上、课程块之下（drawBehind 天然在内容之下），</span>
+<span class="add">+   // 于是跨节的课会把线盖住，不会出现「线穿过课程卡片」。</span>
+<span class="add">+   marks.forEach { m -></span>
+<span class="add">+       drawRect(</span>
+<span class="add">+           color = timeLine,</span>
+<span class="add">+           topLeft = Offset(0f, lineY(size.height, m)),</span>
+<span class="add">+           size = Size(size.width, 1f)</span>
+<span class="add">+       )</span>
+<span class="add">+   }</span>
+
+    // 纵轴标签（第 5 节的回归修复）
+    Text(
+        TimeAxis.labelOf(m), fontSize = 10.5.sp, color = c.onSurfaceFaint,
+<span class="del">-       modifier = Modifier.offset(y = y - 7.dp).padding(start = 8.dp)</span>
+<span class="add">+       modifier = Modifier</span>
+<span class="add">+           .offset(y = y - 7.dp)</span>
+<span class="add">+           // 给标签垫一层与卡片同色的底，让刻度线在文字处**断开**。</span>
+<span class="add">+           .background(c.surface)</span>
+<span class="add">+           .padding(start = 8.dp, end = 5.dp)</span>
+    )</code></pre>
+
+<div class="callout info">
+  <span class="h">顺带修的工具问题</span>
+  <code>tools/shoot_scenarios.py</code> 里 <code>-Dstumate.theme=dark</code> 是写死的，
+  导致「浅色验收」只能绕过脚本手敲 java 命令。已改为读环境变量 <code>STUMATE_THEME</code>（默认仍是
+  <code>dark</code>，不改变既有调用行为）。本次浅色截图即用它产出。
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">7</span>回归验证</h2>
+
+<table>
+  <thead><tr><th>检查项</th><th>命令</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>编译</td>
+      <td class="sw">./gradlew --offline --no-build-cache compileKotlin</td>
+      <td class="pass">BUILD SUCCESSFUL · 0 告警</td>
+    </tr>
+    <tr>
+      <td>全量单测</td>
+      <td class="sw">./gradlew --offline --no-build-cache test --rerun-tasks</td>
+      <td class="pass">145 / 145 · 0 失败 · 0 跳过</td>
+    </tr>
+    <tr>
+      <td>深色实机</td>
+      <td class="sw">STUMATE_THEME=dark tools/shoot_scenarios.py build week</td>
+      <td class="pass">线色 #141414 · 每 53px 一条</td>
+    </tr>
+    <tr>
+      <td>浅色实机</td>
+      <td class="sw">STUMATE_THEME=light tools/shoot_scenarios.py build week</td>
+      <td class="pass">线色 #F3F3F3 · 每 53px 一条</td>
+    </tr>
+    <tr>
+      <td>课程卡片遮挡</td>
+      <td class="sw">像素采样：跨节课程块内部 y=301</td>
+      <td class="pass">块内 #333333（无残线）· 块外 #141414</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ─────────────────────────────────────────── -->
+<h2><span class="num">8</span>待你拍板</h2>
+
+<table>
+  <thead><tr><th>#</th><th>事项</th><th>当前做法</th><th>可选项</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>浅色线对比度偏弱（Δ12 / Δ6）</td>
+      <td>用底板色 <code>#F3F3F3</code></td>
+      <td>换成 <code>#E8E8E8</code> 更醒目；或维持现状</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>纵轴刻度线也换成了底板色</td>
+      <td>与列内网格线统一</td>
+      <td>若希望刻度线保持原来的 <code>outline</code>，一行可回退</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>深色下斑马纹与课程卡片底色<b>恰好都是</b> <code>#333333</code></td>
+      <td>既有问题，本轮未动</td>
+      <td>是否要拉开（卡片面本可以用 <code>surface3</code> 的另一档）</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>重置密码 / 设备管理 / 修改昵称对话框</td>
+      <td>仍可点外部关闭</td>
+      <td>是否也统一传 <code>dismissible = false</code>（同登录框）</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>页头是否从底板 token 拆出来</td>
+      <td>与底板共用 <code>c.bg</code>，一起变深</td>
+      <td>如需页头保持浅一档，要单独拆 token</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>手动验收步骤</h3>
+<ol class="steps">
+  <li>启动应用（或直接开 <code>week</code> 预览场景），进「课表」页。</li>
+  <li>确认右上角分段控件停在 <b>表格</b>（若在「列表」，切到「表格」）。</li>
+  <li>看纵轴每个整点右侧是否有一条横线横跨七天，且横线<b>不</b>穿过「08:00」这类数字。</li>
+  <li>找一门跨两节以上的课（如周一「高等数学」），确认横线没有从卡片中间穿过去。</li>
+  <li>设置 → 外观切浅色，重复第 3、4 步。</li>
+</ol>
+
+<footer>
+  StuMate 桌面端 · 课表时间格描边验收 v1.0 · 2026-10-01<br>
+  产出：<code>design-preview/week-grid-lines-verification-v1.0.html</code> ·
+  截图素材 <code>design-preview/week-grid-*.png</code> ·
+  基线原图 <code>build/week-01…08-*.png</code><br>
+  所有改动<b>未提交</b>，等你验收后再决定。
+</footer>
+
+</div>
+</body>
+</html>

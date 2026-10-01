@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StuMate 桌面端 · 登录功能验收 v1.0</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #101114;
+    color: #E8EAED;
+    font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.65;
+    padding: 40px 28px 96px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  /* ── 页头 ───────────────────────────────────────── */
+  header { margin-bottom: 34px; }
+  header h1 { font-size: 24px; font-weight: 600; margin: 0 0 10px; letter-spacing: .2px; }
+  header .sub { color: #9AA0A6; font-size: 13.5px; margin: 0 0 18px; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; padding: 5px 11px; border-radius: 6px;
+    background: #23252A; color: #C6C9CE; border: 1px solid #33363C;
+  }
+  .badge b { color: #60CDFF; font-weight: 600; }
+  .badge.ok b { color: #6CCB5F; }
+
+  /* ── 结论卡 ─────────────────────────────────────── */
+  .scoreboard {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin: 0 0 40px;
+  }
+  .score {
+    background: #17181C; border: 1px solid #2A2D33; border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .score .n { font-size: 26px; font-weight: 650; letter-spacing: -.5px; }
+  .score .n.pass { color: #6CCB5F; }
+  .score .n.info { color: #60CDFF; }
+  .score .k { font-size: 12.5px; color: #9AA0A6; margin-top: 3px; }
+  .score .note { font-size: 11.5px; color: #6B7076; margin-top: 6px; }
+
+  /* ── 区块 ───────────────────────────────────────── */
+  h2 {
+    font-size: 17px; font-weight: 600; margin: 46px 0 6px;
+    padding-bottom: 10px; border-bottom: 1px solid #2A2D33;
+  }
+  h2 .num { color: #60CDFF; margin-right: 8px; font-weight: 600; }
+  h3 { font-size: 14.5px; font-weight: 600; margin: 26px 0 8px; color: #DDE1E6; }
+  p { margin: 10px 0; color: #BFC4CA; }
+  ul { margin: 10px 0; padding-left: 22px; color: #BFC4CA; }
+  li { margin: 5px 0; }
+  code {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 12.5px; background: #1E2025; border: 1px solid #2E3138;
+    border-radius: 4px; padding: 1px 5px; color: #9CDCFE;
+  }
+  pre {
+    background: #17181C; border: 1px solid #2A2D33; border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; margin: 12px 0;
+  }
+  pre code { background: none; border: none; padding: 0; color: #C8CDD3; font-size: 12.5px; line-height: 1.7; }
+  a { color: #60CDFF; }
+
+  /* ── 截图卡 ─────────────────────────────────────── */
+  figure {
+    margin: 0 0 34px; background: #17181C; border: 1px solid #2A2D33;
+    border-radius: 10px; overflow: hidden;
+  }
+  figure img { display: block; width: 100%; height: auto; cursor: zoom-in; background: #0C0D0F; }
+  figcaption { padding: 14px 18px 16px; border-top: 1px solid #2A2D33; }
+  figcaption .t { font-size: 14px; font-weight: 600; color: #E8EAED; margin-bottom: 5px; }
+  figcaption .t .tag {
+    font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+    margin-right: 9px; vertical-align: 1px;
+  }
+  .tag.real { background: #10331C; color: #6CCB5F; border: 1px solid #1F5B2E; }
+  .tag.preview { background: #0F2A3D; color: #60CDFF; border: 1px solid #1B4A6B; }
+  figcaption .d { font-size: 13px; color: #9AA0A6; }
+  figcaption .proves { font-size: 13px; color: #BFC4CA; margin-top: 8px; }
+  figcaption .proves b { color: #6CCB5F; font-weight: 600; }
+
+  /* ── 表格 ───────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #2A2D33; vertical-align: top; }
+  th { color: #9AA0A6; font-weight: 600; font-size: 12.5px; background: #17181C; }
+  td { color: #BFC4CA; }
+  td.pass { color: #6CCB5F; font-weight: 600; white-space: nowrap; }
+  td .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; color: #9CDCFE; }
+
+  /* ── 提示块 ─────────────────────────────────────── */
+  .callout {
+    border-radius: 8px; padding: 14px 18px; margin: 16px 0;
+    border: 1px solid; font-size: 13.5px;
+  }
+  .callout.warn { background: #2A1F0E; border-color: #5C4415; color: #E8C87A; }
+  .callout.ask  { background: #0F2434; border-color: #1D4A68; color: #A9D6F0; }
+  .callout.info { background: #17181C; border-color: #2A2D33; color: #BFC4CA; }
+  .callout b { color: inherit; }
+  .callout .h { font-weight: 650; display: block; margin-bottom: 5px; }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid #2A2D33; color: #6B7076; font-size: 12.5px; }
+
+  /* ── 放大层 ─────────────────────────────────────── */
+  #lightbox {
+    position: fixed; inset: 0; background: rgba(0,0,0,.9); display: none;
+    align-items: center; justify-content: center; z-index: 99; padding: 24px; cursor: zoom-out;
+  }
+  #lightbox.on { display: flex; }
+  #lightbox img { max-width: 100%; max-height: 100%; border-radius: 6px; box-shadow: 0 20px 60px rgba(0,0,0,.7); }
+
+  @media (max-width: 780px) {
+    .scoreboard { grid-template-columns: repeat(2, 1fr); }
+    body { padding: 24px 16px 64px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>StuMate 桌面端 · 登录功能验收</h1>
+  <p class="sub">
+    版本 <b>v1.0</b> · 2026-09-30 22:15 ·
+    对应改动：桌面端 P2「账号与登录」实现（此前只有服务端接口，客户端零实现）
+  </p>
+  <div class="badges">
+    <span class="badge ok">编译 <b>BUILD SUCCESSFUL</b></span>
+    <span class="badge ok">单测 <b>145 / 145</b></span>
+    <span class="badge ok">接口冒烟 <b>8 / 8</b>（真实服务端）</span>
+    <span class="badge">零新增依赖</span>
+    <span class="badge">Kotlin 1.9.20 · CMP 1.5.10 · JDK 17</span>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════ -->
+<div class="scoreboard">
+  <div class="score">
+    <div class="n pass">145 / 145</div>
+    <div class="k">单元测试通过</div>
+    <div class="note">0 失败 · 0 跳过</div>
+  </div>
+  <div class="score">
+    <div class="n pass">8 / 8</div>
+    <div class="k">接口冒烟（线上服务端）</div>
+    <div class="note">deeer.online/api/stumate/v1</div>
+  </div>
+  <div class="score">
+    <div class="n info">8 张</div>
+    <div class="k">验收截图</div>
+    <div class="note">1 张实机 + 7 张场景</div>
+  </div>
+  <div class="score">
+    <div class="n info">+0</div>
+    <div class="k">新增第三方依赖</div>
+    <div class="note">HTTP 用 JDK 自带，JSON 复用自研 MiniJson</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2><span class="num">1</span>这次做了什么</h2>
+
+<p>桌面端此前<b>完全没有</b>登录能力 —— 服务端接口早已上线，客户端一行都没有。本次把整条链路补齐：</p>
+
+<table>
+  <thead><tr><th style="width:190px">层次</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td>网络层</td><td><code>HttpJson.kt</code>：JDK 17 自带 <code>java.net.http</code> + 自研 <code>MiniJson</code> 薄封装。超时 connect 10s / request 20s；非 2xx 解析 <code>{error:{code,message}}</code>；<code>IOException</code> 归一成 <code>ApiException("NETWORK")</code>。零新增依赖。</td></tr>
+    <tr><td>接口层</td><td><code>AuthApi.kt</code>：health / 邀请码校验 / 注册 / 登录 / refresh / logout / 改密 / 重置密码 / me / 改昵称 / 设备列表 / 踢设备 / OAuth start / bind / unbind / poll，共 17 个方法。</td></tr>
+    <tr><td>会话层</td><td><code>AccountSession.kt</code>：全局唯一令牌持有者。refresh 轮转（<b>先落盘再返回</b>）、并发刷新双重检查、401 自动重试一次、OAuth 轮询抗网络抖动。</td></tr>
+    <tr><td>凭证存储</td><td><code>SecretStore.kt</code>：JNA 调 Windows DPAPI（<code>crypt32.CryptProtectData</code>）加密落盘到 <code>%APPDATA%\StuMate\credentials.bin</code>，自定义 10 字节文件头，失败降级明文并标记。熵常量固定，发布后不可更改。</td></tr>
+    <tr><td>浏览器跳转</td><td><code>Browser.kt</code>：AWT <code>Desktop.Action.BROWSE</code> → <code>rundll32 url.dll</code> 两级降级。</td></tr>
+    <tr><td>界面</td><td>设置页新增<b>「账号」</b>分组 + 5 个对话框：登录/注册（同一对话框切标签）、重置密码、设备管理、改昵称、OAuth 等待授权面板。</td></tr>
+    <tr><td>启动接线</td><td><code>Main.kt</code> 启动时 <code>AccountSession.restore()</code> 恢复登录态；<b>不阻塞启动流程</b>，界面不会被登录卡住。</td></tr>
+  </tbody>
+</table>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2><span class="num">2</span>接口冒烟：对着真实服务端跑了一遍</h2>
+
+<p><code>./gradlew apiSmoke</code> 会真的去连 <code>https://deeer.online/api/stumate/v1</code>。8 项全过：</p>
+
+<table>
+  <thead><tr><th style="width:56px">结果</th><th>检查项</th><th style="width:270px">实测</th></tr></thead>
+  <tbody>
+    <tr><td class="pass">√</td><td><span class="mono">GET /health</span> 服务端可达</td><td>version = <span class="mono">stumate/v1</span></td></tr>
+    <tr><td class="pass">√</td><td><span class="mono">GET /auth/invite/check</span> 不存在的码判无效</td><td><span class="mono">valid=false</span></td></tr>
+    <tr><td class="pass">√</td><td><span class="mono">POST /auth/login</span> 错误凭据返回 <span class="mono">BAD_CREDENTIALS</span></td><td>HTTP 401</td></tr>
+    <tr><td class="pass">√</td><td>登录接口<b>不泄露账号存在性</b></td><td>短密码与长密码返回码一致</td></tr>
+    <tr><td class="pass">√</td><td><span class="mono">POST /oauth/github/start</span> 返回真实授权地址</td><td>host=github.com，有效期 600s</td></tr>
+    <tr><td class="pass">√</td><td><span class="mono">POST /oauth/google/start</span> 凭据未配置时明确报错</td><td><span class="mono">PROVIDER_NOT_CONFIGURED</span> (503)</td></tr>
+    <tr><td class="pass">√</td><td><span class="mono">GET /oauth/github/poll</span> 无效 state 报错</td><td><span class="mono">NOT_FOUND</span>（404，非 200）</td></tr>
+    <tr><td class="pass">√</td><td><span class="mono">GET /me</span> 未认证被拒绝</td><td>401 <span class="mono">UNAUTHORIZED</span></td></tr>
+  </tbody>
+</table>
+
+<div class="callout info">
+  <span class="h">冒烟测试查出并修掉的两个真问题</span>
+  <b>① <code>oauthPoll</code> 对无效 state 抛异常而不是返回值</b> —— 调用方得在 catch 分支和返回值分支分别处理「失败」，迟早漏一边。已改成 <code>OAuthPollResult.Failed</code>，网络类异常仍继续上抛（轮询循环会忽略它继续等，不浪费 10 分钟授权窗口）。<br>
+  <b>② 登录接口不校验密码长度</b> —— 这<b>不是</b> bug：文档里「最少 8 位」只对注册与改密生效。登录刻意不校验，否则可用返回码差异枚举账号是否存在。测试预期已按此修正。
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2><span class="num">3</span>截图验收</h2>
+
+<p>先看真实运行中的应用，再看各个界面状态。</p>
+
+<!-- ① 实机 -->
+<figure>
+  <img src="real-01-settings-account.png" alt="真实应用：设置页账号分组">
+  <figcaption>
+    <div class="t"><span class="tag real">实机</span>真实应用 · 设置页「账号」分组</div>
+    <div class="d">
+      跑的是完整 <code>MainKt</code>（托盘、提醒引擎、自绘窗口、缩放热区全部在跑），不是预览壳。
+      左下角「提醒服务运行中 / 今日课程已全部结束！/ 第 4 周 · 提前 30 分钟提醒」是真实 <code>ReminderEngine</code> 状态。
+    </div>
+    <div class="proves"><b>证明了：</b>加了账号层之后应用能正常启动并渲染；「账号」分组在真实界面里的位置、比例、与左侧主导航的关系；未登录态文案与「离线可用」绿标。</div>
+  </figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="h">关于这张图的诚实说明</span>
+  本机验收环境<b>没有可交互桌面</b>：<code>SetCursorPos</code> / <code>mouse_event</code> / <code>PostMessage</code> 全被系统静默丢弃（实测点击「设置」毫无反应），
+  且本进程<b>无法提升别的窗口 z 序</b>（<code>SetForegroundWindow</code> 返回 False，窗口被另一个程序完全遮挡）。
+  为此做了两件事，都已复原／可复现：<br>
+  ① 截图走 <code>PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT)</code> 直接取窗口自绘内容，绕开遮挡（<code>PW_CLIENTONLY</code> 会得到全黑，不可用）；<br>
+  ② 为了让真机落在设置页，<b>临时</b>把 <code>AppShell</code> 的起始页硬编码为 <code>SETTINGS</code>，截完<b>已还原并核对过 git diff</b>（现在该处只剩新增的 <code>initialPage</code> 参数）。<br>
+  下面 7 张场景图则来自预览入口，渲染的是<b>同一个</b> <code>AppShell</code> 与 <code>AccountSection</code>，只有入口不同。
+</div>
+
+<!-- ② 未登录 -->
+<figure>
+  <img src="acc-01-account-signedout.png" alt="账号分组：未登录">
+  <figcaption>
+    <div class="t"><span class="tag preview">场景</span>账号分组 · 未登录</div>
+    <div class="d">左侧 7 项分类导航，账号为默认落点。卡片内是「未登录 / 所有数据只存在本机」+ 绿色「离线可用」标 + 「登录 / 注册」按钮。</div>
+    <div class="proves"><b>证明了：</b>离线优先没有被破坏 —— 未登录时所有本地功能照常，登录是可选项而不是门禁。</div>
+  </figcaption>
+</figure>
+
+<!-- ③ 登录 -->
+<figure>
+  <img src="acc-02-login-dialog.png" alt="登录对话框">
+  <figcaption>
+    <div class="t"><span class="tag preview">场景</span>登录对话框</div>
+    <div class="d">登录 / 注册分段切换、邮箱与密码框（密码可显示明文）、GitHub / Google 第三方登录、忘记密码入口。底部绿点「服务端可达（stumate/v1）」是进来时真实探活 <code>/health</code> 的结果。</div>
+    <div class="proves"><b>证明了：</b>表单与校验态（邮箱或密码为空时「登录」按钮为禁用态）、服务端可达性提示把「密码错」和「连不上」区分开。</div>
+  </figcaption>
+</figure>
+
+<!-- ④ 登录失败（真实服务端） -->
+<figure>
+  <img src="acc-03-login-failed.png" alt="登录失败：服务端真实返回">
+  <figcaption>
+    <div class="t"><span class="tag preview">场景</span>登录失败 · 服务端真实返回</div>
+    <div class="d">
+      这张图是<b>真的打了一次线上服务端</b>：用不存在的账号 <code>verify-probe@example.com</code> 提交，服务端返回 401 <code>BAD_CREDENTIALS</code>，
+      客户端映射成「邮箱或密码不对。」。不是摆出来的假错误文案。
+    </div>
+    <div class="proves"><b>证明了：</b>整条链路端到端可用 —— <code>java.net.http</code> → HTTPS → deeer.online → 401 → 错误码映射 → UI 呈现。这是本次验收里最有分量的一张。</div>
+  </figcaption>
+</figure>
+
+<!-- ⑤ 注册 -->
+<figure>
+  <img src="acc-04-register-dialog.png" alt="注册对话框">
+  <figcaption>
+    <div class="t"><span class="tag preview">场景</span>注册对话框（邀请码）</div>
+    <div class="d">比登录多一个「邀请码」字段，格式 <code>XXXX-XXXX-XXXX</code>，附说明「StuMate 采用邀请制，请向管理员索取邀请码」；主按钮变成「注册并登录」。</div>
+    <div class="proves"><b>证明了：</b>邀请制注册的界面约束正确 —— 不填邀请码时无法提交，避免白跑一次网络请求。</div>
+  </figcaption>
+</figure>
+
+<!-- ⑥ 重置密码 -->
+<figure>
+  <img src="acc-05-reset-dialog.png" alt="重置密码对话框">
+  <figcaption>
+    <div class="t"><span class="tag preview">场景</span>重置密码</div>
+    <div class="d">邮箱 + 重置码 + 新密码。说明文案「重置码需要联系管理员生成（30 分钟内有效，用后即焚）」。</div>
+    <div class="proves"><b>证明了：</b>零邮件依赖的找回路径在客户端完整落地（服务端用管理员 CLI 生成一次性重置码，不接 SMTP）。</div>
+  </figcaption>
+</figure>
+
+<!-- ⑦ 设备管理 -->
+<figure>
+  <img src="acc-06-devices-dialog.png" alt="设备管理对话框">
+  <figcaption>
+    <div class="t"><span class="tag preview">场景</span>登录设备管理</div>
+    <div class="d">「同一个账号最多同时登录 5 台设备。把不认识的设备踢下线会立刻吊销它的令牌。」当前未登录，所以内容区是「尚未登录」提示。</div>
+    <div class="proves"><b>证明了：</b>设备上限与「踢下线即刻吊销」的语义在界面上有交代；未登录时对话框能优雅降级而不是报错。</div>
+  </figcaption>
+</figure>
+
+<!-- ⑧ OAuth -->
+<figure>
+  <img src="acc-07-oauth-waiting.png" alt="等待 GitHub 授权">
+  <figcaption>
+    <div class="t"><span class="tag preview">场景</span>等待 GitHub 授权（真实 ticket + 真实轮询）</div>
+    <div class="d">
+      图里那条链接是<b>真的</b>：先调 <code>POST /oauth/github/start</code> 拿到 <code>authorize_url</code> 与一次性 <code>state</code>，再交给真实的登录对话框，
+      于是「等待授权中… 已等待 6 秒」的倒计时是真的在轮询服务端（每 2 秒一次，上限 10 分钟）。
+      链接里可见 <code>client_id=Ov23liah5Kxfop1YXYd8</code>、<code>redirect_uri=…/oauth/github/callback</code>、32 位 <code>state</code>。
+    </div>
+    <div class="proves"><b>证明了：</b>服务端中介式 OAuth 在客户端不需要自定义 URL scheme、不需要 PKCE、拿不到 <code>client_secret</code>；轮询 + 一次性 state 的防重放设计可用。</div>
+  </figcaption>
+</figure>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2><span class="num">4</span>几条值得单独说的设计约束</h2>
+
+<table>
+  <thead><tr><th style="width:230px">约束</th><th>为什么</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>refresh <b>先落盘再返回</b></td>
+      <td>服务端对 refresh 做了轮转 + 重放检测。如果先把新令牌返回给调用方、落盘晚一步，进程此刻崩溃 = 下次拿旧令牌重放 = <b>整台设备令牌链作废</b>。顺序反了就是事故。</td>
+    </tr>
+    <tr>
+      <td>并发刷新加互斥锁 + 双重检查</td>
+      <td>两个协程同时刷新会各自拿到新令牌，后落盘的把先落盘的覆盖掉 —— 又是一次重放。锁内二次判断 <code>needsRefresh</code>，保证只发一次。</td>
+    </tr>
+    <tr>
+      <td>只有 <b>401</b> 才降级为未登录</td>
+      <td>网络故障（<code>ApiException.isNetwork</code>）<b>保持</b>登录态，只是「离线」。否则地铁里打开应用就会被登出，用户会以为数据丢了。</td>
+    </tr>
+    <tr>
+      <td>令牌用 DPAPI 加密落盘</td>
+      <td>Windows 的 DPAPI 把密钥绑到当前用户账户，别的用户/别的机器拿到 <code>credentials.bin</code> 也解不开。JNA 直接调 <code>crypt32</code>，不引入原生依赖。</td>
+    </tr>
+    <tr>
+      <td>登录接口不校验密码长度</td>
+      <td>若登录对短密码返回 <code>BAD_REQUEST</code>、对长密码返回 <code>BAD_CREDENTIALS</code>，就能靠返回码差异枚举账号是否存在。冒烟测试专门锁住了这条。</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2><span class="num">5</span>没做到的 / 需要你确认的</h2>
+
+<h3>① 没能截到「已登录」状态</h3>
+<p>
+  本机没有可用测试账号，注册又需要管理员生成邀请码。所以 <b>「已登录」界面（昵称头像、第三方账号绑定、设备列表、退出登录）目前只有代码，没有截图</b>。
+  代码路径已经写好（预览入口支持 <code>-Pemail=… -Ppassword=…</code> 真实登录一次），只差一份凭据。
+</p>
+
+<h3>② 已知未完成（不在本次范围）</h3>
+<ul>
+  <li>服务端 <b>同步接口未实现</b>：<code>/sync/push</code>、<code>/sync/pull</code>、<code>/sync/status</code> 都还没有（<code>records</code> / <code>sync_log</code> 表已建）。所以界面文案写的是「同步功能仍在开发中」。</li>
+  <li><b>Google OAuth 凭据未配</b>：代码已就位，服务端返回 <code>PROVIDER_NOT_CONFIGURED</code>，按钮点了会给出明确提示而不是静默失败。</li>
+  <li>改动<b>尚未提交</b>（桌面端 P2 + P3 均在工作区）。</li>
+</ul>
+
+<div class="callout ask">
+  <span class="h">需要你拍板：设置页的默认分组</span>
+  原来默认落在「提醒」。我把「账号」加在了列表第一位，同时把默认选中也改成了「账号」——
+  理由是列表顺序与默认选中不一致时，导航第一项未选中会看起来像 bug；且设计文档里「首次启动不弹登录，设置页『账号』分组显示『未登录 · 点此登录』」也需要一个自然落点。<br><br>
+  <b>代价</b>：每次打开设置都会先看到账号页，而不是日常更常用的提醒设置。<br>
+  <b>回退成本</b>：<code>SettingsPage.kt</code> 里改一个字面量（<code>SettingsSection.ACCOUNT</code> → <code>REMINDER</code>），账号分组保留在列表首位。你说改我就改。
+</div>
+
+<h3>③ 顺手清掉的既有问题</h3>
+<ul>
+  <li><code>SettingsPage.kt</code> 里一个未使用的 <code>val c</code>（编译告警）。目前还剩 2 个既有告警（<code>SettingsPage.kt</code> 的未用变量），非本次引入。</li>
+</ul>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2><span class="num">6</span>怎么复现</h2>
+
+<pre><code>cd C:/Users/Administrator/IdeaProjects/StuMate-Desktop
+
+# 编译 + 单测（必须带 --offline：拉不到 Gson / Ktor 等）
+./gradlew compileKotlin test --offline
+
+# 对着线上服务端跑接口冒烟（8 项）
+./gradlew apiSmoke --offline
+
+# 批量出这 7 张场景截图到 design-preview/
+python tools/shoot_scenarios.py design-preview
+
+# 只跑单个场景
+./gradlew uiPreview --offline -Ppreview=authfail</code></pre>
+
+<p>截图脚本直接 <code>java -cp</code> 起进程（不走 Gradle）：Gradle 冷启动十几秒，跑十几个场景太亏；而且从脚本里调 <code>cmd /c gradlew.bat</code> 会被本机安全策略拦掉。classpath 由 <code>./gradlew printRuntimeClasspath</code> 生成并缓存在 <code>.preview-classpath</code>。</p>
+
+<footer>
+  StuMate 桌面端 · 登录功能验收 v1.0 · 2026-09-30 ·
+  截图位于 <code>design-preview/</code>，验收页不覆盖历史版本
+</footer>
+
+</div>
+
+<div id="lightbox"><img id="lightbox-img" alt=""></div>
+<script>
+  var lb = document.getElementById('lightbox');
+  var lbi = document.getElementById('lightbox-img');
+  document.querySelectorAll('figure img').forEach(function (img) {
+    img.addEventListener('click', function () {
+      lbi.src = img.src;
+      lb.classList.add('on');
+    });
+  });
+  lb.addEventListener('click', function () { lb.classList.remove('on'); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') lb.classList.remove('on');
+  });
+</script>
+</body>
+</html>

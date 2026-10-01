@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StuMate · 课程常驻描边 —— 验收页 v1.0</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#2a3140;
+    --tx:#e6edf3; --tx2:#9aa7b8; --tx3:#6e7b8d;
+    --ok:#2ea86a; --ok-bg:#12261c; --warn:#d29922; --warn-bg:#2a2213;
+    --err:#e5534b; --err-bg:#2a1516; --accent:#4c8dff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font:14px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 24px 96px}
+  header{border-bottom:1px solid var(--line);padding-bottom:24px;margin-bottom:32px}
+  h1{margin:0 0 8px;font-size:24px;letter-spacing:.3px}
+  .sub{color:var(--tx2);font-size:13px;margin:0}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .tag{font-size:11.5px;padding:3px 10px;border-radius:20px;
+    background:var(--panel2);color:var(--tx2);border:1px solid var(--line)}
+  .tag.ok{background:var(--ok-bg);color:var(--ok);border-color:#1d4a33}
+  h2{font-size:17px;margin:44px 0 16px;padding-left:12px;border-left:3px solid var(--accent)}
+  h3{font-size:14px;margin:26px 0 10px}
+  p{margin:10px 0}
+  .muted{color:var(--tx2);font-size:13px}
+  .card{background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:18px 20px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--tx3);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  tbody tr:last-child td{border-bottom:none}
+  code{font-family:"Cascadia Code",Consolas,monospace;font-size:12.5px;
+    background:#0b0f16;padding:1.5px 6px;border-radius:4px;color:#9ecbff}
+  pre{background:#0b0f16;border:1px solid var(--line);border-radius:8px;
+    padding:14px 16px;overflow-x:auto;margin:12px 0}
+  pre code{background:none;padding:0;color:#c9d1d9;line-height:1.7}
+  .shot{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#000;margin:14px 0}
+  .shot img{width:100%;display:block}
+  .shot .cap{padding:9px 14px;font-size:12.5px;color:var(--tx2);
+    background:var(--panel2);border-top:1px solid var(--line)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .verdict{border-radius:8px;padding:14px 18px;margin:16px 0;font-size:13px;border:1px solid}
+  .verdict.ok{background:var(--ok-bg);border-color:#1d4a33;color:#7ee2a8}
+  .verdict.warn{background:var(--warn-bg);border-color:#5a4a1a;color:#e3c168}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;margin-right:6px}
+  .pill.ok{background:var(--ok-bg);color:var(--ok)}
+  .pill.no{background:var(--err-bg);color:var(--err)}
+  .swatch{display:inline-block;width:16px;height:16px;border-radius:3px;
+    vertical-align:-3px;margin-right:5px;border:1px solid rgba(255,255,255,.15)}
+  ul{margin:10px 0;padding-left:22px}
+  li{margin:6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>课程常驻描边 —— 给每一节课一个默认边框</h1>
+  <p class="sub">之前只有选中 / 悬浮时才有描边，默认态下课程块和背景完全分不开</p>
+  <div class="meta">
+    <span class="tag ok">像素实测通过</span>
+    <span class="tag ok">单测 145 / 145</span>
+    <span class="tag ok">深浅双主题</span>
+    <span class="tag">2026-10-01</span>
+    <span class="tag">v1.0</span>
+  </div>
+</header>
+
+<h2>1. 问题在哪</h2>
+
+<div class="card">
+  <p>课表格子里每个课程块的描边是这样定义的：</p>
+  <pre><code>val borderWidth = when {
+    selected -&gt; 1.5.dp
+    hovered  -&gt; 1.dp
+    else     -&gt; 0.dp        // ← 默认态完全没有描边
+}</code></pre>
+  <p>所以这是<strong>交互态描边</strong>，不是<strong>常驻描边</strong>。
+  默认状态下，一节课和旁边那节课、和格子底色都是同一种颜色，
+  整张表看起来像「散落几块灰色方块」，而不是「一节节课」。</p>
+</div>
+
+<h2>2. 改完之后</h2>
+
+<div class="shot">
+  <img src="assets/course-border-v1.0/01-week-border-dark.png" alt="深色主题课程描边">
+  <div class="cap">深色主题 —— 每一节课都有完整边框，边界清晰但不生硬</div>
+</div>
+
+<div class="shot">
+  <img src="assets/course-border-v1.0/02-week-border-light.png" alt="浅色主题课程描边">
+  <div class="cap">浅色主题 —— 描边内凹，符合纸质表格直觉</div>
+</div>
+
+<h2>3. 描边色的选择：为什么不复用现成 token</h2>
+
+<p>先算了候选色的实际亮度差（<code>#333333</code> 卡片面 / <code>#E0E0E0</code> 卡片面）：</p>
+
+<table>
+  <thead><tr>
+    <th style="width:24%">候选</th>
+    <th style="width:20%">色值</th>
+    <th style="width:22%">深色下 Δ</th>
+    <th style="width:22%">浅色下 Δ</th>
+    <th>结论</th>
+  </tr></thead>
+  <tbody>
+    <tr><td><code>outline</code></td>
+        <td><span class="swatch" style="background:#3A3A3A"></span>#3A3A3A</td>
+        <td>Δ 7</td><td><code>#E5E5E5</code> Δ 5</td>
+        <td><span class="pill no">太弱</span>肉眼找不到</td></tr>
+    <tr><td><code>outlineStrong</code></td>
+        <td><span class="swatch" style="background:#4A4A4A"></span>#4A4A4A</td>
+        <td>Δ 23</td><td><code>#C8C8C8</code> Δ 24</td>
+        <td><span class="pill no">太强</span>像选中态</td></tr>
+    <tr><td><code>bg</code>（第一版）</td>
+        <td><span class="swatch" style="background:#141414"></span>#141414</td>
+        <td>Δ 31</td><td><code>#F3F3F3</code> Δ 19</td>
+        <td><span class="pill no">过硬</span>像挖出来的槽</td></tr>
+    <tr style="background:var(--ok-bg)"><td><code>borderRest</code>（采用）</td>
+        <td><span class="swatch" style="background:#404040"></span>#404040<br>
+            <span class="swatch" style="background:#D2D2D2"></span>#D2D2D2</td>
+        <td><strong>Δ 13</strong></td><td><strong>Δ 14</strong></td>
+        <td><span class="pill ok">采用</span>边界可读且柔和</td></tr>
+  </tbody>
+</table>
+
+<div class="verdict warn">
+  <strong>第一版试了 <code>c.bg</code>，效果不对。</strong>
+  深色下 Δ 31 确实够清楚，但方向是「比卡片面暗」——
+  在深色主题里看着像每个格子都被<strong>挖空</strong>了，边框硬得像刻上去的槽。
+  Fluent 的实际做法是<strong>让边界发光</strong>，不是挖槽。
+  所以改成深色下<strong>比卡片面亮</strong>（<code>#404040</code>）、浅色下<strong>比卡片面暗</strong>（<code>#D2D2D2</code>），
+  两个主题都落在 13–14 级这个舒适区间。
+</div>
+
+<h3>新增 token</h3>
+<pre><code>/** <strong>常驻描边</strong>：课表格子里每一个课程块的默认边框 */
+val borderRest: Color
+
+// 深色
+borderRest = Color(0xFF404040)   // surface3 #333333 之上，Δ +13
+// 浅色
+borderRest = Color(0xFFD2D2D2)   // surface3 #E0E0E0 之下，Δ +14</code></pre>
+
+<h2>4. 一个容易漏的顺序问题</h2>
+
+<div class="card">
+  <p><code>border()</code> 画在组件<strong>内侧</strong>。原来的顺序是
+  <code>clip → background → border</code>，
+  于是 4dp 圆角处把描边切出缺口，四角连不上（表现为四个小断口）。</p>
+  <pre><code>// ⚠️ border 必须在 clip <strong>之前</strong>
+.border(borderWidth, borderColor, RoundedCornerShape(4.dp))
+.clip(RoundedCornerShape(4.dp))
+.background(bg)</code></pre>
+  <p>放到 <code>clip</code> 之前，描边完整绕一圈，圆角处也是连续的。</p>
+</div>
+
+<h2>5. 像素实测</h2>
+
+<p>肉眼判断「这线够不够明显」不可靠 —— 深色下差十几级肉眼几乎看不见，截图缩小后又被抹平。
+所以沿课程块左边界做垂直扫描，直接看颜色跳变：</p>
+
+<pre><code>扫描 x=300 这条竖线上的颜色跳变:
+  y=141: #2B2B2B -&gt; #3A3A3A   ← 格子底 → 整点分隔线
+  y=142: #3A3A3A -&gt; #141414
+  y=143: #141414 -&gt; #333333   ← 分隔线 → 课程卡片面
+  y=144: #333333 -&gt; #404040   ← <strong>课程描边</strong>
+  y=145: #404040 -&gt; #333333   ← <strong>描边结束，回到卡片面</strong>
+  y=151: #333333 -&gt; #FFFFFF   ← 课程标题文字</code></pre>
+
+<div class="verdict ok">
+  <code>#333333 → #404040 → #333333</code> —— 描边精确落在设定值上，
+  <strong>1 像素实打实、没有抗锯齿摊薄</strong>（对比 y=142 的 <code>#141414</code> 是整点分隔线，
+  两者层次分明不混淆）。
+</div>
+
+<h2>6. 改动清单</h2>
+<table>
+  <thead><tr><th style="width:30%">文件</th><th>改动</th></tr></thead>
+  <tbody>
+    <tr><td><code>FluentTokens.kt</code></td>
+        <td>新增 <code>borderRest</code>；深色 <code>#404040</code>、浅色 <code>#D2D2D2</code></td></tr>
+    <tr><td><code>WeekPage.kt</code></td>
+        <td><code>CourseBlock</code> 的 <code>borderWidth</code> 默认
+            <code>0.dp → 1.dp</code>；<code>borderColor</code> 的
+            <code>else</code> 分支 <code>Transparent → c.borderRest</code>；
+            <code>border</code> 提到 <code>clip</code> 之前</td></tr>
+  </tbody>
+</table>
+
+<h2>7. 验证</h2>
+<div class="card">
+  <ul>
+    <li><code>compileKotlin</code> <strong>BUILD SUCCESSFUL</strong>，本文件 0 告警</li>
+    <li>单测 <strong>145 / 145</strong>，0 失败 0 跳过</li>
+    <li>深色 / 浅色<strong>双主题实机截图</strong>，非摆拍</li>
+    <li>像素扫描确认描边值精确、1px 无摊薄</li>
+    <li>客户端已重启（PID 37048），可直接验收</li>
+  </ul>
+</div>
+
+<h2>8. 待你拍板</h2>
+<div class="card">
+  <p>描边强度目前是 <strong>Δ 13–14</strong>。如果你觉得还是偏弱/偏强，
+  只改 <code>FluentTokens.kt</code> 里 <code>borderRest</code> 一个值即可
+  —— 深浅两套可以独立调：</p>
+  <ul>
+    <li>更弱一点：深色 <code>#3C3C3C</code>（Δ 9）、浅色 <code>#D8D8D8</code>（Δ 8）</li>
+    <li>更强一点：深色 <code>#484848</code>（Δ 21）、浅色 <code>#C8C8C8</code>（Δ 24）</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

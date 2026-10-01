@@ -55,7 +55,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private enum class SettingsSection(val label: String) {
+/** internal 而非 private：`dev/UiPreview` 要按它渲染左侧分类导航做截图验收 */
+internal enum class SettingsSection(val label: String) {
+    /** 登录是可选的，但入口要显眼 —— 放第一个，也是默认落点（见下方 `section` 初值） */
+    ACCOUNT("账号"),
     REMINDER("提醒"),
     APPEARANCE("外观"),
     STARTUP("通知与启动"),
@@ -80,8 +83,10 @@ fun FluentSettingsPage(
     onOpenDataFolder: () -> Unit,
     onImportTimetable: () -> Unit
 ) {
-    val c = FluentTheme.colors
-    var section by remember { mutableStateOf(SettingsSection.REMINDER) }
+    // 默认落在「账号」：与列表第一项一致，也让「首次启动不弹登录、
+    // 账号分组显示『未登录 · 点此登录』」这条设计要求有个自然的落点。
+    // 想改回「提醒」就改这一个字面量。
+    var section by remember { mutableStateOf(SettingsSection.ACCOUNT) }
 
     Column(Modifier.fillMaxSize()) {
         PageTopBar(
@@ -111,6 +116,7 @@ fun FluentSettingsPage(
                     .verticalScroll(rememberScrollState())
             ) {
                 when (section) {
+                    SettingsSection.ACCOUNT -> AccountSection()
                     SettingsSection.REMINDER -> ReminderSection()
                     SettingsSection.APPEARANCE -> AppearanceSection(themeModeOrdinal, onThemeModeChanged)
                     SettingsSection.STARTUP -> StartupSection(onTestNotification, onOpenDataFolder)
@@ -125,7 +131,7 @@ fun FluentSettingsPage(
 }
 
 @Composable
-private fun SubNavItem(label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun SubNavItem(label: String, selected: Boolean, onClick: () -> Unit) {
     val c = FluentTheme.colors
     val d = FluentTheme.dimens
     Box(
@@ -554,8 +560,9 @@ private fun InfoRow(label: String, value: String) {
 
 // ── 通用区块 ────────────────────────────────────────────────────
 
+/** 「标题 + 说明 + 卡片」的区块骨架。账号分组也用它，所以是 internal 而不是 private */
 @Composable
-private fun SectionBlock(
+internal fun SectionBlock(
     title: String,
     description: String? = null,
     content: @Composable () -> Unit

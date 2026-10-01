@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,11 +42,14 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * Windows 11 Fluent 控件库。
@@ -256,13 +261,24 @@ fun FlTextField(
     trailing: (@Composable () -> Unit)? = null,
     singleLine: Boolean = true,
     enabled: Boolean = true,
-    minHeight: Dp = 32.dp
+    minHeight: Dp = 32.dp,
+    /** 密码框传 `PasswordVisualTransformation()` */
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    /** 非空时按回车会触发它 —— 表单里「输完密码直接回车提交」 */
+    onSubmit: (() -> Unit)? = null,
+    /** 校验不通过时描边转红 */
+    isError: Boolean = false
 ) {
     val c = FluentTheme.colors
     val d = FluentTheme.dimens
     var focused by remember { mutableStateOf(false) }
     val border by animateColorAsState(
-        if (focused) c.accent else c.outlineStrong, tween(HOVER_MS), label = "fieldBorder"
+        when {
+            isError -> c.error
+            focused -> c.accent
+            else -> c.outlineStrong
+        },
+        tween(HOVER_MS), label = "fieldBorder"
     )
 
     BasicTextField(
@@ -272,6 +288,9 @@ fun FlTextField(
         singleLine = singleLine,
         textStyle = TextStyle(fontSize = 13.sp, color = c.onSurface),
         cursorBrush = SolidColor(c.accent),
+        visualTransformation = visualTransformation,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onSubmit?.invoke() }),
         modifier = modifier,
         onTextLayout = { },
         decorationBox = { inner ->
@@ -420,11 +439,28 @@ fun FlDialog(
     onDismiss: () -> Unit,
     title: String,
     width: Dp = 440.dp,
+    /**
+     * 是否允许「点对话框外面」或「按 Esc」把它关掉。
+     *
+     * 登录 / 注册这类对话框要传 `false`：里面是用户刚敲进去的邮箱、密码、邀请码，
+     * 误点一下空白处或误按 Esc 就全没了，只能靠「取消」显式关闭。
+     *
+     * 这两个关闭途径在 Compose 里是两个独立开关（`dismissOnClickOutside` 管点击、
+     * `dismissOnBackPress` 管 Esc —— 桌面端 Esc 就是走 back-press 这条路的），
+     * 这里合成一个语义「能不能被外部操作关掉」，避免调用点每次都要写两遍。
+     */
+    dismissible: Boolean = true,
     content: @Composable () -> Unit,
     actions: @Composable RowScope.() -> Unit
 ) {
     val c = FluentTheme.colors
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = dismissible,
+            dismissOnClickOutside = dismissible
+        )
+    ) {
         Column(
             modifier = Modifier
                 .width(width)

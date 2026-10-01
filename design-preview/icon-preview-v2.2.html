@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate 图标 v2.2 · Lucide 铃铛描边版 · 验收页</title>
+<style>
+  :root{--bg:#1b1b1b;--panel:#242424;--panel2:#2b2b2b;--line:#3a3a3a;--fg:#e8e8e8;--fg2:#a8a8a8;--fg3:#7a7a7a;--accent:#60CDFF;--hl:#FFB900}
+  *{box-sizing:border-box}
+  body{margin:0;padding:30px 26px 60px;background:var(--bg);color:var(--fg);font:14px/1.7 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  h1{font-size:20px;margin:0 0 6px;font-weight:600}
+  h2{font-size:15px;margin:32px 0 12px;font-weight:600;color:var(--accent);border-left:3px solid var(--accent);padding-left:10px}
+  h3{font-size:13px;margin:18px 0 8px;font-weight:600;color:var(--fg2)}
+  p{margin:8px 0;color:var(--fg2)}
+  .sub{color:var(--fg3);font-size:13px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin:12px 0}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end}
+  .cell{text-align:center}
+  .cell .cap{font-size:11px;color:var(--fg3);margin-top:6px}
+  .box{padding:10px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;background:#272727}
+  .box.light{background:#EBEBEB}
+  .box.ref{background:#1a1a1a}
+  img{max-width:100%;display:block;border-radius:6px}
+  code{background:#2f2f2f;padding:1px 5px;border-radius:3px;font-size:12.5px;color:#9cdcff}
+  pre{background:#1f1f1f;border:1px solid var(--line);border-radius:6px;padding:12px 14px;overflow:auto;font-size:12.5px;color:#c9d4e0;margin:10px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--fg2);font-weight:600}
+  b.hl{color:var(--hl)}
+  .bad{background:#2a1c1c;border:1px solid #5a2c2c;border-radius:6px;padding:12px 14px;color:#e8b0b0;font-size:13px}
+  .good{background:#1c2a1e;border:1px solid #2c5a34;border-radius:6px;padding:12px 14px;color:#b0e8bc;font-size:13px}
+  .note{background:#2a2418;border:1px solid #5a4a1c;border-radius:6px;padding:12px 14px;color:#e8d9a8;font-size:13px}
+  .ba{display:flex;gap:26px;flex-wrap:wrap;align-items:center}
+  .ba .item{text-align:center}
+  .ba .item .cap{font-size:12px;color:var(--fg3);margin-top:8px}
+  .vname{font-size:13px;font-weight:600;color:var(--fg)}
+  .vdesc{font-size:12px;color:var(--fg3);margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<h1>StuMate 品牌图标 v2.2 · Lucide 铃铛（原版描边样式）</h1>
+<div class="sub">2026-10-01 · 铃铛换成 Lucide <code>bell</code>，<b>保持原版描边</b>；外轮廓 / 九宫格 / 琥珀格 / 配色全部不动</div>
+
+<h2>一、你的参考图 vs 当前实现</h2>
+<div class="card">
+  <div class="ba">
+    <div class="item">
+      <div class="box ref"><img src="icon22-reference-lucide.png" width="150" alt="参考图"></div>
+      <div class="cap">你的参考图（Lucide 原版）</div>
+    </div>
+    <div class="item" style="font-size:28px;color:var(--fg3);padding-bottom:30px">→</div>
+    <div class="item">
+      <div class="box ref" id="cmpRef"></div>
+      <div class="cap">本图标放大到同尺寸（墨色改成品牌深蓝）</div>
+    </div>
+  </div>
+  <h3>移植时保留了什么、动了什么</h3>
+  <table>
+    <tr><th style="width:190px">项目</th><th>处理</th></tr>
+    <tr><td>主体 path</td><td><b>逐字搬运</b>，一个字符没改</td></tr>
+    <tr><td>摆锤 path</td><td><b>逐字搬运</b>（<code>M10.268 21a2 2 0 0 0 3.464 0</code>）</td></tr>
+    <tr><td>描边宽度</td><td>原图 <code>stroke-width="2"</code>，照搬</td></tr>
+    <tr><td>端点 / 拐角</td><td>原图 <code>linecap="round"</code> + <code>linejoin="round"</code>，照搬</td></tr>
+    <tr><td>填充</td><td>原图 <code>fill="none"</code>，照搬（<b>没有</b>改成填充剪影）</td></tr>
+    <tr><td>坐标系</td><td>用 <code>addGroup(scale 12.6, translate 104.79/104.8)</code> 从 24×24 映射到 512×512</td></tr>
+  </table>
+  <div class="note">
+    <b>踩过的弯路（留档）</b>：中途我先把 Lucide 改成了「填充剪影 + 圆点摆锤」，
+    理由是 26dp 下 2 单位描边会退化。但你给的参考图明确是<b>描边版</b>，
+    于是全部回退到原样，只保留缩放与落位这一处加工。
+  </div>
+</div>
+
+<h2>二、缩放系数怎么定的</h2>
+<div class="card">
+  <p>Lucide 铃铛的<b>视觉</b>外接框（含 2 单位描边各外扩 1）是 19.478 × 22，中心 (12.001, 12)。三个候选都渲染出来比过：</p>
+  <table>
+    <tr><th style="width:150px">scale</th><th style="width:130px">视觉宽</th><th>结论</th></tr>
+    <tr><td>12.116</td><td>236</td><td>与 v2.1 等宽，但描边版视觉分量轻，26dp 下显得比旧图标小一圈</td></tr>
+    <tr style="background:#1c2a1e"><td><b class="hl">12.6</b></td><td><b class="hl">245</b></td><td><b class="hl">采用</b>：比 v2.1 略大，补回描边损失的视觉分量，又不压到九宫格</td></tr>
+    <tr><td>13.1</td><td>255</td><td>更大，26dp 收益不明显，开始显得挤</td></tr>
+  </table>
+  <p>落到 512 画布后铃铛占 <b>x 133→379、y 117→395</b>，描边实际宽 25.2 单位（26dp 下约 1.3px）。</p>
+</div>
+
+<h2>三、多尺寸渲染</h2>
+<div class="card">
+  <h3>深色主题</h3>
+  <div class="row" id="rowDark"></div>
+  <h3>浅色主题</h3>
+  <div class="row" id="rowLight"></div>
+</div>
+
+<h2>四、实机验证（真实运行截图）</h2>
+<div class="card">
+  <h3>深色 · 侧栏品牌行（26dp，最近邻放大 12 倍）</h3>
+  <img src="icon22-brand-dark.png" width="396" alt="深色品牌行" style="image-rendering:pixelated;border:1px solid var(--line)">
+  <h3>浅色 · 侧栏品牌行（26dp，12 倍）</h3>
+  <img src="icon22-brand-light.png" width="396" alt="浅色品牌行" style="image-rendering:pixelated;border:1px solid var(--line)">
+  <h3>深色 · 整窗</h3>
+  <img src="icon22-window-dark.png" width="820" alt="深色整窗" style="border:1px solid var(--line)">
+  <h3>浅色 · 整窗</h3>
+  <img src="icon22-window-light.png" width="820" alt="浅色整窗" style="border:1px solid var(--line)">
+  <h3>Windows 任务栏实拍（右下角 StuMate 按钮，7 倍）</h3>
+  <img src="icon22-taskbar-zoom.png" width="560" alt="任务栏图标" style="image-rendering:pixelated;border:1px solid var(--line)">
+  <div class="bad" style="margin-top:14px">
+    <b>任务栏图标换了一种取证方式</b>：原计划用 <code>WM_GETICON</code> + <code>GetDIBits</code> 读回位图，
+    但 Skia 交给 Windows 的是 <b>1bpp 单色旧式图标</b>（<code>GetObjectW</code> 报 <code>bmBitsPixel=1</code>，
+    <code>GetDIBits</code> 返回 0 行，<code>DrawIconEx</code> 也返回 0），拿不到彩色位图。
+    改用 <code>ImageGrab</code> 直接截屏取任务栏 —— 反而是更硬的证据：看到的就是系统真实绘制的结果。
+  </div>
+</div>
+
+<h2>五、许可（ISC）</h2>
+<div class="card">
+  <p>Lucide 采用 <b>ISC</b>；<code>bell</code> <b>不在</b>其 Feather(MIT) 衍生清单内（已核对上游 LICENSE 的 44 项清单），
+     所以只需满足 ISC 一条，无 MIT 附加义务。ISC 要求「the above copyright notice and this permission
+     notice appear in <b>all copies</b>」，因此声明放了两处：</p>
+  <table>
+    <tr><th style="width:330px">位置</th><th>形式</th></tr>
+    <tr><td><code>ui/fluent/StuMateMark.kt</code></td><td>KDoc 内嵌完整 ISC 文本</td></tr>
+    <tr><td><code>THIRD-PARTY-NOTICES.md</code>（项目根目录，<b>新建</b>）</td><td>独立第三方声明文件</td></tr>
+  </table>
+</div>
+
+<h2>六、落到代码</h2>
+<div class="card">
+  <h3>Compose 1.5.10 的 <code>addGroup</code> 没有尾随 lambda —— 这是本轮唯一踩到的编译坑</h3>
+  <p>直觉写法是 <code>builder.addGroup(...) { addPath(...) }</code>，编译报
+     <code>Type mismatch: inferred type is () -&gt; Unit but List&lt;PathNode&gt; was expected</code>。
+     它的真实签名最后一个参数是 <code>clipPathData: List&lt;PathNode&gt;</code>，
+     <b>返回</b>一个「作用域指向该 group」的新 builder：</p>
+  <pre>val bell = builder.addGroup(
+    name = "lucide-bell",
+    scaleX = BELL_SCALE, scaleY = BELL_SCALE,
+    translationX = BELL_TX, translationY = BELL_TY
+)
+bell.addPath(pathData = addPathNodes(BELL_BODY), stroke = bellStroke,
+             strokeLineWidth = BELL_STROKE,
+             strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round)</pre>
+  <h3>group 变换语义（反编译 <code>ui-desktop-1.5.10</code> 的 <code>GroupComponent.updateMatrix</code> 确认）</h3>
+  <pre>Matrix.translate(tx + pivotX, ty + pivotY)
+Matrix.rotateZ(rotation)
+Matrix.scale(sx, sy)
+Matrix.translate(-pivotX, -pivotY)   // pivot 取 0 ⇒ p → s·p + t
+// draw() 里 drawContext.transform.transform(groupMatrix)
+// ⇒ group 内的 strokeLineWidth 也按 s 一起缩放</pre>
+  <p>所以 <code>strokeLineWidth = 2f</code> 写在 24 空间里是对的，会自动随 scale 变成 512 空间的 25.2。</p>
+  <table>
+    <tr><th style="width:330px">文件</th><th>改动</th></tr>
+    <tr><td><code>ui/fluent/StuMateMark.kt</code></td>
+        <td>铃铛整段重写：<code>BELL_BODY</code> / <code>BELL_CLAPPER</code> / <code>BELL_STROKE</code> /
+            <code>BELL_SCALE</code> / <code>BELL_TX</code> / <code>BELL_TY</code> 六个常量，
+            删掉 v2.1 的 <code>BELL_RIM</code> 与 <code>circle()</code>（已无调用点），
+            新增 <code>StrokeCap</code> / <code>StrokeJoin</code> 两个 import</td></tr>
+    <tr><td><code>THIRD-PARTY-NOTICES.md</code></td><td><b>新建</b>，ISC 声明</td></tr>
+    <tr><td><code>design-preview/stumate-mark-v2.2.svg</code>（+ 浅色版）</td>
+        <td>设计源文件。<b>改图先改 SVG，再同步到 Kotlin</b></td></tr>
+    <tr><td>调用点</td><td><b>零改动</b>：<code>AppShell.kt</code> 侧栏、托盘图标、任务栏图标共用同一份矢量</td></tr>
+  </table>
+  <div class="note" style="margin-top:14px">
+    <b>渲染约束（仍然成立）</b>：必须 <code>Icon(…, tint = Color.Unspecified)</code>，
+    否则 Material3 会把整张图刷成单色，底色 / 九宫格 / 琥珀格一起消失。
+  </div>
+  <p class="sub">v1.0（字母 S）、v2.0（窄顶铃铛）、v2.1（自绘圆润铃铛）的 SVG 与验收页全部保留，未覆盖。</p>
+</div>
+
+<h2>七、验证结果</h2>
+<div class="card">
+  <table>
+    <tr><th style="width:200px">项</th><th>结果</th></tr>
+    <tr><td>编译</td><td><b>BUILD SUCCESSFUL</b>，0 告警（<code>StuMateMark.kt</code> 无告警）</td></tr>
+    <tr><td>单元测试</td><td><b>145 / 145</b> 通过（<code>--rerun-tasks</code> 实跑，非 UP-TO-DATE）</td></tr>
+    <tr><td>运行日志</td><td>0 字节，无异常</td></tr>
+    <tr><td>深浅两套主题</td><td>均实机截图核对，见第四节</td></tr>
+    <tr><td>任务栏 / Alt-Tab</td><td>实拍核对，铃铛轮廓 + 右上角琥珀格都在</td></tr>
+  </table>
+</div>
+
+<script>
+const INK_D="#003A5C", TILE_D="#60CDFF", INK_L="#FFFFFF", TILE_L="#0067C0";
+const TILE='M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z';
+// Lucide bell 原版 path + 原版描边参数
+const LBODY='M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326';
+const LCLAP='M10.268 21a2 2 0 0 0 3.464 0';
+const BELL=`<g transform="translate(104.79,104.8) scale(12.6)" fill="none" stroke="INKC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${LCLAP}"/><path d="${LBODY}"/></g>`;
+
+function bellOnly(inkc,size){
+  return `<svg viewBox="0 0 512 512" width="${size}" height="${size}" style="display:block">
+    <g transform="translate(104.79,104.8) scale(12.6)" fill="none" stroke="${inkc}" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="${LCLAP}"/><path d="${LBODY}"/>
+    </g></svg>`;
+}
+document.getElementById("cmpRef").innerHTML = bellOnly("#4FC3F7", 150);
+
+function grid(ink,op){
+  let g="";
+  [88,208,328].forEach(y=>[88,208,328].forEach(x=>{
+    if(x===328&&y===88)return;
+    g+=`<rect x="${x}" y="${y}" width="96" height="96" rx="24" fill="${ink}" fill-opacity="${op}"/>`;
+  }));
+  return g;
+}
+function mark(ink,bg,op,size,id){
+  return `<svg viewBox="0 0 512 512" width="${size}" height="${size}" style="display:block">
+    <defs><clipPath id="${id}"><path d="${TILE}"/></clipPath></defs>
+    <g clip-path="url(#${id})">
+      <rect width="512" height="512" fill="${bg}"/>${grid(ink,op)}
+      <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+      ${BELL.replace(/INKC/g, ink)}
+    </g></svg>`;
+}
+const SIZES=[256,128,64,32,26,16];
+function fill(el,ink,bg,op,cls,idp){
+  el.innerHTML = SIZES.map((s,i)=>
+    `<div class="cell"><div class="box ${cls}">${mark(ink,bg,op,s,idp+i)}</div><div class="cap">${s}dp</div></div>`
+  ).join('');
+}
+fill(document.getElementById("rowDark"),  INK_D, TILE_D, 0.18, "",     "dk");
+fill(document.getElementById("rowLight"), INK_L, TILE_L, 0.20, "light", "lt");
+</script>
+</body>
+</html>

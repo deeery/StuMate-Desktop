@@ -20,3 +20,14 @@ local.properties
 
 ### Mac OS ###
 .DS_Store
+.preview-classpath
+
+### 本地临时备份 ###
+#迁移中途的源码副本，只对本机有意义
+_p3-backup-*/
+
+### 验收素材（截图产物，3.9 MB 且每次改动都会重新生成）###
+//!design-preview/
+// 想留 HTML 验收页的话把上面这行的 // 去掉，只忽略截图素材：
+design-preview/*.png
+design-preview/assets/

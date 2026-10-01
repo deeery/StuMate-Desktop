@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="StuMate">
+  <title>StuMate 应用图标（浅色主题）</title>
+  <desc>圆角方块 + 课表九宫格 + 高亮待提醒课格 + 提醒铃铛。浅色主题配色。</desc>
+  <defs>
+    <clipPath id="smTileV2Light">
+      <path d="M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#smTileV2Light)">
+    <rect width="512" height="512" fill="#0067C0"/>
+
+    <g fill="#FFFFFF" fill-opacity="0.20">
+      <rect x="88"  y="88"  width="96" height="96" rx="24"/>
+      <rect x="208" y="88"  width="96" height="96" rx="24"/>
+      <rect x="88"  y="208" width="96" height="96" rx="24"/>
+      <rect x="208" y="208" width="96" height="96" rx="24"/>
+      <rect x="328" y="208" width="96" height="96" rx="24"/>
+      <rect x="88"  y="328" width="96" height="96" rx="24"/>
+      <rect x="208" y="328" width="96" height="96" rx="24"/>
+      <rect x="328" y="328" width="96" height="96" rx="24"/>
+    </g>
+
+    <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+
+    <g fill="#FFFFFF">
+      <path d="M160 336 C160 270 176 210 202 172 A54 54 0 0 1 310 172 C336 210 352 270 352 336 Z"/>
+      <rect x="138" y="330" width="236" height="38" rx="19"/>
+      <circle cx="256" cy="124" r="24"/>
+      <circle cx="256" cy="394" r="26"/>
+    </g>
+  </g>
+</svg>

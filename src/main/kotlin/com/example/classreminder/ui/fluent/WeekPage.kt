@@ -3,7 +3,6 @@ package com.example.classreminder.ui.fluent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -41,13 +40,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,10 +64,21 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val AXIS_WIDTH = 58.dp
 private val GRID_HEADER_HEIGHT = 30.dp
 private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
+
+/**
+ * 课程块「双击编辑」的判定窗口。
+ *
+ * 之所以自己数时间，而不用 `detectTapGestures(onTap, onDoubleTap)` / `combinedClickable`：
+ * 那两个 API 为了让「单击」不与「双击」冲突，必须等双击超时（Compose 默认 300ms）才能
+ * 确认这是一次单击 —— 于是**每一次单击都要僵住 300ms**，这就是「点击延迟极大」的根因。
+ * 这里改成单击**立即**生效（选中本身是幂等的，重复触发无副作用），双击额外触发编辑。
+ */
+private const val DOUBLE_CLICK_MS = 420L
 
 /** 与 `ClassEntity.dayOfWeek` 的取值一一对应（周一 → 周日） */
 internal val DAY_NAMES = listOf(
@@ -120,7 +133,7 @@ fun WeekPage(
     Column(Modifier.fillMaxSize()) {
         PageTopBar(
             title = "课表",
-            subtitle = weekRangeLabel(shownMonday, dates)
+            subtitle = weekRangeLabel(shownMonday)
         ) {
             FlButton("校准周数", onClick = onRequestCalibrate, variant = FlButtonVariant.GHOST, compact = true)
             FlButton("添加课程", onClick = onRequestNewClass, icon = Icons.Default.Add, compact = true)
@@ -147,7 +160,7 @@ fun WeekPage(
                     Spacer(Modifier.width(6.dp))
                     IconNavButton(Icons.Default.KeyboardArrowRight) { shownWeek += 1 }
                     Spacer(Modifier.width(10.dp))
-                    Text(weekRangeLabel(shownMonday, dates), fontSize = 12.5.sp, color = c.onSurfaceVariant)
+                    Text(weekRangeLabel(shownMonday), fontSize = 12.5.sp, color = c.onSurfaceVariant)
                     if (calibrated && currentWeek != null && shownWeek != currentWeek) {
                         Spacer(Modifier.width(10.dp))
                         FlButton("回到本周", onClick = { shownWeek = currentWeek }, variant = FlButtonVariant.TEXT, compact = true)
@@ -210,13 +223,13 @@ fun WeekPage(
             }
 
             // ── 右侧详情面板 ──
-            if (selected != null) {
+            selected?.let { sel ->
                 ClassDetailPanel(
-                    cls = selected!!,
+                    cls = sel,
                     stats = weekStats,
-                    onEdit = { onOpenClass(selected!!) },
+                    onEdit = { onOpenClass(sel) },
                     onDelete = {
-                        viewModel.delete(selected!!)
+                        viewModel.delete(sel)
                         selectedId = null
                     },
                     onClose = { selectedId = null }
@@ -226,7 +239,7 @@ fun WeekPage(
     }
 }
 
-private fun weekRangeLabel(monday: Long, dates: List<String>): String {
+private fun weekRangeLabel(monday: Long): String {
     val fmt = SimpleDateFormat("MM/dd", Locale.getDefault())
     val from = fmt.format(Date(monday))
     val to = fmt.format(Date(monday + 6 * DAY_MILLIS))
@@ -273,6 +286,7 @@ private fun IconNavButton(icon: androidx.compose.ui.graphics.vector.ImageVector,
 
 // ── 表格模式 ────────────────────────────────────────────────────
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun WeekGrid(
     dayClasses: List<List<ClassEntity>>,
@@ -284,6 +298,10 @@ private fun WeekGrid(
 ) {
     val c = FluentTheme.colors
     val d = FluentTheme.dimens
+    val density = LocalDensity.current
+    // 鼠标当前悬停在哪一天（-1 = 不在任何一天上）。表头与整列共用同一个值，
+    // 这样「悬停表头 → 整列高亮」和「悬停列 → 表头跟着亮」是一致的。
+    var hoveredDay by remember { mutableStateOf(-1) }
     val all = remember(dayClasses) { dayClasses.flatten() }
     val span = remember(all) { TimeAxis.spanOf(all) ?: TimeAxis.Span(8 * 60, 18 * 60) }
     val mapping = remember(span) { TimeAxis.mappingOf(span, null) }
@@ -292,34 +310,74 @@ private fun WeekGrid(
     val labels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
     val lineColor = c.outline
+    // 时间格的描边线，用**底板色**（就是刚调深的那一层）：
+    //  · 深色下它是 #141414，比卡片面 (#2B2B2B) 暗 —— 每个整点把这一列切开，
+    //    格子底色本来和卡片面一模一样，不描边就是一大片，分不出节次；
+    //  · 浅色下它就是底板那层 #F3F3F3，比纯白卡片面更浅一档，即「更白的线段」。
+    // 直接复用 c.bg 而不是另立 token，是因为需求就是「和底板同色」；
+    // 哪天要让网格线与底板脱钩，这里换成独立 token 即可。
+    val timeLine = c.bg
     val zebraColor = if (c.isDark) Color(0x0AFFFFFF) else Color(0x06000000)
     val todayTint = c.accentTint
 
-    Box(
+    /**
+     * 把「分钟 → 纵坐标（像素）」算出来后**吸附到整像素**，再交给 [drawRect] 画 1 像素高的实心块。
+     *
+     * 为什么不用 `drawLine(y = 小数)`：抗锯齿会把 1px 的线按小数部分摊到相邻两行上，
+     * 各占约一半浓度。而这条线本身只比底色深 20 来级（深色 `#141414` vs 卡片面 `#2B2B2B`），
+     * 摊薄一半就基本看不出来了 —— 实测恰好有一半的整点落在半像素位置上。
+     * 吸附之后，1 行就是实打实的 1 行，浓淡不打折。
+     */
+    fun lineY(heightPx: Float, minute: Int): Float =
+        (heightPx * mapping.fractionOf(minute)).roundToInt().toFloat()
+
+    BoxWithConstraints(
         modifier = modifier
             .clip(RoundedCornerShape(d.radiusCard))
             .background(c.surface)
             .border(1.dp, c.outline, RoundedCornerShape(d.radiusCard))
     ) {
-        Column(Modifier.fillMaxSize()) {
+        val gridWidth = maxWidth
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // 整张表的列 hover：拿指针 x 反算落在第几列。
+                // 比给每个单元格挂 hoverable/Enter/Exit 更稳 —— 后者在「表头 → 同一天列」这种
+                // 相邻节点间穿梭时，Exit 与 Enter 的派发顺序会让高亮闪断。
+                .onPointerEvent(PointerEventType.Move) { event ->
+                    val x = event.changes.first().position.x
+                    val axisPx = with(density) { AXIS_WIDTH.toPx() }
+                    val sepPx = with(density) { 1.dp.toPx() }
+                    val colPx = (with(density) { gridWidth.toPx() } - axisPx - sepPx * 7f) / 7f
+                    val rel = x - axisPx - sepPx
+                    hoveredDay = if (colPx <= 0f || rel < 0f) -1
+                    else (rel / (colPx + sepPx)).toInt().takeIf { it in 0..6 } ?: -1
+                }
+                .onPointerEvent(PointerEventType.Exit) { hoveredDay = -1 }
+        ) {
             // 表头
             Row(Modifier.fillMaxWidth().height(GRID_HEADER_HEIGHT)) {
                 Box(Modifier.width(AXIS_WIDTH).fillMaxHeight())
                 labels.forEachIndexed { i, label ->
                     val isToday = i == todayIndex
+                    val hovered = i == hoveredDay
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
                             .background(if (isToday) todayTint else Color.Transparent)
-                            .hoverable(remember { MutableInteractionSource() }),
+                            .drawBehind { if (hovered) drawRect(c.hover) },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             label,
                             fontSize = 12.sp,
                             fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
-                            color = if (isToday) c.accent else c.onSurfaceVariant
+                            color = when {
+                                isToday -> c.accent
+                                hovered -> c.onSurface
+                                else -> c.onSurfaceVariant
+                            }
                         )
                         if (isToday) {
                             Box(
@@ -347,8 +405,13 @@ private fun WeekGrid(
                             .fillMaxHeight()
                             .drawBehind {
                                 marks.forEach { m ->
-                                    val y = size.height * mapping.fractionOf(m)
-                                    drawLine(lineColor, Offset(0f, y), Offset(size.width, y), 1f)
+                                    // 用 timeLine 而不是 lineColor：这条刻度线在视觉上
+                                    // 与右边横跨各列的网格线是**同一条线**，两段不同色会像画错了
+                                    drawRect(
+                                        color = timeLine,
+                                        topLeft = Offset(0f, lineY(size.height, m)),
+                                        size = Size(size.width, 1f)
+                                    )
                                 }
                             }
                     ) {
@@ -358,7 +421,15 @@ private fun WeekGrid(
                                 TimeAxis.labelOf(m),
                                 fontSize = 10.5.sp,
                                 color = c.onSurfaceFaint,
-                                modifier = Modifier.offset(y = y - 7.dp).padding(start = 8.dp)
+                                modifier = Modifier
+                                    .offset(y = y - 7.dp)
+                                    // 给标签垫一层与卡片同色的底，让刻度线在文字处**断开**。
+                                    // 刻度线改用底板色之后比原来的 outline 深了一倍多
+                                    // （#141414 vs #3A3A3A），而标签是垂直居中压在刻度线上的，
+                                    // 不垫底就会有一条深色横线从「08:00」正中间穿过去，像删除线。
+                                    // 垫底后读起来就是标准的「08:00 ————」样式。
+                                    .background(c.surface)
+                                    .padding(start = 8.dp, end = 5.dp)
                             )
                         }
                     }
@@ -366,12 +437,12 @@ private fun WeekGrid(
 
                     dayClasses.forEachIndexed { dayIndex, list ->
                         val isToday = dayIndex == todayIndex
+                        val hovered = dayIndex == hoveredDay
                         BoxWithConstraints(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .background(if (isToday) todayTint else Color.Transparent)
-                                .hoverable(remember { MutableInteractionSource() })
                                 .drawBehind {
                                     bands.forEach { band ->
                                         val top = size.height * mapping.fractionOf(band.startMinute)
@@ -382,6 +453,18 @@ private fun WeekGrid(
                                             size = Size(size.width, bottom - top)
                                         )
                                     }
+                                    // 每个整点拉一条横线，把这一列切成一个个时间格。
+                                    // 画在斑马纹之上、课程块之下（drawBehind 天然在内容之下），
+                                    // 于是跨节的课会把线盖住，不会出现「线穿过课程卡片」。
+                                    marks.forEach { m ->
+                                        drawRect(
+                                            color = timeLine,
+                                            topLeft = Offset(0f, lineY(size.height, m)),
+                                            size = Size(size.width, 1f)
+                                        )
+                                    }
+                                    // 列高亮画在斑马纹之上、课程块之下
+                                    if (hovered) drawRect(c.hover)
                                 }
                         ) {
                             val colW = maxWidth
@@ -394,7 +477,6 @@ private fun WeekGrid(
                                 CourseBlock(
                                     cls = placed.cls,
                                     selected = placed.cls.id == selectedId,
-                                    today = isToday,
                                     onSelect = { onSelect(placed.cls) },
                                     onEdit = { onEdit(placed.cls) },
                                     modifier = Modifier
@@ -411,11 +493,11 @@ private fun WeekGrid(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun CourseBlock(
     cls: ClassEntity,
     selected: Boolean,
-    today: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
     modifier: Modifier
@@ -423,20 +505,48 @@ private fun CourseBlock(
     val c = FluentTheme.colors
     val temporary = cls.date.isNotEmpty()
     val barColor = if (temporary) c.warning else c.accent
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+
+    // 手动数双击：单击立刻生效（选中是幂等的），双击额外触发编辑。
+    var lastPressAt by remember(cls.id) { mutableStateOf(0L) }
+
     val bg = if (selected) c.accentTint else c.surface3
-    val borderColor = if (selected) c.accent else Color.Transparent
+    val hoverTint = if (hovered && !selected) c.accentHover else Color.Transparent
+
+    // 描边分两层，职责不同：
+    //  1) borderRest —— **常驻**描边，默认态就有。没有它，一节课在 `surface3` 上
+    //     和旁边那节课、和底板都分不开，整张表看起来是「散落几块颜色」而不是「一节节课」。
+    //  2) borderColor —— **交互态**描边，只在选中 / 悬浮时盖在上面提亮。
+    val borderColor = when {
+        selected -> c.accent
+        hovered -> c.accent.copy(alpha = 0.65f)
+        else -> c.borderRest
+    }
+    // 常驻描边 1dp；选中加粗到 1.5dp，让「选中」在视觉上压得住底下的常驻线。
+    val borderWidth = if (selected) 1.5.dp else 1.dp
 
     Box(
         modifier = modifier
+            // ⚠️ border 必须排在 clip **之前**：border 画在组件内侧，若跟在 clip 后面，
+            //    4dp 圆角处会把它切出缺口，四角描边连不上（表现为四个小小的断口）。
+            //    放到 clip 之前，描边完整地绕一圈，圆角处也是连续的。
+            .border(borderWidth, borderColor, RoundedCornerShape(4.dp))
             .clip(RoundedCornerShape(4.dp))
             .background(bg)
-            .border(if (selected) 1.5.dp else 0.dp, borderColor, RoundedCornerShape(4.dp))
-            .pointerInput(cls.id) {
-                detectTapGestures(
-                    onTap = { onSelect() },
-                    onDoubleTap = { onEdit() }
-                )
+            // 悬停染色叠在底色之上（src-over），比直接换一个实色更不容易在深浅色下翻车
+            .drawBehind { if (hoverTint.alpha > 0f) drawRect(hoverTint) }
+            .hoverable(interaction)
+            .onPointerEvent(PointerEventType.Press) {
+                val now = System.currentTimeMillis()
+                if (now - lastPressAt in 1..DOUBLE_CLICK_MS) {
+                    lastPressAt = 0L
+                    onEdit()
+                } else {
+                    lastPressAt = now
+                }
             }
+            .clickable(interaction, indication = null) { onSelect() }
     ) {
         Box(
             Modifier
@@ -487,12 +597,16 @@ private fun WeekDayList(
             dayClasses.forEachIndexed { index, list ->
                 item(key = "h$index") {
                     val isToday = index == todayIndex
+                    val headerInteraction = remember { MutableInteractionSource() }
+                    val headerHovered by headerInteraction.collectIsHoveredAsState()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(38.dp)
                             .background(if (isToday) c.accentTint else c.surface)
-                            .clickable {
+                            .drawBehind { if (headerHovered) drawRect(c.hover) }
+                            .hoverable(headerInteraction)
+                            .clickable(headerInteraction, indication = null) {
                                 collapsed = if (index in collapsed) collapsed - index else collapsed + index
                             }
                             .padding(horizontal = 14.dp),
@@ -533,12 +647,16 @@ private fun WeekDayList(
                         }
                     } else {
                         items(list, key = { it.id }) { cls ->
+                            val rowInteraction = remember { MutableInteractionSource() }
+                            val rowHovered by rowInteraction.collectIsHoveredAsState()
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(46.dp)
                                     .background(if (cls.id == selectedId) c.accentTint else Color.Transparent)
-                                    .clickable { onSelect(cls) }
+                                    .drawBehind { if (rowHovered && cls.id != selectedId) drawRect(c.hover) }
+                                    .hoverable(rowInteraction)
+                                    .clickable(rowInteraction, indication = null) { onSelect(cls) }
                                     .padding(start = 28.dp, end = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {

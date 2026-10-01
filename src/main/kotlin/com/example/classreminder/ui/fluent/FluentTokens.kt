@@ -44,6 +44,19 @@ data class FluentColors(
     val outline: Color,
     /** 控件描边（比 outline 明显） */
     val outlineStrong: Color,
+    /**
+     * **常驻描边**：课表格子里每一个课程块的默认边框（见 `WeekPage.CourseBlock`）。
+     *
+     * 为什么不复用 [outline] / [outlineStrong]：那两个是给「容器边界」用的，
+     * 差值只有 5–7 级，压在 [surface3] 上等于看不见 —— 实测过，肉眼真的找不到。
+     * 这里要的是 12–15 级：**边界能读出来，但不像刻上去的硬槽**。
+     *
+     * 方向也是反的：深色下比卡片面**亮**（发光，像 Fluent 的分层），
+     * 浅色下比卡片面**暗**（凹陷，符合纸质表格直觉）。
+     * 早先取 `bg`（深色 #141414）在 surface3 上差 31 级，边界虽清楚但过于硬，
+     * 整张表看着像一堆挖空的小格子 —— 深色主题里「亮边」才是不扎眼的那个方向。
+     */
+    val borderRest: Color,
     /** 强调色 */
     val accent: Color,
     val onAccent: Color,
@@ -70,6 +83,7 @@ val FluentLightColors = FluentColors(
     onSurfaceFaint = Color(0xFF8A8A8A),
     outline = Color(0xFFE5E5E5),
     outlineStrong = Color(0xFFC8C8C8),
+    borderRest = Color(0xFFD2D2D2),
     accent = Color(0xFF0067C0),
     onAccent = Color(0xFFFFFFFF),
     accentTint = Color(0x170067C0),
@@ -83,7 +97,12 @@ val FluentLightColors = FluentColors(
 )
 
 val FluentDarkColors = FluentColors(
-    bg = Color(0xFF202020),
+    // 窗口最底层的那块底板 —— 也就是承载卡片、「最后面」的那一层。
+    // 按验收意见从 #202020 调深到 #141414：底板压暗后，叠在上面的
+    // 卡片（surface #2B2B2B）与侧栏（surface2 #272727）层次才拉得开。
+    // 注意：页头 [PageTopBar] 与它共用这个 token，所以页头会一起变深；
+    // 若想让页头保持浅一档，需要单独拆一个 token 出来。
+    bg = Color(0xFF141414),
     surface = Color(0xFF2B2B2B),
     surface2 = Color(0xFF272727),
     surface3 = Color(0xFF333333),
@@ -92,6 +111,7 @@ val FluentDarkColors = FluentColors(
     onSurfaceFaint = Color(0xFF8A8A8A),
     outline = Color(0xFF3A3A3A),
     outlineStrong = Color(0xFF4A4A4A),
+    borderRest = Color(0xFF404040),
     accent = Color(0xFF60CDFF),
     onAccent = Color(0xFF003A5C),
     accentTint = Color(0x1F60CDFF),

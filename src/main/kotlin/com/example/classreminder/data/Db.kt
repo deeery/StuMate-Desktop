@@ -22,8 +22,8 @@ import java.sql.Statement
  */
 object Db {
 
-    /** 与安卓端 Room 的 version 对齐（classes + notes 共 18 列） */
-    const val SCHEMA_VERSION = 7
+    /** 与安卓端 Room 的 version 对齐（v7：classes 10 列 + notes 8 列；v8 各再加 3 列同步元数据） */
+    const val SCHEMA_VERSION = 8
 
     private val gate = Mutex()
 
@@ -61,8 +61,50 @@ object Db {
         val current = userVersion(c)
         if (current >= SCHEMA_VERSION) return
         // 全新库直接建到最新版；桌面端是新库，不存在安卓端那 2→3…6→7 的历史迁移
-        if (current < 1) createTables(c)
+        if (current < 1) {
+            createTables(c)
+        } else if (current < 8) {
+            migrateToV8(c)
+        }
         c.createStatement().use { it.execute("PRAGMA user_version = $SCHEMA_VERSION") }
+    }
+
+    /**
+     * v7 → v8：给 `classes` / `notes` 各补三列同步元数据（uid / updatedAt / deletedAt）。
+     *
+     * 老库里的行没有 uid，这里逐行补一个 UUIDv4，**补完即固化**。
+     * 不能留到运行时惰性生成：那样每次启动都会换一批 uid，同步层会把它们当成新记录。
+     */
+    private fun migrateToV8(c: Connection) {
+        for (table in listOf("classes", "notes")) {
+            addColumnIfMissing(c, table, "uid", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(c, table, "updatedAt", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(c, table, "deletedAt", "INTEGER NOT NULL DEFAULT 0")
+            backfillUids(c, table)
+        }
+    }
+
+    private fun addColumnIfMissing(c: Connection, table: String, column: String, declaration: String) {
+        val exists = c.query("PRAGMA table_info(`$table`)") { rs ->
+            var found = false
+            while (rs.next()) if (rs.getString("name") == column) found = true
+            found
+        }
+        if (!exists) c.ddl("ALTER TABLE `$table` ADD COLUMN `$column` $declaration")
+    }
+
+    private fun backfillUids(c: Connection, table: String) {
+        val ids = c.query("SELECT `id` FROM `$table` WHERE `uid` IS NULL OR `uid` = ''") { rs ->
+            val out = ArrayList<Int>()
+            while (rs.next()) out += rs.getInt("id")
+            out
+        }
+        if (ids.isEmpty()) return
+        c.transaction {
+            ids.forEach { id ->
+                c.exec("UPDATE `$table` SET `uid` = ? WHERE `id` = ?", newUid(), id)
+            }
+        }
     }
 
     private fun createTables(c: Connection) {
@@ -80,6 +122,9 @@ object Db {
                     `teacher` TEXT NOT NULL,
                     `weeks` TEXT NOT NULL,
                     `date` TEXT NOT NULL,
+                    `uid` TEXT NOT NULL DEFAULT '',
+                    `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                    `deletedAt` INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(`id`)
                 )
                 """.trimIndent()
@@ -95,6 +140,9 @@ object Db {
                     `typeIndex` INTEGER NOT NULL,
                     `customLabel` TEXT NOT NULL,
                     `deadlineAt` INTEGER NOT NULL,
+                    `uid` TEXT NOT NULL DEFAULT '',
+                    `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                    `deletedAt` INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(`id`)
                 )
                 """.trimIndent()

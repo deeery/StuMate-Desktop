@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StuMate 桌面版 · 课表悬浮反馈 &amp; 点击延迟 修复验收 v1.0</title>
+<style>
+  :root{
+    --bg:#1a1a1a; --surface:#242424; --surface2:#2b2b2b; --line:#3a3a3a;
+    --fg:#f2f2f2; --fg2:#c5c5c5; --fg3:#8a8a8a;
+    --accent:#60cdff; --accent-dim:#0f2a3a; --ok:#6ccb5f; --warn:#fce100; --err:#ff99a4;
+    --mono:"Cascadia Mono","Consolas","Menlo",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.7 "Microsoft YaHei UI","Segoe UI",system-ui,sans-serif;}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:.2px}
+  .sub{color:var(--fg3);font-size:13px;margin-bottom:28px}
+  h2{font-size:17px;margin:36px 0 12px;padding-left:11px;border-left:3px solid var(--accent)}
+  h3{font-size:14.5px;margin:22px 0 8px;color:var(--fg2)}
+  p{margin:8px 0;color:var(--fg2)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin:14px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .bad{color:var(--err)} .good{color:var(--ok)} .hl{color:var(--accent)}
+  code{font-family:var(--mono);font-size:12.5px;background:#191919;border:1px solid #333;
+    border-radius:4px;padding:1px 5px;color:#e8e8e8}
+  pre{font-family:var(--mono);font-size:12.5px;line-height:1.6;background:#191919;
+    border:1px solid #333;border-radius:6px;padding:14px 16px;overflow:auto;margin:10px 0}
+  pre .c{color:#6a9955} pre .k{color:#c586c0} pre .s{color:#ce9178} pre .n{color:#b5cea8}
+  pre .del{color:#ff8a8a} pre .add{color:#7ee787}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+  th{color:var(--fg3);font-weight:600;font-size:12.5px;letter-spacing:.3px}
+  td.num{font-family:var(--mono);text-align:right}
+  .pill{display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;
+    border:1px solid var(--line);color:var(--fg2);margin-right:6px}
+  .pill.ok{border-color:#2d5a2a;color:var(--ok);background:#16210f}
+  .pill.no{border-color:#5a2d2d;color:var(--err);background:#210f0f}
+  figure{margin:16px 0}
+  figure img{width:100%;display:block;border:1px solid var(--line);border-radius:8px}
+  figcaption{font-size:12.5px;color:var(--fg3);margin-top:8px}
+  ul{margin:8px 0;padding-left:20px;color:var(--fg2)} li{margin:5px 0}
+  .kv{font-family:var(--mono);font-size:12.5px;color:var(--fg2)}
+  .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;
+    vertical-align:-2px;margin-right:6px;border:1px solid #555}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>课表页「悬浮无反馈 + 点击延迟极大」修复验收</h1>
+  <div class="sub">
+    StuMate 桌面版 · Compose Multiplatform 1.5.10 · 2026-09-30 ·
+    改动文件 <code>ui/fluent/WeekPage.kt</code>（唯一改动文件）
+  </div>
+
+  <div class="card">
+    <span class="pill no">修复前</span> 鼠标划过课程块：<span class="bad">毫无反应</span>；单击课程块：<span class="bad">约 300ms 后才响应</span><br>
+    <span class="pill ok">修复后</span> 悬浮：整列 + 表头 + 课程块<span class="good">三处同时亮起</span>；单击：<span class="good">23.4ms</span>（与普通按钮同级）
+  </div>
+
+  <h2>1 · 两个问题，两个不同的根因</h2>
+
+  <h3>根因 A：单击延迟 = 双击判定超时</h3>
+  <p>
+    <code>CourseBlock</code> 原来用 <code>detectTapGestures(onTap, onDoubleTap)</code>。
+    为了区分「单击」和「双击」，Compose 必须在收到第一次抬起后
+    <strong>继续等一个双击超时窗口</strong>（<code>ViewConfiguration.doubleTapTimeoutMillis</code>，桌面端默认 300ms），
+    期间没有第二次按下，才敢认定这是一次单击。
+  </p>
+  <p>
+    也就是说 —— <span class="hl">每一次单击都要原地僵住 300ms</span>。
+    这是 API 语义决定的，不是性能问题，优化布局 / 减少重组都没用。
+    <code>combinedClickable</code> 同理。
+  </p>
+
+  <h3>根因 B：hover 声明了，但没人读</h3>
+  <p>
+    <code>WeekGrid</code> 里有三处 <code>.hoverable(remember { MutableInteractionSource() })</code>。
+    <code>hoverable</code> 只是把指针进出事件写进一个交互源；<strong>不读这个源就不会有任何视觉变化</strong>。
+    这里的源是匿名创建、创建完就丢掉，等于挂了个空转的监听器 —— 有事件，无反馈。
+  </p>
+  <p>而 <code>CourseBlock</code> 连 <code>hoverable</code> 都没有，所以课程块悬浮是彻底没反应的。</p>
+
+  <h2>2 · 改法</h2>
+
+  <h3>2.1 单击立即生效，双击手动计数</h3>
+  <pre><span class="c">// 改前：单击被双击判定拖住 300ms</span>
+<span class="del">- .pointerInput(cls.id) {
+-     detectTapGestures(onTap = { onSelect() }, onDoubleTap = { onEdit() })
+- }</span>
+
+<span class="c">// 改后：单击走 clickable（抬起即触发），双击自己数时间</span>
+<span class="add">+ .hoverable(interaction)
++ .onPointerEvent(PointerEventType.Press) {
++     val now = System.currentTimeMillis()
++     if (now - lastPressAt in 1..DOUBLE_CLICK_MS) { lastPressAt = 0L; onEdit() }
++     else lastPressAt = now
++ }
++ .clickable(interaction, indication = null) { onSelect() }</span>
+
+<span class="c">/** 双击判定窗口 420ms（Windows 默认双击间隔 500ms，取略小值） */</span>
+<span class="k">private const val</span> DOUBLE_CLICK_MS = <span class="n">420L</span></pre>
+  <p>
+    <strong>为什么这样拆是安全的</strong>：双击时第一次单击会先把课程<em>选中</em>，而「选中」是幂等操作
+    （<code>selectedId = cls.id</code>），重复触发没有任何副作用；紧接着第二次按下触发编辑。
+    用户感知是「点一下立刻选中，再点一下弹出编辑」，中间不再有空档。
+  </p>
+
+  <h3>2.2 整列 hover：用指针坐标反算，而不是逐格 Enter/Exit</h3>
+  <p>
+    直觉做法是给每个表头格和每个日列各挂一个 <code>hoverable</code>，再共享一个 <code>hoveredDay</code> 状态。
+    但鼠标从「表头」滑到「同一天的列」时，两个相邻节点的 <code>Exit</code> 和 <code>Enter</code> 派发顺序不保证，
+    会出现高亮闪断。
+  </p>
+  <p>改成在整张表上挂一个 <code>Move</code> 处理器，拿指针 x 直接算落在第几列：</p>
+  <pre><span class="add">+ .onPointerEvent(PointerEventType.Move) { event -&gt;
++     val x = event.changes.first().position.x
++     val colPx = (gridWidth.toPx() - axisPx - sepPx * 7f) / 7f
++     val rel = x - axisPx - sepPx
++     hoveredDay = if (colPx &lt;= 0f || rel &lt; 0f) -1
++                  else (rel / (colPx + sepPx)).toInt().takeIf { it in 0..6 } ?: -1
++ }
++ .onPointerEvent(PointerEventType.Exit) { hoveredDay = -1 }</span></pre>
+  <p>
+    <code>Exit</code> 只在整张表上挂一次，所以不存在「相邻节点互相打断」的问题 —— 鼠标在表内移动时只走 <code>Move</code> 分支。
+    表头和日列读同一个 <code>hoveredDay</code>，于是「悬停表头 → 整列亮」「悬停列 → 表头也亮」天然一致。
+  </p>
+
+  <h3>2.3 具体视觉</h3>
+  <div class="card" style="padding:14px 20px">
+    <table style="margin:0">
+      <tr><th>元素</th><th>常态</th><th>悬浮</th><th>实现</th></tr>
+      <tr>
+        <td>课程块底色</td>
+        <td class="kv"><span class="swatch" style="background:#333333"></span>#333333</td>
+        <td class="kv"><span class="swatch" style="background:#363d41"></span>rgb(54,61,65)</td>
+        <td class="kv">叠一层 <code>accentHover</code></td>
+      </tr>
+      <tr>
+        <td>课程块描边</td>
+        <td class="kv">无</td>
+        <td class="kv"><span class="swatch" style="background:#60cdff"></span>强调色 1dp</td>
+        <td class="kv"><code>accent</code> @65%</td>
+      </tr>
+      <tr>
+        <td>日列底色</td>
+        <td class="kv"><span class="swatch" style="background:#2b2b2b"></span>#2B2B2B</td>
+        <td class="kv"><span class="swatch" style="background:#373737"></span>#373737</td>
+        <td class="kv">叠 <code>c.hover</code></td>
+      </tr>
+      <tr>
+        <td>表头文字</td>
+        <td class="kv">onSurfaceVariant</td>
+        <td class="kv">onSurface（提亮）</td>
+        <td class="kv">跟随 hoveredDay</td>
+      </tr>
+      <tr>
+        <td>列表模式·课程行</td>
+        <td class="kv"><span class="swatch" style="background:#2b2b2b"></span>#2B2B2B</td>
+        <td class="kv"><span class="swatch" style="background:#373737"></span>#373737</td>
+        <td class="kv">顺手一起补上</td>
+      </tr>
+      <tr>
+        <td>列表模式·日期头</td>
+        <td class="kv"><span class="swatch" style="background:#2b2b2b"></span>#2B2B2B</td>
+        <td class="kv"><span class="swatch" style="background:#373737"></span>#373737</td>
+        <td class="kv">顺手一起补上</td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>3 · 实机验收截图</h2>
+
+  <figure>
+    <img src="fix-compare-grid.png" alt="表格模式 hover 对比">
+    <figcaption>
+      表格模式。上：无 hover，周一列与课程块都是平的。下：光标压在「高等数学」上 ——
+      周一整列提亮、表头「周一」同步提亮、课程块染上强调色并出现 1dp 描边。
+    </figcaption>
+  </figure>
+
+  <figure>
+    <img src="fix-compare-list.png" alt="列表模式 hover 对比">
+    <figcaption>列表模式。上：常态。下：光标压在「数据结构」行上，整行高亮（46dp 行高全宽）。</figcaption>
+  </figure>
+
+  <div class="grid2">
+    <figure>
+      <img src="fix-04-selected.png" alt="单击选中">
+      <figcaption>单击课程块 → 右侧详情面板即时弹出（原来要等 300ms）。</figcaption>
+    </figure>
+    <figure>
+      <img src="fix-06-dblclick.png" alt="双击编辑">
+      <figcaption>双击课程块 → 仍能正常打开「编辑长期提醒」弹窗，双击没被改坏。</figcaption>
+    </figure>
+  </div>
+
+  <h2>4 · 点击延迟实测</h2>
+  <p>
+    测量方式：把光标停在课程块上取基线，按下鼠标后用 <code>BitBlt</code> 高频抓取右侧面板区域，
+    测出「鼠标按下 → 画面发生变化」的毫秒数。单帧采样耗时 5.2ms，即时间分辨率约 5ms。
+  </p>
+  <table>
+    <tr><th>测量对象</th><th>说明</th><th style="text-align:right">中位耗时</th><th style="text-align:right">5 次范围</th></tr>
+    <tr>
+      <td>课程块单击</td>
+      <td>本次修复的对象</td>
+      <td class="num good">23.4 ms</td>
+      <td class="num">22.9 – 31.0</td>
+    </tr>
+    <tr>
+      <td>详情面板 ✕ 按钮</td>
+      <td>对照组：本来就是 <code>clickable</code> 的普通按钮</td>
+      <td class="num">19.5 ms</td>
+      <td class="num">19.2 – 23.4</td>
+    </tr>
+    <tr>
+      <td>课程块单击（修复前）</td>
+      <td>被双击超时卡住，理论上限即 <code>doubleTapTimeoutMillis</code></td>
+      <td class="num bad">≈ 300 ms</td>
+      <td class="num">—</td>
+    </tr>
+  </table>
+  <p>
+    课程块（23.4ms）已经和普通按钮（19.5ms）落在同一个量级，差值约 4ms ≈ 一帧渲染，
+    说明<span class="good">那次人为的 300ms 等待已经彻底消失</span>。
+  </p>
+
+  <h2>5 · 回归</h2>
+  <ul>
+    <li><code>./gradlew test</code> — <strong>145 / 145 通过</strong>，0 失败（未改动任何测试断言）</li>
+    <li><code>./gradlew compileKotlin</code> — BUILD SUCCESSFUL，<strong>0 告警</strong>
+      （顺手清掉了 WeekPage 里 4 个历史告警：3 个多余的 <code>!!</code>、2 个未使用参数）</li>
+    <li>双击编辑、单击选中、右侧详情面板、列表模式折叠 —— 均实机复测正常</li>
+  </ul>
+
+  <h2>6 · 复现验证用的工具</h2>
+  <p>都留在仓库里，下次改 UI 可以直接复用：</p>
+  <div class="card" style="padding:14px 20px">
+    <table style="margin:0">
+      <tr><th>脚本</th><th>用途</th></tr>
+      <tr><td class="kv">tools/win_input.py</td><td class="kv">info / click-win / <span class="hl">move-win</span>（新增，验证 hover）/ <span class="hl">dblclick-win</span>（新增）</td></tr>
+      <tr><td class="kv">tools/capture_window.py</td><td class="kv">截取窗口（注意：会走最小化→还原，不能用来截 hover 态）</td></tr>
+      <tr><td class="kv">%TEMP%\stumate_probe\probe_hover.py</td><td class="kv">只移动光标不碰 z 序，用来截 hover 态</td></tr>
+      <tr><td class="kv">%TEMP%\stumate_probe\probe_click_latency.py</td><td class="kv">BitBlt 高频采样，量「按下→画面响应」的毫秒数</td></tr>
+      <tr><td class="kv">%TEMP%\stumate_probe\diff_shots.py</td><td class="kv">两张截图做像素级 diff，给出变化包围盒与色差</td></tr>
+      <tr><td class="kv">%TEMP%\stumate_probe\grid_geom.py / col_profile.py / find_glyph.py</td><td class="kv">从截图反解控件几何，避免靠肉眼估坐标</td></tr>
+    </table>
+  </div>
+
+  <h2>7 · 一个顺带发现（未改，等确认）</h2>
+  <p>
+    <code>ToastHost</code> 用的是 <code>MaterialTheme.colorScheme.inverseSurface</code>，
+    不跟随 Fluent 主题。在浅色 Fluent 主题下如果系统是深色，Toast 会取到 Material 的深色底。
+    这次没动它 —— 需要的话说一声，一起收掉。
+  </p>
+
+</div>
+</body>
+</html>

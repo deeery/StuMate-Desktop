@@ -45,7 +45,7 @@ import com.example.classreminder.data.ClassEntity
 import com.example.classreminder.data.MainViewModel
 import com.example.classreminder.platform.ReminderEngine
 
-/** 四个主页面。顺序与 `Prefs.getLastTab()` 的 0/1/2 对齐（设置页不记录） */
+/** 四个主页面。顺序即侧栏自上而下的排列顺序 */
 enum class AppPage(val label: String, val icon: ImageVector) {
     TODAY("今天", Icons.Default.Home),
     WEEK("课表", Icons.Default.DateRange),
@@ -64,10 +64,18 @@ fun AppShell(
     onThemeModeChanged: (Int) -> Unit,
     onTestNotification: () -> Unit,
     onOpenDataFolder: () -> Unit,
-    onImportTimetable: () -> Unit
+    onImportTimetable: () -> Unit,
+    /**
+     * 起始页面。生产调用点永远不传（固定落在 [AppPage.TODAY]）；只有 `dev/UiPreview`
+     * 截图工具会指定它 —— 验收环境里鼠标注入不可用，没法「点」到设置页去。
+     */
+    initialPage: AppPage? = null
 ) {
     val c = FluentTheme.colors
-    var page by remember { mutableStateOf(AppPage.entries[Prefs.getLastTab().coerceIn(0, 2)]) }
+    // 启动一律落在「今日」。
+    // 以前是恢复上次停留的标签页（`Prefs.getLastTab()`），结果「上次在便签，
+    // 下次打开还是便签」，与「打开就看今天」的预期不符，故改为固定开今日。
+    var page by remember(initialPage) { mutableStateOf(initialPage ?: AppPage.TODAY) }
     val notes by viewModel.notes.collectAsState()
 
     // 课程编辑对话框的状态提到这里：「今天」页和「课表」页都要用，
@@ -83,11 +91,7 @@ fun AppShell(
                 page = page,
                 noteCount = notes.size,
                 collapsed = collapsed,
-                onSelect = {
-                    page = it
-                    // 设置页不记录落点（与手机版一致）
-                    if (it != AppPage.SETTINGS) Prefs.setLastTab(it.ordinal)
-                }
+                onSelect = { page = it }
             )
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 when (page) {
@@ -176,12 +180,15 @@ private fun AppSidebar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (collapsed) Arrangement.Center else Arrangement.Start
         ) {
-            Box(
-                modifier = Modifier.size(26.dp).clip(RoundedCornerShape(6.dp)).background(c.accent),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("S", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.onAccent)
-            }
+            // 品牌标识：圆角方块 + 课表九宫格 + 高亮待提醒课格 + 字母 S。
+            // tint 必须是 Color.Unspecified —— 否则 Material3 会把整张图刷成单色，
+            // 底色和高亮格一起消失。见 StuMateMark.kt
+            Icon(
+                imageVector = stuMateMark(),
+                contentDescription = "StuMate",
+                tint = Color.Unspecified,
+                modifier = Modifier.size(26.dp)
+            )
             if (!collapsed) {
                 Spacer(Modifier.width(10.dp))
                 Text("StuMate", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.onSurface)

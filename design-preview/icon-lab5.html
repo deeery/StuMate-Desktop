@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Lucide 铃铛移植 · 比选台 lab5</title>
+<style>
+  :root{--bg:#1b1b1b;--panel:#242424;--panel2:#2b2b2b;--line:#3a3a3a;--fg:#e8e8e8;--fg2:#a8a8a8;--fg3:#7a7a7a;--accent:#60CDFF;--hl:#FFB900}
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 24px 56px;background:var(--bg);color:var(--fg);font:14px/1.65 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  h1{font-size:19px;margin:0 0 4px;font-weight:600}
+  h2{font-size:14px;margin:26px 0 10px;font-weight:600;color:var(--accent);border-left:3px solid var(--accent);padding-left:9px}
+  .sub{color:var(--fg3);font-size:12.5px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:10px 0}
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
+  .cell{text-align:center}
+  .cell .cap{font-size:11px;color:var(--fg3);margin-top:5px}
+  .box{padding:8px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;background:#272727}
+  .box.light{background:#EBEBEB}
+  .vname{font-size:13px;font-weight:600;color:var(--fg);margin-bottom:2px}
+  .vdesc{font-size:12px;color:var(--fg3);margin-bottom:10px}
+  .big{display:flex;gap:22px;flex-wrap:wrap;align-items:center}
+  code{background:#2f2f2f;padding:1px 5px;border-radius:3px;font-size:12.5px;color:#9cdcff}
+</style>
+</head>
+<body>
+
+<h1>Lucide 铃铛移植 · 比选台</h1>
+<div class="sub">lab5 · 2026-10-01 · 九宫格 / 琥珀格 / 外轮廓 / 配色全部不动，只换铃铛</div>
+
+<h2>大尺寸对照（128dp）</h2>
+<div class="card"><div class="big" id="bigRow"></div></div>
+
+<h2>深色主题 · 多尺寸</h2>
+<div class="card" id="darkStack"></div>
+
+<h2>浅色主题 · 多尺寸</h2>
+<div class="card" id="lightStack"></div>
+
+<script>
+const INK_D="#003A5C", TILE_D="#60CDFF", INK_L="#FFFFFF", TILE_L="#0067C0";
+const TILE='M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z';
+
+// ── Lucide bell（ISC）原始 path，24 viewBox，stroke-width 2 ──────────
+const L_BODY    = "M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326";
+const L_CLAPPER = "M10.268 21a2 2 0 0 0 3.464 0";
+// 24 空间 → 512 空间：视觉外接框 19.478×22 缩放到 236 宽、居中 (256,256)
+const XF = "translate(110.58,116.67) scale(12.116)";
+
+// ── 四个候选 ────────────────────────────────────────────────────────
+const VARIANTS = [
+  { id:"S",  name:"S · Lucide 原样描边",
+    desc:"两条 path 原样搬过来，stroke-width 2 / round cap+join",
+    bell: ink => `<g transform="${XF}" fill="none" stroke="${ink}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${L_CLAPPER}"/><path d="${L_BODY}"/></g>` },
+
+  { id:"F",  name:"F · 主体填充 + 摆锤描边",
+    desc:"主体 path 填充成剪影，摆锤保留 2 单位描边",
+    bell: ink => `<g transform="${XF}"><path d="${L_BODY}Z" fill="${ink}"/><path d="${L_CLAPPER}" fill="none" stroke="${ink}" stroke-width="2" stroke-linecap="round"/></g>` },
+
+  { id:"F2", name:"F2 · 主体填充 + 摆锤加粗填充",
+    desc:"主体填充，摆锤 2.6 单位描边 + 填充，抗缩小",
+    bell: ink => `<g transform="${XF}"><path d="${L_BODY}Z" fill="${ink}"/><path d="${L_CLAPPER}Z" fill="${ink}" stroke="${ink}" stroke-width="2.6" stroke-linecap="round"/></g>` },
+
+  { id:"V",  name:"V · 当前 v2.1（基线）",
+    desc:"自绘铃铛，圆顶 75% 底沿宽，全填充",
+    bell: ink => `<g fill="${ink}"><path d="M148 336 C148 306 168 276 168 216 A88 88 0 0 1 344 216 C344 276 364 306 364 336 Z"/><rect x="138" y="300" width="236" height="36" rx="18"/><circle cx="256" cy="358" r="26"/></g>` },
+];
+
+let uid = 0;
+function grid(ink, bg, op){
+  let g = "";
+  [88,208,328].forEach(y => [88,208,328].forEach(x => {
+    if (x === 328 && y === 88) return;
+    g += `<rect x="${x}" y="${y}" width="96" height="96" rx="24" fill="${ink}" fill-opacity="${op}"/>`;
+  }));
+  return g;
+}
+function mark(ink, bg, op, bellFn, size){
+  const id = "cp" + (uid++);
+  return `<svg viewBox="0 0 512 512" width="${size}" height="${size}" style="display:block">
+    <defs><clipPath id="${id}"><path d="${TILE}"/></clipPath></defs>
+    <g clip-path="url(#${id})">
+      <rect width="512" height="512" fill="${bg}"/>
+      ${grid(ink, bg, op)}
+      <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+      ${bellFn(ink)}
+    </g></svg>`;
+}
+const SIZES = [256,128,64,32,26,16];
+
+// 大尺寸对照
+document.getElementById("bigRow").innerHTML = VARIANTS.map(v =>
+  `<div class="cell"><div class="vname">${v.name}</div><div class="vdesc">${v.desc}</div>
+   <div class="box">${mark(INK_D, TILE_D, 0.18, v.bell, 128)}</div></div>`).join('');
+
+function stack(el, ink, bg, op, cls){
+  el.innerHTML = VARIANTS.map(v =>
+    `<div style="margin:14px 0 4px"><div class="vname">${v.name}</div></div>
+     <div class="row">${SIZES.map(s =>
+       `<div class="cell"><div class="box ${cls}">${mark(ink, bg, op, v.bell, s)}</div><div class="cap">${s}dp</div></div>`
+     ).join('')}</div>`).join('');
+}
+stack(document.getElementById("darkStack"),  INK_D, TILE_D, 0.18, "");
+stack(document.getElementById("lightStack"), INK_L, TILE_L, 0.20, "light");
+</script>
+</body>
+</html>

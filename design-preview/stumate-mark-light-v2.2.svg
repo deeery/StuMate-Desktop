@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="StuMate">
+  <title>StuMate 应用图标 v2.2（浅色主题）</title>
+  <desc>圆角方块 + 课表九宫格 + 高亮待提醒课格 + Lucide 铃铛。浅色主题配色。</desc>
+  <defs>
+    <clipPath id="smTileV22Light">
+      <path d="M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#smTileV22Light)">
+    <rect width="512" height="512" fill="#0067C0"/>
+
+    <g fill="#FFFFFF" fill-opacity="0.20">
+      <rect x="88"  y="88"  width="96" height="96" rx="24"/>
+      <rect x="208" y="88"  width="96" height="96" rx="24"/>
+      <rect x="88"  y="208" width="96" height="96" rx="24"/>
+      <rect x="208" y="208" width="96" height="96" rx="24"/>
+      <rect x="328" y="208" width="96" height="96" rx="24"/>
+      <rect x="88"  y="328" width="96" height="96" rx="24"/>
+      <rect x="208" y="328" width="96" height="96" rx="24"/>
+      <rect x="328" y="328" width="96" height="96" rx="24"/>
+    </g>
+
+    <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+
+    <!-- 铃铛同深色版：Lucide bell 原版描边，translate(104.79,104.8) scale(12.6) -->
+    <g transform="translate(104.79,104.8) scale(12.6)" fill="none" stroke="#FFFFFF"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10.268 21a2 2 0 0 0 3.464 0"/>
+      <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>
+    </g>
+  </g>
+</svg>

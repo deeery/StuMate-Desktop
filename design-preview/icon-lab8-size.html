@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Lucide 填充铃铛 · 尺寸比选 lab8</title>
+<style>
+  :root{--bg:#1b1b1b;--panel:#242424;--line:#3a3a3a;--fg:#e8e8e8;--fg3:#7a7a7a;--accent:#60CDFF}
+  *{box-sizing:border-box}
+  body{margin:0;padding:20px 18px 36px;background:var(--bg);color:var(--fg);font:13px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  h1{font-size:17px;margin:0 0 3px;font-weight:600}
+  .sub{color:var(--fg3);font-size:11.5px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0}
+  .vrow{margin:10px 0 3px;font-size:12.5px;font-weight:600}
+  .vrow span{font-weight:400;color:var(--fg3);margin-left:8px}
+  .row{display:flex;gap:12px;flex-wrap:nowrap;align-items:flex-end}
+  .cell{text-align:center}
+  .cell .cap{font-size:10px;color:var(--fg3);margin-top:3px}
+  canvas{display:block;background:#272727;border-radius:3px}
+</style>
+</head>
+<body>
+<h1>Lucide 填充铃铛 · 尺寸比选</h1>
+<div class="sub">lab8 · 主体 path 与 Lucide 逐字一致，只改缩放系数</div>
+<div class="card" id="dark"></div>
+
+<script>
+const INK="#003A5C", TILE="#60CDFF";
+const TILEP='M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z';
+const L_BODY = "M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326";
+
+// 内容 bbox（含摆锤）：x 3.262→20.74（宽 17.478），y 2→23.5（高 21.5），中心 (12.001,12.75)
+const S_OPTS = [
+  { s:12.116, name:"尺寸 A", desc:"宽 212 · 高 260（lab7 用的就是这个）" },
+  { s:13.000, name:"尺寸 B", desc:"宽 227 · 高 280" },
+  { s:13.503, name:"尺寸 C", desc:"宽 236 · 高 290 —— 与 v2.1 等宽" },
+];
+function xf(s){ return `translate(${(256-s*12.001).toFixed(2)},${(256-s*12.75).toFixed(2)}) scale(${s})`; }
+
+const VARIANTS = S_OPTS.map(o => ({
+  name:o.name, desc:o.desc,
+  bell: ink => `<g transform="${xf(o.s)}"><path d="${L_BODY}Z" fill="${ink}"/><circle cx="12" cy="21.6" r="1.9" fill="${ink}"/></g>`
+}));
+VARIANTS.push({ name:"V · 当前 v2.1（基线）", desc:"宽 236 · 高 256",
+  bell: ink => `<g fill="${ink}"><path d="M148 336 C148 306 168 276 168 216 A88 88 0 0 1 344 216 C344 276 364 306 364 336 Z"/><rect x="138" y="300" width="236" height="36" rx="18"/><circle cx="256" cy="358" r="26"/></g>` });
+
+const SMALL=[26,32,48,64], Z=6, LARGE=[128,256];
+let uid=0;
+function grid(ink, op){
+  let g="";
+  [88,208,328].forEach(y=>[88,208,328].forEach(x=>{
+    if(x===328&&y===88)return;
+    g+=`<rect x="${x}" y="${y}" width="96" height="96" rx="24" fill="${ink}" fill-opacity="${op}"/>`;
+  }));
+  return g;
+}
+function svgString(ink,bg,op,bellFn){
+  const id="cp"+(uid++);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+    <defs><clipPath id="${id}"><path d="${TILEP}"/></clipPath></defs>
+    <g clip-path="url(#${id})">
+      <rect width="512" height="512" fill="${bg}"/>${grid(ink,op)}
+      <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+      ${bellFn(ink)}
+    </g></svg>`;
+}
+function raster(str, px){
+  return new Promise(res=>{
+    const url=URL.createObjectURL(new Blob([str],{type:"image/svg+xml"}));
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement("canvas"); c.width=px; c.height=px;
+      c.getContext("2d").drawImage(img,0,0,px,px);
+      URL.revokeObjectURL(url); res(c);
+    };
+    img.src=url;
+  });
+}
+function upscale(src,z){
+  const c=document.createElement("canvas");
+  c.width=src.width*z; c.height=src.height*z;
+  const x=c.getContext("2d"); x.imageSmoothingEnabled=false;
+  x.drawImage(src,0,0,c.width,c.height);
+  return c;
+}
+(async ()=>{
+  const el=document.getElementById("dark");
+  for(const v of VARIANTS){
+    const head=document.createElement("div");
+    head.className="vrow"; head.innerHTML=`${v.name}<span>${v.desc}</span>`;
+    el.appendChild(head);
+    const row=document.createElement("div"); row.className="row"; el.appendChild(row);
+    for(const s of SMALL){
+      const cell=document.createElement("div"); cell.className="cell";
+      cell.appendChild(upscale(await raster(svgString(INK,TILE,0.18,v.bell), s), Z));
+      const cap=document.createElement("div"); cap.className="cap"; cap.textContent=s+"dp";
+      cell.appendChild(cap); row.appendChild(cell);
+    }
+    for(const s of LARGE){
+      const cell=document.createElement("div"); cell.className="cell";
+      cell.appendChild(upscale(await raster(svgString(INK,TILE,0.18,v.bell), s), 1));
+      const cap=document.createElement("div"); cap.className="cap"; cap.textContent=s+"dp";
+      cell.appendChild(cap); row.appendChild(cell);
+    }
+  }
+})();
+</script>
+</body>
+</html>

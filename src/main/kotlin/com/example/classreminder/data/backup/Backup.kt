@@ -27,8 +27,13 @@ object BackupFormat {
     /** 文件里 `format` 字段的固定值，用来挡掉「随手选了个别的 JSON」 */
     const val FORMAT = "stumate-backup"
 
-    /** 结构版本。字段将来有增减就 +1，导入时按版本决定怎么读 */
-    const val SCHEMA = 1
+    /**
+     * 结构版本。字段将来有增减就 +1，导入时按版本决定怎么读。
+     *
+     * v1 → v2：同步元数据（uid / updatedAt / deletedAt）。**三个字段全部可选**，
+     * 导入 v1 旧备份时缺什么就取默认值（uid 空串 → 由 DAO 落库时补一个），旧文件继续可读。
+     */
+    const val SCHEMA = 2
 
     /** 导出文件的默认名（不含扩展名），后面接日期 */
     const val FILE_PREFIX = "StuMate-backup"
@@ -142,7 +147,10 @@ object BackupCodec {
                     "notes" to c.notes.toJson(),
                     "teacher" to c.teacher.toJson(),
                     "weeks" to c.weeks.toJson(),
-                    "date" to c.date.toJson()
+                    "date" to c.date.toJson(),
+                    "uid" to c.uid.toJson(),
+                    "updatedAt" to c.updatedAt.toJson(),
+                    "deletedAt" to c.deletedAt.toJson()
                 )
             }
         )
@@ -165,7 +173,10 @@ object BackupCodec {
                 notes = o.str("notes"),
                 teacher = o.str("teacher"),
                 weeks = o.str("weeks"),
-                date = o.str("date")
+                date = o.str("date"),
+                uid = o.str("uid"),
+                updatedAt = o.long("updatedAt"),
+                deletedAt = o.long("deletedAt")
             )
         }
     }
@@ -184,7 +195,10 @@ object BackupCodec {
                     "colorIndex" to n.colorIndex.toJson(),
                     "typeIndex" to n.typeIndex.toJson(),
                     "customLabel" to n.customLabel.toJson(),
-                    "deadlineAt" to n.deadlineAt.toJson()
+                    "deadlineAt" to n.deadlineAt.toJson(),
+                    "uid" to n.uid.toJson(),
+                    "updatedAt" to n.updatedAt.toJson(),
+                    "deletedAt" to n.deletedAt.toJson()
                 )
             }
         )
@@ -205,7 +219,10 @@ object BackupCodec {
                 colorIndex = o.int("colorIndex"),
                 typeIndex = o.int("typeIndex"),
                 customLabel = o.str("customLabel"),
-                deadlineAt = o.long("deadlineAt")
+                deadlineAt = o.long("deadlineAt"),
+                uid = o.str("uid"),
+                updatedAt = o.long("updatedAt"),
+                deletedAt = o.long("deletedAt")
             )
         }
     }

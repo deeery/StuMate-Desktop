@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StuMate 桌面端 · 登录对话框防误关验收 v1.0</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #101114;
+    color: #E8EAED;
+    font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.65;
+    padding: 40px 28px 96px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  header { margin-bottom: 34px; }
+  header h1 { font-size: 24px; font-weight: 600; margin: 0 0 10px; letter-spacing: .2px; }
+  header .sub { color: #9AA0A6; font-size: 13.5px; margin: 0 0 18px; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; padding: 5px 11px; border-radius: 6px;
+    background: #23252A; color: #C6C9CE; border: 1px solid #33363C;
+  }
+  .badge b { color: #60CDFF; font-weight: 600; }
+  .badge.ok b { color: #6CCB5F; }
+
+  h2 { font-size: 17px; font-weight: 600; margin: 46px 0 6px; padding-bottom: 10px; border-bottom: 1px solid #2A2D33; }
+  h2 .num { color: #60CDFF; margin-right: 8px; font-weight: 600; }
+  h3 { font-size: 14.5px; font-weight: 600; margin: 26px 0 8px; color: #DDE1E6; }
+  p { margin: 10px 0; color: #BFC4CA; }
+  ul { margin: 10px 0; padding-left: 22px; color: #BFC4CA; }
+  li { margin: 5px 0; }
+  code {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 12.5px; background: #1E2025; border: 1px solid #2E3138;
+    border-radius: 4px; padding: 1px 5px; color: #9CDCFE;
+  }
+  pre { background: #17181C; border: 1px solid #2A2D33; border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 12px 0; }
+  pre code { background: none; border: none; padding: 0; color: #C8CDD3; font-size: 12.5px; line-height: 1.7; }
+  pre .add { color: #7FD48B; }
+  pre .del { color: #E88C8C; }
+  a { color: #60CDFF; }
+
+  figure { margin: 0 0 34px; background: #17181C; border: 1px solid #2A2D33; border-radius: 10px; overflow: hidden; }
+  figure img { display: block; width: 100%; height: auto; background: #0C0D0F; }
+  figcaption { padding: 14px 18px 16px; border-top: 1px solid #2A2D33; }
+  figcaption .t { font-size: 14px; font-weight: 600; color: #E8EAED; margin-bottom: 5px; }
+  figcaption .t .tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; margin-right: 9px; vertical-align: 1px; }
+  .tag.real { background: #0F2A3D; color: #60CDFF; border: 1px solid #1B4A6B; }
+  .tag.new  { background: #10331C; color: #6CCB5F; border: 1px solid #1F5B2E; }
+  figcaption .d { font-size: 13px; color: #9AA0A6; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #2A2D33; vertical-align: top; }
+  th { color: #9AA0A6; font-weight: 600; font-size: 12.5px; background: #17181C; }
+  td { color: #BFC4CA; }
+  td.pass { color: #6CCB5F; font-weight: 600; white-space: nowrap; }
+  td.no   { color: #E8B44A; font-weight: 600; white-space: nowrap; }
+  td.num { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; color: #9CDCFE; white-space: nowrap; }
+
+  .callout { border-radius: 8px; padding: 14px 18px; margin: 16px 0; border: 1px solid; font-size: 13.5px; }
+  .callout.warn { background: #2A1F0E; border-color: #5C4415; color: #E8C87A; }
+  .callout.ok   { background: #101A12; border-color: #1F5B2E; color: #A8DCB4; }
+  .callout.info { background: #17181C; border-color: #2A2D33; color: #BFC4CA; }
+  .callout .h { font-weight: 650; display: block; margin-bottom: 5px; }
+  .callout code { background: #00000055; }
+
+  .steps { counter-reset: s; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: s; position: relative; padding-left: 34px; margin: 12px 0; }
+  .steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #1B4A6B; color: #9CDCFE; font-size: 12px; font-weight: 650;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid #2A2D33; color: #6B7076; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>StuMate 桌面端 · 登录对话框防误关验收</h1>
+  <p class="sub">版本 v1.0 · 2026-10-01 · 验收意见：在登录界面点非窗口位置时不要退出，除非点「取消」</p>
+  <div class="badges">
+    <span class="badge">编译 <b>BUILD SUCCESSFUL</b></span>
+    <span class="badge ok">单测 <b>145 / 145</b></span>
+    <span class="badge">告警 <b>0</b></span>
+    <span class="badge">改动 <b>2 个文件</b></span>
+  </div>
+</header>
+
+<h2><span class="num">1</span>改了什么</h2>
+
+<p>
+  原来所有对话框都走 <code>FlDialog</code>，而它是 <code>Dialog(onDismissRequest = onDismiss)</code> ——
+  用 <code>DialogProperties</code> 的默认值，即<b>点外面关、按 Esc 也关</b>。
+  登录框里躺着用户刚敲的邮箱、密码、邀请码，误触一下就全清空了。
+</p>
+
+<h3>改动一：给 <code>FlDialog</code> 加一个开关</h3>
+<pre><code>// FluentControls.kt
+ fun FlDialog(
+     onDismiss: () -> Unit,
+     title: String,
+     width: Dp = 440.dp,
+<span class="add">+    /**
++     * 是否允许「点对话框外面」或「按 Esc」把它关掉。
++     *
++     * 登录 / 注册这类对话框要传 `false`：里面是用户刚敲进去的邮箱、密码、邀请码，
++     * 误点一下空白处或误按 Esc 就全没了，只能靠「取消」显式关闭。
++     *
++     * 这两个关闭途径在 Compose 里是两个独立开关（`dismissOnClickOutside` 管点击、
++     * `dismissOnBackPress` 管 Esc —— 桌面端 Esc 就是走 back-press 这条路的），
++     * 这里合成一个语义「能不能被外部操作关掉」，避免调用点每次都要写两遍。
++     */
++    dismissible: Boolean = true,</span>
+     content: @Composable () -> Unit,
+     actions: @Composable RowScope.() -> Unit
+ ) {
+     val c = FluentTheme.colors
+<span class="del">-    Dialog(onDismissRequest = onDismiss) {</span>
+<span class="add">+    Dialog(
++        onDismissRequest = onDismiss,
++        properties = DialogProperties(
++            dismissOnBackPress = dismissible,
++            dismissOnClickOutside = dismissible
++        )
++    ) {</span></code></pre>
+
+<h3>改动二：登录 / 注册对话框关掉这个开关</h3>
+<pre><code>// AccountSection.kt · AccountAuthDialog
+     FlDialog(
+         onDismiss = { if (!busy) onDismiss() },
+         title = if (mode == MODE_LOGIN) "登录 StuMate" else "注册 StuMate",
+         width = 420.dp,
+<span class="add">+        // 点对话框外面 / 按 Esc 都不关。这里躺着用户刚敲的邮箱、密码、邀请码，
++        // 误触一下就全清空了 —— 要关只能点「取消」。
++        dismissible = false,</span></code></pre>
+
+<h2><span class="num">2</span>为什么两个开关都要关（Esc 也算）</h2>
+
+<p>
+  「点外面」和「按 Esc」在 Compose 里是两条独立通路，只关前者的话 Esc 仍会把对话框关掉。
+  这一点是从 Compose 1.5.10 的字节码里确认的，不是猜的：
+</p>
+
+<pre><code># 反编译 ui-desktop-1.5.10.jar 里的 androidx/compose/ui/window/Dialog_skikoKt.class
+# ① 什么算「back」—— 桌面端就是 Esc 键
+private static final boolean isDismissRequest-ZmokQxo(java.lang.Object);
+    KeyEventType == KeyDown  &amp;&amp;  Key == Key.Companion.getEscape()
+
+# ② 整段 back 处理被 dismissOnBackPress 卡着
+     434: invokevirtual  DialogProperties.getDismissOnBackPress:()Z
+     437: ifeq  567            # false 就跳到 567，即整段跳过
+
+# ③ 「点外面」走另一个开关
+     588: invokevirtual  DialogProperties.getDismissOnClickOutside:()Z</code></pre>
+
+<div class="callout ok">
+  <span class="h">结论</span>
+  把 <code>dismissOnClickOutside</code> 和 <code>dismissOnBackPress</code> 同时置 false，
+  才是「只有点取消能关」。只关一个的话，另一条路仍然会把对话框关掉、把输入清空。
+</div>
+
+<h2><span class="num">3</span>现在还能怎么关</h2>
+
+<table>
+  <thead><tr><th>操作</th><th>结果</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>点对话框外面（遮罩区 / 侧栏 / 页头）</td><td class="pass">不关闭</td><td>本次改动</td></tr>
+    <tr><td>按 Esc</td><td class="pass">不关闭</td><td>本次改动</td></tr>
+    <tr><td>点「取消」</td><td class="no">关闭</td><td>唯一的出口</td></tr>
+    <tr><td>点「登录」/「注册」并成功</td><td class="no">关闭</td><td>成功后自动关（<code>onDismiss()</code>）</td></tr>
+    <tr><td>登录 / 注册请求进行中</td><td class="pass">取消按钮禁用</td><td>原有逻辑 <code>if (!busy) onDismiss()</code>，避免请求中途打断</td></tr>
+  </tbody>
+</table>
+
+<figure>
+  <img src="sd-01-login-dialog.png" alt="登录对话框">
+  <figcaption>
+    <div class="t"><span class="tag real">实机截图</span>登录 StuMate —— 右下角「取消」是现在唯一的关闭出口</div>
+    <div class="d">
+      1200×800 实机抓取。<code>dismissible = false</code> 只改关闭行为，不改外观：
+      布局、字号、GitHub 按钮、👁️ 显隐、服务端可达状态行都与改动前一致。
+    </div>
+  </figcaption>
+</figure>
+
+<h2><span class="num">4</span>没动的地方（需要您确认是否也要改）</h2>
+
+<p>其余三个对话框仍保持默认行为（点外面 / Esc 可关）：</p>
+
+<table>
+  <thead><tr><th>对话框</th><th>位置</th><th>当前行为</th></tr></thead>
+  <tbody>
+    <tr><td>重置密码</td><td class="num">AccountSection.kt:970</td><td class="no">点外面 / Esc 可关</td></tr>
+    <tr><td>登录设备</td><td class="num">AccountSection.kt:803</td><td class="no">点外面 / Esc 可关</td></tr>
+    <tr><td>修改昵称</td><td class="num">AccountSection.kt:913</td><td class="no">点外面 / Esc 可关</td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <span class="h">其中「重置密码」值得单独考虑</span>
+  它同样有用户刚敲进去的邮箱、重置码、新密码，误点一下也会全丢 ——
+  和登录框是同一类问题。您说了「登录界面」，所以我这次只改了登录 / 注册；
+  要把重置密码一起改的话说一声，一行就够。
+</div>
+
+<h2><span class="num">5</span>怎么验（需要您亲手点一下）</h2>
+
+<p>
+  这个改动是<b>行为</b>变化，没有视觉差异，截图证明不了「点了没关」。
+  而这台机器的鼠标注入不可用（实测 <code>SetCursorPos(500,500)</code> 落到了 <code>(344,506)</code>，
+  比例还不一致，怀疑是您同时在动鼠标），所以没法由我代点。请您按下面三步确认：
+</p>
+
+<ol class="steps">
+  <li>应用左侧点「设置」→ 在「账号」分组点「登录 / 注册」。</li>
+  <li>对话框出来后，<b>点它外面的任何地方</b>（左侧栏、页头、对话框周围那片暗色遮罩）——
+      预期：<b>对话框纹丝不动</b>，不会消失。</li>
+  <li>点右下角「取消」—— 预期：<b>正常关闭</b>。</li>
+</ol>
+
+<div class="callout info">
+  <span class="h">想顺便验 Esc</span>
+  按一下 Esc，预期也是不关闭（这就是上面那第二个开关的作用）。
+  如果您希望 Esc 仍然能关、只禁止点外面，把 <code>dismissOnBackPress</code> 单独改回 <code>true</code> 即可。
+</div>
+
+<h2><span class="num">6</span>验证结果</h2>
+
+<table>
+  <thead><tr><th>项</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td>编译</td><td class="pass">BUILD SUCCESSFUL</td></tr>
+    <tr><td>编译告警</td><td class="pass">0</td></tr>
+    <tr><td>单元测试</td><td class="pass">145 / 145 通过，0 失败 0 跳过</td></tr>
+    <tr><td>调用点兼容</td><td class="pass">全部 9 处 FlDialog 调用均用命名参数，插入新参数不破坏任何调用点</td></tr>
+    <tr><td>对话框渲染</td><td class="pass">登录 / 注册两态均正常（见截图）</td></tr>
+    <tr><td>点击行为</td><td class="no">待您手动确认（本机无法注入鼠标）</td></tr>
+  </tbody>
+</table>
+
+<h3>复现命令</h3>
+<pre><code>cd C:/Users/Administrator/IdeaProjects/StuMate-Desktop
+./gradlew --offline --no-build-cache test
+
+# 起应用
+CP=$(cat .preview-classpath)
+"E:/DevTools/Java/jdk-17.0.12+7/bin/java.exe" -Dfile.encoding=UTF-8 -cp "$CP" \
+    com.example.classreminder.MainKt > build/app-run.log 2>&1
+
+# 截对话框（预览场景，不用点）
+python tools/shoot_scenarios.py build auth=sd-01-login-dialog.png</code></pre>
+
+<div class="callout info">
+  <span class="h">构建注意</span>
+  <code>./gradlew test</code> 这次先失败了一次，报的是<b>构建缓存写入</b>错误
+  （<code>Could not get file mode for '...shrunk-classpath-snapshot.bin'</code>），
+  不是代码问题。加 <code>--no-build-cache</code> 后正常通过。
+</div>
+
+<footer>
+  StuMate 桌面端 · 登录对话框防误关验收 v1.0 · 生成于 2026-10-01 01:36<br>
+  改动仍未提交（与登录功能、今日页两项调整一起停留在工作区）。
+</footer>
+
+</div>
+</body>
+</html>

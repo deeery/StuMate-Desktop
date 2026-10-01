@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -27,6 +28,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
@@ -34,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.awt.ComposeWindow
+import com.example.classreminder.platform.WindowEffects
+import kotlinx.coroutines.delay
+import java.awt.MouseInfo
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Toolkit
@@ -60,6 +65,19 @@ private val CAPTION_BUTTON_HEIGHT = 32.dp
 /** 关闭按钮悬停时的红底（Windows 11 用的是 #C42B1C） */
 private val CLOSE_HOVER = Color(0xFFC42B1C)
 
+/**
+ * 关闭按钮 ✕ 的字色。
+ *
+ * 刻意用红色把它和「最小化 / 最大化」两个中性按钮区分开 —— 关闭是唯一有破坏性的操作，
+ * 值得在视觉上先声夺人。浅色取 Windows 11 原生的 #C42B1C；
+ * 深色下这个红压在 #2B2B2B 上会发闷，所以提亮一档。
+ */
+private val CLOSE_GLYPH_LIGHT = Color(0xFFC42B1C)
+private val CLOSE_GLYPH_DARK = Color(0xFFFF6B6B)
+
+/** ✕ 的笔画宽度。比另外两个图标粗一档，配合红色形成「加粗红叉」 */
+private val CLOSE_STROKE = 2.dp
+
 /** 缩放热区厚度：5dp 足够好点，又不会把内容挡得难受 */
 private val RESIZE_BORDER = 5.dp
 
@@ -71,6 +89,8 @@ private val RESIZE_BORDER = 5.dp
 @Immutable
 class WindowChrome(
     val window: ComposeWindow,
+    /** 拖动时必须同步它，否则最大化/最小化还原会退回初始的「居中」 */
+    private val windowState: WindowState,
     /**
      * 用 lambda 而不是 Boolean：调用方 `remember(window)` 只建一次对象，
      * 每次读到的都是当前值。否则缩放拖动时 `WindowState.size` 每帧变化，
@@ -80,9 +100,50 @@ class WindowChrome(
     val onMinimize: () -> Unit,
     val onToggleMaximize: () -> Unit,
     val onClose: () -> Unit
-)
+) {
+    /**
+     * 把窗口左上角移到屏幕坐标 `(xPx, yPx)`（物理像素）。
+     *
+     * 两处都要写，各管一件事：
+     *  - `window.location` 是**执行器**，AWT 层立即生效；
+     *  - `windowState.position` 是 Compose 记录的「窗口在哪」，**不写它的话**，
+     *    最大化→还原、最小化→还原都会退回 `rememberWindowState` 的初始值（屏幕居中），
+     *    用户拖到角落再还原就会莫名其妙跳回中间。
+     */
+    fun moveTo(xPx: Int, yPx: Int) {
+        window.location = Point(xPx, yPx)
+        val scale = window.graphicsConfiguration?.defaultTransform?.scaleX ?: 1.0
+        windowState.position = WindowPosition((xPx / scale).dp, (yPx / scale).dp)
+    }
+}
 
 val LocalWindowChrome = staticCompositionLocalOf<WindowChrome?> { null }
+
+/**
+ * 把 Windows 11 的原生圆角与描边套到主窗口上。
+ *
+ * 窗口是 `undecorated = true` 的，Win11 对无边框窗口默认给**直角**，
+ * 必须通过 DWM 显式声明圆角偏好（见 [WindowEffects]）。描边取当前主题的
+ * [FluentColors.outlineStrong]，所以切换浅色/深色时边框会跟着变 —— 这个
+ * `LaunchedEffect` 的 key 就是颜色本身，主题一变就重新下发。
+ *
+ * 必须在 [FluentTheme] 里面调用（要读配色），并且窗口已 realize（要拿 HWND），
+ * 所以带一小段重试。
+ */
+@Composable
+fun ApplyWindowCorners(window: ComposeWindow) {
+    val c = FluentTheme.colors
+    val border = c.outlineStrong.toArgb()
+    val dark = c.isDark
+    LaunchedEffect(border, dark) {
+        repeat(10) {
+            if (WindowEffects.applyRoundedCorners(window, borderArgb = border, dark = dark)) {
+                return@LaunchedEffect
+            }
+            delay(120)
+        }
+    }
+}
 
 /**
  * 窗口所在显示器的**工作区**（屏幕减去任务栏 / 停靠栏）。
@@ -131,7 +192,7 @@ fun WindowControls(chrome: WindowChrome?) {
         )
         CaptionButton(
             hoverBackground = CLOSE_HOVER,
-            glyphColor = c.onSurface,
+            glyphColor = if (c.isDark) CLOSE_GLYPH_DARK else CLOSE_GLYPH_LIGHT,
             onHoverGlyphColor = Color.White,
             onClick = chrome.onClose,
             glyph = CaptionGlyph.CLOSE
@@ -226,7 +287,8 @@ private fun DrawScope.drawRestoreGlyph(color: Color, background: Color) {
 
 private fun DrawScope.drawCloseGlyph(color: Color) {
     val s = 10.dp.toPx()
-    val stroke = 1.dp.toPx()
+    // 比最小化/最大化粗一档（那两个是 1dp），配合红色形成视觉重量
+    val stroke = CLOSE_STROKE.toPx()
     val cx = size.width / 2f
     val cy = size.height / 2f
     val half = s / 2f
@@ -239,30 +301,50 @@ private fun DrawScope.drawCloseGlyph(color: Color) {
 /**
  * 把这个区域变成「窗口拖动把手」。
  *
- * 用「记录按下时的窗口位置 + 累计位移」而不是「每次事件叠加增量」：
- * 后者在窗口跟随鼠标移动时会自己把自己甩飞（位移被重复计入）。
+ * ## 为什么必须用「屏幕绝对光标位置」而不是拖拽增量
+ *
+ * `detectDragGestures` 给的 `dragAmount` 是**指针在节点本地坐标系里的位移**，
+ * 而节点是跟着窗口一起走的。设 `u` = 光标屏幕 x、`w` = 窗口 x，则
+ * `dragAmount = Δu − Δw`。把它累加进窗口位置（`Δw = total`）会得到：
+ *
+ * ```
+ * totalₙ = totalₙ₋₁ + (Δuₙ − Δtotalₙ)  ⟹  Δtotalₙ = Δuₙ / 2
+ * ```
+ *
+ * 也就是**窗口只以光标一半的速度跟手**，且窗口自身的位移会被下一帧当成反向增量扣回来，
+ * 于是边走边回弹 —— 表现出来就是「持续抽搐」。
+ * （实测：光标移 120px，窗口只走 60px，中途方向反转 6 次；光标一停就立刻稳定。）
+ *
+ * 改成用 `MouseInfo` 读光标的**屏幕坐标**，窗口位置就是光标位置的纯函数：
+ * 同一个光标位置永远算出同一个窗口位置，天然幂等，不会自己和自己打架。
  */
 fun Modifier.windowDragArea(chrome: WindowChrome?): Modifier {
     if (chrome == null) return this
     val window = chrome.window
     return this
         .pointerInput(window) {
-            var startLocation = Point(0, 0)
-            var total = Offset.Zero
+            // 按下瞬间「光标 − 窗口左上角」的偏移，整个拖拽过程保持不变
+            var grab = Point(0, 0)
             detectDragGestures(
                 onDragStart = {
-                    startLocation = window.location
-                    total = Offset.Zero
+                    val cursor = MouseInfo.getPointerInfo()?.location
+                    grab = if (cursor != null) Point(cursor.x - window.x, cursor.y - window.y)
+                    else Point(0, 0)
                 },
                 onDrag = { change, drag ->
                     change.consume()
                     // 最大化状态下不响应拖动：否则窗口会跟着鼠标"跑出"屏幕
                     if (chrome.isMaximized()) return@detectDragGestures
-                    total += drag
-                    window.location = Point(
-                        startLocation.x + total.x.roundToInt(),
-                        startLocation.y + total.y.roundToInt()
-                    )
+                    val cursor = MouseInfo.getPointerInfo()?.location
+                    if (cursor != null) {
+                        chrome.moveTo(cursor.x - grab.x, cursor.y - grab.y)
+                    } else {
+                        // 兜底：读不到光标（远程会话/无显示器）时退回增量法
+                        chrome.moveTo(
+                            window.x + drag.x.roundToInt(),
+                            window.y + drag.y.roundToInt()
+                        )
+                    }
                 }
             )
         }
@@ -298,7 +380,6 @@ private val MIN_WINDOW_HEIGHT = 600.dp
 @Composable
 fun WindowResizeHandles(chrome: WindowChrome?, state: WindowState) {
     if (chrome == null) return
-    val window = chrome.window
     val b = RESIZE_BORDER
     val corner = RESIZE_BORDER * 2
 

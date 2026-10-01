@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Lucide 铃铛移植 · 小尺寸像素放大 lab6</title>
+<style>
+  :root{--bg:#1b1b1b;--panel:#242424;--line:#3a3a3a;--fg:#e8e8e8;--fg2:#a8a8a8;--fg3:#7a7a7a;--accent:#60CDFF}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px 22px 48px;background:var(--bg);color:var(--fg);font:13px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  h1{font-size:18px;margin:0 0 4px;font-weight:600}
+  h2{font-size:13.5px;margin:22px 0 8px;font-weight:600;color:var(--accent);border-left:3px solid var(--accent);padding-left:8px}
+  .sub{color:var(--fg3);font-size:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:8px 0}
+  .vrow{margin:14px 0 4px;font-size:12.5px;font-weight:600}
+  .vrow span{font-weight:400;color:var(--fg3);margin-left:8px}
+  .row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+  .cell{text-align:center}
+  .cell .cap{font-size:10.5px;color:var(--fg3);margin-top:4px}
+  canvas{display:block;background:#272727;border-radius:4px}
+  .light canvas{background:#EBEBEB}
+</style>
+</head>
+<body>
+
+<h1>小尺寸像素放大对照</h1>
+<div class="sub">lab6 · 先在 canvas 上按真实像素尺寸栅格化，再 6× 最近邻放大 —— 这才是 26dp 屏幕上实际看到的样子</div>
+
+<h2>深色主题</h2>
+<div class="card" id="dark"></div>
+<h2>浅色主题</h2>
+<div class="card" id="light"></div>
+
+<script>
+const INK_D="#003A5C", TILE_D="#60CDFF", INK_L="#FFFFFF", TILE_L="#0067C0";
+const TILE='M118 0 H394 A118 118 0 0 1 512 118 V394 A118 118 0 0 1 394 512 H118 A118 118 0 0 1 0 394 V118 A118 118 0 0 1 118 0 Z';
+const L_BODY    = "M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326";
+const L_CLAPPER = "M10.268 21a2 2 0 0 0 3.464 0";
+const XF = "translate(110.58,116.67) scale(12.116)";
+
+const VARIANTS = [
+  { id:"S",  name:"S · Lucide 原样描边", desc:"stroke-width 2",
+    bell: ink => `<g transform="${XF}" fill="none" stroke="${ink}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${L_CLAPPER}"/><path d="${L_BODY}"/></g>` },
+  { id:"F",  name:"F · 主体填充 + 摆锤描边", desc:"主体剪影，摆锤 2 单位",
+    bell: ink => `<g transform="${XF}"><path d="${L_BODY}Z" fill="${ink}"/><path d="${L_CLAPPER}" fill="none" stroke="${ink}" stroke-width="2" stroke-linecap="round"/></g>` },
+  { id:"F2", name:"F2 · 主体填充 + 摆锤加粗", desc:"摆锤 2.6 单位 + 填充",
+    bell: ink => `<g transform="${XF}"><path d="${L_BODY}Z" fill="${ink}"/><path d="${L_CLAPPER}Z" fill="${ink}" stroke="${ink}" stroke-width="2.6" stroke-linecap="round"/></g>` },
+  { id:"V",  name:"V · 当前 v2.1（基线）", desc:"自绘，全填充",
+    bell: ink => `<g fill="${ink}"><path d="M148 336 C148 306 168 276 168 216 A88 88 0 0 1 344 216 C344 276 364 306 364 336 Z"/><rect x="138" y="300" width="236" height="36" rx="18"/><circle cx="256" cy="358" r="26"/></g>` },
+];
+
+const SIZES=[16,26,32,64], Z=6;
+let uid=0;
+function grid(ink, op){
+  let g="";
+  [88,208,328].forEach(y=>[88,208,328].forEach(x=>{
+    if(x===328&&y===88)return;
+    g+=`<rect x="${x}" y="${y}" width="96" height="96" rx="24" fill="${ink}" fill-opacity="${op}"/>`;
+  }));
+  return g;
+}
+function svgString(ink,bg,op,bellFn){
+  const id="cp"+(uid++);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+    <defs><clipPath id="${id}"><path d="${TILE}"/></clipPath></defs>
+    <g clip-path="url(#${id})">
+      <rect width="512" height="512" fill="${bg}"/>
+      ${grid(ink,op)}
+      <rect x="328" y="88" width="96" height="96" rx="24" fill="#FFB900"/>
+      ${bellFn(ink)}
+    </g></svg>`;
+}
+function raster(str, px){
+  return new Promise(res=>{
+    const url=URL.createObjectURL(new Blob([str],{type:"image/svg+xml"}));
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement("canvas"); c.width=px; c.height=px;
+      c.getContext("2d").drawImage(img,0,0,px,px);
+      URL.revokeObjectURL(url); res(c);
+    };
+    img.src=url;
+  });
+}
+function upscale(src){
+  const c=document.createElement("canvas");
+  c.width=src.width*Z; c.height=src.height*Z;
+  const x=c.getContext("2d"); x.imageSmoothingEnabled=false;
+  x.drawImage(src,0,0,c.width,c.height);
+  return c;
+}
+async function render(el, ink, bg, op){
+  for(const v of VARIANTS){
+    const head=document.createElement("div");
+    head.className="vrow"; head.innerHTML=`${v.name}<span>${v.desc}</span>`;
+    el.appendChild(head);
+    const row=document.createElement("div"); row.className="row";
+    el.appendChild(row);
+    for(const s of SIZES){
+      const small=await raster(svgString(ink,bg,op,v.bell), s);
+      const cell=document.createElement("div"); cell.className="cell";
+      cell.appendChild(upscale(small));
+      const cap=document.createElement("div"); cap.className="cap"; cap.textContent=s+"dp";
+      cell.appendChild(cap);
+      row.appendChild(cell);
+    }
+  }
+}
+render(document.getElementById("dark"),  INK_D, TILE_D, 0.18).then(()=>{document.title+=" · dark done";});
+render(document.getElementById("light"), INK_L, TILE_L, 0.20);
+</script>
+</body>
+</html>
