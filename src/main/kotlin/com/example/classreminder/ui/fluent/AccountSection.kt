@@ -157,8 +157,22 @@ fun AccountSection() {
                     }
                 }
             }
+
         }
     }
+
+    // 同步卡放在 `SectionBlock("账号")` 的 content lambda **之外**。
+    //
+    // 踩过的坑：原来它接在 lambda 尾部、位于 `if (current == null) … else { … }`
+    // 之后，编译能过、探针确认 lambda 前半段在跑，但它**永远不执行** ——
+    // 界面就是没有这张卡，且没有任何报错。把它挪到 lambda 外面立刻正常。
+    // 至于编译器具体把它编进了哪个 group，Kotlin 没有输出可查，
+    // 只记住结论：**lambda 尾部（尤其在 if/else 之后）不要追加 Composable**。
+    Spacer(Modifier.height(22.dp))
+    SyncCard(
+        engine = LocalSyncEngine.current,
+        onSignedOut = { showAuth = true }
+    )
 
     if (showAuth) AccountAuthDialog(
         onDismiss = { showAuth = false },
@@ -209,7 +223,7 @@ private fun SignedOutCard(onSignIn: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FlButton("登录 / 注册", onClick = onSignIn, compact = true)
                 Spacer(Modifier.width(10.dp))
-                Text("同步功能仍在开发中，登录后可先管理账号与设备", fontSize = 11.5.sp, color = c.onSurfaceFaint)
+                Text("登录后自动同步课程与便签", fontSize = 11.5.sp, color = c.onSurfaceFaint)
             }
         }
     }

@@ -21,6 +21,8 @@ import androidx.compose.ui.window.rememberWindowState
 import com.example.classreminder.data.MainViewModel
 import com.example.classreminder.data.sync.AccountSession
 import com.example.classreminder.data.sync.OAuthTicket
+import com.example.classreminder.data.sync.SyncPhase
+import com.example.classreminder.data.sync.SyncState
 import com.example.classreminder.platform.ToastHost
 import com.example.classreminder.ui.fluent.AccountAuthDialog
 import com.example.classreminder.ui.fluent.AppPage
@@ -28,12 +30,15 @@ import com.example.classreminder.ui.fluent.AppShell
 import com.example.classreminder.ui.fluent.DeviceManagerDialog
 import com.example.classreminder.ui.fluent.FluentTheme
 import com.example.classreminder.ui.fluent.ForgotPasswordDialog
+import com.example.classreminder.ui.fluent.LocalSyncPreviewState
 import com.example.classreminder.ui.fluent.LocalWindowChrome
 import com.example.classreminder.ui.fluent.MODE_REGISTER
 import com.example.classreminder.ui.fluent.ModifyPasswordDialog
 import com.example.classreminder.ui.fluent.SetPasswordDialog
 import com.example.classreminder.ui.fluent.ThemeMode
 import com.example.classreminder.ui.fluent.WindowChrome
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 /**
  * 账号相关 UI 的**独立预览窗口**，专供截图验收。
@@ -68,6 +73,19 @@ import com.example.classreminder.ui.fluent.WindowChrome
  * | `modpwd` | 同上 + 修改密码对话框（账号**已有**密码时） |
  * | `week` | 课表页（表格 / 列表取决于 `Prefs.isWeekGrid()`） |
  * | `notes` | 便签页 |
+ * | `sync` | 设置页 + 同步卡，用 `-Psync=<状态>` 选状态（见下） |
+ *
+ * `sync` 场景的状态（`-Psync=`）：
+ * | 值 | 状态 |
+ * |---|---|
+ * | `offline`（默认） | 未登录：只有入口行，没有状态正文 |
+ * | `idle` | 空闲，从未同步 |
+ * | `done` | 同步成功，有上次同步时间 |
+ * | `busy` | 同步中，按钮禁用 |
+ * | `override` | 有 3 条记录被服务端版本覆盖 |
+ * | `failed` | 同步失败 |
+ * | `skipped` | 未登录已跳过（用已登录态 + 灰色点） |
+ * | `preinit` | 首端切换，已自动备份并展示路径 |
  *
  * `stumate.theme=light` 可以切浅色主题（默认深色）。
  *
@@ -108,7 +126,12 @@ fun main() = application {
         }
 
         FluentTheme(themeMode = themeMode) {
-            CompositionLocalProvider(LocalWindowChrome provides chrome) {
+            CompositionLocalProvider(
+                LocalWindowChrome provides chrome,
+                // 同步卡的预览态。**只在这一个场景注入**，其他场景恒为 null，
+                // 走的是「引擎为 null → 只显示入口行」那条路。
+                LocalSyncPreviewState provides syncPreviewState(scenario)
+            ) {
                 // 登录是异步的，对话框必须等 user 真的落到会话里才组合。
                 // 直接读 StateFlow.value 不订阅，登录完成时不会触发重组，对话框永远出不来。
                 val previewUser by AccountSession.user.collectAsState()
@@ -244,6 +267,58 @@ fun main() = application {
 }
 
 private const val WINDOW_TITLE = "StuMatePreview"
+
+/**
+ * 把 `-Psync=<状态>` 翻译成一个 [SyncState]。
+ *
+ * 只有 `scenario == "sync"` 时才返回非 null —— 其他场景不能被污染，
+ * 否则「未登录」截图里会莫名其妙多出同步状态。
+ *
+ * 时间戳用「今天 21:47」这种固定时刻而不是 `now()`：截图要可复现，
+ * 每次跑都显示当前时间的话，两批图对不上就分不清是界面变了还是时间变了。
+ */
+private fun syncPreviewState(scenario: String): SyncState? {
+    if (scenario != "sync") return null
+    val base = LocalDateTime.of(2026, 10, 1, 21, 47)
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli()
+    val picked = when (setting("STUMATE_PREVIEW_SYNC", "stumate.sync").ifBlank { "offline" }) {
+        // null = 未登录，卡片只渲染入口行（连状态分隔线都没有）
+        "offline" -> null
+        "idle" -> SyncState(message = "还没同步过")
+        "done" -> SyncState(
+            phase = SyncPhase.IDLE,
+            lastSyncedAt = base,
+            message = "已同步，课程和便签都是最新的"
+        )
+        "busy" -> SyncState(phase = SyncPhase.SYNCING, message = "正在同步…")
+        "override" -> SyncState(
+            phase = SyncPhase.IDLE,
+            lastSyncedAt = base,
+            message = "已同步，课程和便签都是最新的",
+            overriddenCount = 3
+        )
+        "failed" -> SyncState(
+            phase = SyncPhase.FAILED,
+            lastSyncedAt = base - 32 * 60_000L,
+            message = "同步失败：连不上服务器"
+        )
+        "skipped" -> SyncState(phase = SyncPhase.SKIPPED, message = "未登录，已跳过同步")
+        "preinit" -> SyncState(
+            phase = SyncPhase.IDLE,
+            lastSyncedAt = base + 5 * 60_000L,
+            message = "已同步，课程和便签都是最新的",
+            backupPath = System.getProperty("user.home") +
+                "\\AppData\\Roaming\\StuMate\\StuMate-preinit-backup-20261001-215204.json"
+        )
+        else -> {
+            println("预览：未知的 -Psync= 值，用 offline（不注入状态）")
+            null
+        }
+    }
+    return picked
+}
 
 /**
  * 读一个设置项：优先系统属性（`-P` 转发过来的），退回环境变量。

@@ -1,0 +1,21 @@
+# 行尾符统一：仓库内一律存 LF，检出到 Windows 工作区时转成 CRLF。
+#
+# 为什么要专门加这个文件：
+# 这台机器上存在两套互相打架的配置 ——
+#   全局（PortableGit 自带 gitconfig）：core.autocrlf=true
+#   仓库级（.git/config）：             core.autocrlf=false   ← 覆盖了全局
+# 仓库历史里所有文件存的其实是 LF，但 core.autocrlf=false 阻断了转换，
+# 于是工作区的 CRLF 被原样 `git add` 进仓库，把整个文件变成「全量重写」。
+# 后果：明明只改了 47 行，`git diff` 却显示 Main.kt 392 行全改动，review 完全没法做。
+#
+# 有了这个文件，行尾符由 .gitattributes 说了算，autocrlf 冲突就不再起作用。
+# 注意：全局 autocrlf=true 仍会作用在 `git show` 等命令的输出上，
+#排查行尾符问题要用 `git cat-file blob <hash>` 绕开 smudge 过滤，别被假象误导。
+* text=auto eol=crlf
+
+# 二进制文件不做任何转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.jar binary
+*.db binary

@@ -6,6 +6,8 @@
 
 用法：
   python shoot_scenarios.py <输出目录> [场景=文件名 ...]
+  python shoot_scenarios.py <输出目录> sync           # 同步卡全部 8 个状态
+  python shoot_scenarios.py <输出目录> sync:done=sync-done.png   # 只跑一个状态
 
 不传场景就按内置清单跑一遍。
 
@@ -14,6 +16,11 @@
   STUMATE_JAVA=<path>        指定 java 可执行文件
   STUMATE_EMAIL=<邮箱>       需要真实登录的场景（signedin / setpwd / modpwd）用这个账号
   STUMATE_PASSWORD=<密码>
+  STUMATE_SYNC_STATE=<状态>  配合 `sync` 参数只跑指定状态
+
+⚠️ **别手工 `taskkill /IM java.exe` 来清预览进程** —— 那会连带杀掉 Gradle
+守护进程，之后 `./gradlew` 会静默复用旧 class，截出来的图看着像「改了没生效」。
+本脚本按 PID 精确杀（`taskkill /F /T /PID`），互不干扰。
 """
 import ctypes
 import ctypes.wintypes as wt
@@ -68,6 +75,19 @@ DEFAULT_SCENARIOS = [
     ("forgot", "acc-06-reset-dialog.png"),
     ("devices", "acc-07-devices-dialog.png"),
     ("oauth", "acc-08-oauth-waiting.png"),
+]
+
+# 同步卡的 8 个状态。`preview` 是场景名（都走 sync），`state` 走 -Dstumate.sync。
+# 单独列出来是因为它们要传第 4 个系统属性，而 run_scenario 只认 (场景, 文件名) 两元组。
+SYNC_STATES = [
+    ("offline", "sync-01-offline.png"),
+    ("idle", "sync-02-idle.png"),
+    ("done", "sync-03-done.png"),
+    ("busy", "sync-04-busy.png"),
+    ("override", "sync-05-override.png"),
+    ("failed", "sync-06-failed.png"),
+    ("skipped", "sync-07-skipped.png"),
+    ("preinit", "sync-08-preinit-backup.png"),
 ]
 
 # 这些场景要靠真实登录态才能渲染出目标界面，必须提供 STUMATE_EMAIL / STUMATE_PASSWORD
@@ -149,14 +169,19 @@ def shoot(hwnd, pid, out_path, pad=0):
     return len(rects), img.size
 
 
-def run_scenario(scenario, out_path, timeout=150, settle=4.0):
-    print(f"── 场景 {scenario} ──")
+def run_scenario(scenario, out_path, timeout=150, settle=4.0, state=None):
+    print(f"── 场景 {scenario}{'/' + state if state else ''} ──")
     cmd = [
         JAVA,
         "-Dfile.encoding=UTF-8",
         f"-Dstumate.preview={scenario}",
         f"-Dstumate.theme={THEME}",
     ]
+    # sync 场景要第 4 个属性指定卡片状态。
+    # 少了它 UiPreview 会回退到 offline（只显示入口行），
+    # 截出来 8 张几乎一样的图 —— 看着像「改了没生效」，实际是参数没传。
+    if state:
+        cmd.append(f"-Dstumate.sync={state}")
     # 需要真实登录的场景（signedin / setpwd / modpwd）必须带上凭据，
     # 否则 UiPreview 里那次 login 会被跳过，截出来的是「未登录」那一屏，
     # 而且 setpwd/modpwd 的对话框根本不会组合出来（它依赖登录态）。
@@ -234,18 +259,33 @@ def main():
         scenarios = []
         for arg in sys.argv[2:]:
             name, _, fname = arg.partition("=")
-            scenarios.append((name, fname or f"{name}.png"))
+            # `sync:done=sync-done.png` —— 冒号后面是同步卡的状态
+            scenario, _, state = name.partition(":")
+            scenarios.append((scenario, fname or f"{scenario}.png", state or None))
+
+    if len(sys.argv) == 2 or (len(sys.argv) > 2 and sys.argv[2] == "sync"):
+        # 只跑同步卡：`-Psync` 走 STUMATE_SYNC_STATE 覆盖，或跑全部 8 个
+        only = os.environ.get("STUMATE_SYNC_STATE")
+        if only:
+            scenarios = [("sync", f"sync-{only}.png", only)]
+        else:
+            scenarios = [("sync", fname, st) for st, fname in SYNC_STATES]
 
     ok = 0
-    for scenario, fname in scenarios:
+    for item in scenarios:
+        scenario, fname = item[0], item[1]
+        state = item[2] if len(item) > 2 else None
         settle = 6.0 if scenario in ("authfail", "registerfail", "oauth") else 4.0
         if scenario in NEEDS_LOGIN:
             # 要跑完 login（含一次 scrypt 校验）+ /me，多给点时间
             settle = 9.0
-        if run_scenario(scenario, os.path.join(out_dir, fname), settle=settle):
+        if run_scenario(
+            scenario, os.path.join(out_dir, fname), settle=settle, state=state
+        ):
             ok += 1
-    print(f"完成 {ok}/{len(scenarios)}")
-    return 0 if ok == len(scenarios) else 1
+    total = len(scenarios)
+    print(f"完成 {ok}/{total}")
+    return 0 if ok == total else 1
 
 
 if __name__ == "__main__":

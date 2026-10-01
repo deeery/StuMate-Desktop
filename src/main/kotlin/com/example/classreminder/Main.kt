@@ -46,6 +46,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.example.classreminder.data.Db
 import com.example.classreminder.data.MainViewModel
 import com.example.classreminder.data.sync.AccountSession
+import com.example.classreminder.data.sync.SyncEngine
 import com.example.classreminder.platform.DesktopFileDialogs
 import com.example.classreminder.platform.ReminderEngine
 import com.example.classreminder.platform.ToastBus
@@ -56,6 +57,7 @@ import com.example.classreminder.ui.fluent.FlButton
 import com.example.classreminder.ui.fluent.FlButtonVariant
 import com.example.classreminder.ui.fluent.FlDialog
 import com.example.classreminder.ui.fluent.FluentTheme
+import com.example.classreminder.ui.fluent.LocalSyncEngine
 import com.example.classreminder.ui.fluent.LocalWindowChrome
 import com.example.classreminder.ui.fluent.OverlayWindow
 import com.example.classreminder.ui.fluent.StuMateBrandInk
@@ -71,6 +73,19 @@ import java.awt.Dimension
 fun main() = application {
     val viewModel = remember { MainViewModel() }
     val scope = rememberCoroutineScope()
+
+    // 同步引擎跟着窗口作用域活着：写操作调 [SyncEngine.scheduleSync] 排一次防抖，
+    // 引擎内部自己开协程跑网络与落库，不占 Compose 的主线程。
+    // onApplied 在远端数据落库后回调，让界面刷新 —— 少了这一步，
+    // 用户会看到「已同步」但课表没变。
+    val syncEngine = remember { SyncEngine(scope, onApplied = { viewModel.reloadFromDb() }) }
+
+    // 写操作 → 排一次 30 秒防抖同步。
+    // 挂在 remember 里而不是每次重组：ViewModel 的这个 setter 只该生效一次，
+    // 每次重组都重新赋值会让正在跑的同步拿到新的回调引用。
+    LaunchedEffect(viewModel, syncEngine) {
+        viewModel.onDataChanged = { syncEngine.scheduleSync() }
+    }
 
     DisposableEffect(Unit) {
         // 桌面端没有通知权限模型，进程一起来就能跑提醒（对应安卓 onResume 里的 tryAutoStartService）
@@ -130,6 +145,17 @@ fun main() = application {
         // 有本机凭证就先恢复登录态（断网时也能显示「已登录」），再在后台核验一次。
         // 这是**唯一**一处主动拉起账号会话的地方 —— 启动流程不等待它，界面不会被登录卡住
         AccountSession.restore()
+        // 登录态恢复完再同步：顺序反了的话 syncNow 会看到「未登录」直接跳过，
+        // 于是这次启动永远不同步（要等用户手动点一次）
+        syncEngine.startOnLaunch()
+    }
+
+    // 登录状态一变（登录成功 / 退出登录）就重新同步。
+    // 用 `signedIn` 而不是 `user`：用户对象每次 refreshMe 都会被替换成新实例，
+    // 用它当 key 会在「刷新了昵称」这种无关变更上白白重跑一轮同步。
+    val signedIn by AccountSession.signedInFlow.collectAsState()
+    LaunchedEffect(signedIn) {
+        if (!signedIn) syncEngine.resetForSignOut() else syncEngine.startOnLaunch()
     }
 
     if (isTraySupported) {
@@ -194,7 +220,12 @@ fun main() = application {
             }
 
             Box(modifier = Modifier.fillMaxSize()) {
-                CompositionLocalProvider(LocalWindowChrome provides chrome) {
+                CompositionLocalProvider(
+                    LocalWindowChrome provides chrome,
+                    // 同步引擎下发到整棵树，设置页的 SyncCard 才能拿到它。
+                    // 与 LocalWindowChrome 同理：都是为了避免把参数一路传下去。
+                    LocalSyncEngine provides syncEngine
+                ) {
                     FluentTheme(themeMode = themeMode) {
                         // 无边框窗口的 Win11 原生圆角 + 跟随主题的 1px 描边
                         ApplyWindowCorners(window)

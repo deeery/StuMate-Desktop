@@ -8,11 +8,14 @@ import com.example.classreminder.data.backup.objOrNull
 import com.example.classreminder.data.backup.str
 import com.example.classreminder.data.backup.toJson
 import com.example.classreminder.platform.SecretStore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -67,6 +70,39 @@ object AccountSession {
     val bindings: StateFlow<List<OAuthBinding>> = _bindings.asStateFlow()
 
     val signedIn: Boolean get() = _user.value != null
+
+    private val _signedIn = MutableStateFlow(_user.value != null)
+
+    /**
+     * 登录态的**流**形式，供 Compose `collectAsState()` 用。
+     *
+     * 为什么不直接用 `user`：`user` 是整个用户对象，`refreshMe()` 每刷新一次
+     * 就换一个实例 —— 拿它当 `LaunchedEffect` 的依赖，会在「昵称刷新了」
+     * 这种与登录态无关的变更上白白重跑一整轮同步。
+     * 这里只暴露布尔值：它只在「真的登录了 / 真的退出了」时才变。
+     */
+    val signedInFlow: StateFlow<Boolean> = _signedIn.asStateFlow()
+
+    init {
+        // 唯一的转换点：用户对象一有变化就同步布尔值。
+        // 用 `launch` 而不是每次读属性都 new 一个 StateFlow ——
+        // 后者会让 Compose 每次重组都拿到新实例，收集永不结束。
+        CoroutineScope(Dispatchers.Default + SupervisorJob()).launch {
+            _user.collect { _signedIn.value = it != null }
+        }
+    }
+
+    /**
+     * 拿一个**新鲜的** access token，必要时自动轮转 refresh。
+     *
+     * 同步引擎每轮都要拿令牌，而令牌 15 分钟就过期。
+     * 让它自己调 [freshAccessToken]（private）不行，
+     * 而「自己判断过期再手动 refresh」会重复实现那套锁内双重检查 ——
+     * 多个协程同时刷新会各自拿旧 refresh 去撞服务端的重放检测，把整条令牌链作废。
+     * 所以这里开一个口子，内部仍然走同一个 [freshAccessToken]。
+     */
+    suspend fun accessToken(): String? =
+        if (signedIn) runCatching { freshAccessToken() }.getOrNull() else null
 
     /** 磁盘上的凭证是否加密（非 Windows 开发机会是 false，UI 可据此提示） */
     val credentialsEncrypted: Boolean get() = SecretStore.isEncryptedAtRest()

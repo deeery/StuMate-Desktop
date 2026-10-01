@@ -26,6 +26,11 @@ local.properties
 #迁移中途的源码副本，只对本机有意义
 _p3-backup-*/
 
+### JVM 崩溃转储 ###
+# uiPreview 截图后用 taskkill 强杀进程留下的，正常现象，不是 bug
+hs_err_pid*.log
+replay_pid*.log
+
 ### 验收素材（截图产物，3.9 MB 且每次改动都会重新生成）###
 //!design-preview/
 // 想留 HTML 验收页的话把上面这行的 // 去掉，只忽略截图素材：

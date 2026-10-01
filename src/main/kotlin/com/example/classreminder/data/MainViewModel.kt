@@ -58,6 +58,25 @@ class MainViewModel {
     /** 便签的写操作全部串行化：否则连点时快照可能基于过期的列表，回撤会撤错一步 */
     private val noteMutex = Mutex()
 
+    /**
+     * 数据变更回调，在**每次成功写库之后**触发。
+     *
+     * ## 为什么用回调而不是在 ViewModel 里直接依赖 SyncEngine
+     *
+     * `data/` 这一层是纯 Kotlin 逻辑、不含平台依赖，145 个单测全靠这一点。
+     * 让 ViewModel 直接 import `SyncEngine` 会把「网络 + 30 秒防抖」拖进业务层，
+     * 单测就得先造一个引擎出来。
+     *
+     * 所以 ViewModel 只声明「我改完了」这个**信号**，具体做什么由 `Main.kt` 注入。
+     * 触发时机统一挂在写库之后 —— 挂之前会同步到一份还没落库的数据。
+     */
+    @Volatile
+    var onDataChanged: (() -> Unit)? = null
+
+    private fun notifyDataChanged() {
+        onDataChanged?.invoke()
+    }
+
     init {
         loadClasses()
         loadNotes()
@@ -65,6 +84,21 @@ class MainViewModel {
 
     fun close() {
         scope.cancel()
+    }
+
+    /**
+     * 从库里重新读一遍，刷新界面。
+     *
+     * 同步引擎把远端变更落库后调用它 —— 否则数据进了库但界面还停在旧内容，
+     * 用户点开同步按钮看到「已同步」，课表却纹丝不动。
+     *
+     * 刻意**不**触发 [notifyDataChanged]：那是「本地写了数据」的信号，
+     * 会排一次防抖同步。而这里的数据本来就是从服务端拉来的，
+     * 再推回去是无意义的往返。
+     */
+    fun reloadFromDb() {
+        loadClasses()
+        loadNotes()
     }
 
     private fun loadClasses() {
@@ -84,6 +118,7 @@ class MainViewModel {
         scope.launch {
             dao.insert(entity)
             _classes.value = dao.getAll()
+            notifyDataChanged()
         }
     }
 
@@ -92,6 +127,7 @@ class MainViewModel {
         scope.launch {
             dao.delete(entity)
             _classes.value = dao.getAll()
+            notifyDataChanged()
         }
     }
 
@@ -167,6 +203,10 @@ class MainViewModel {
                 _canUndo.value = true
                 op()
                 _notes.value = noteDao.getAll()
+                // 触发点挂在**锁内**、落库之后。
+                // 挂锁外的话，notifyDataChanged 可能在 op() 还没写完时就跑，
+                // 同步引擎会把一份旧数据推上去。
+                notifyDataChanged()
             }
         }
     }

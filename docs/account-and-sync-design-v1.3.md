@@ -500,10 +500,17 @@ sync_log (
   uid        TEXT NOT NULL,
   op         TEXT NOT NULL,                      -- 'upsert' | 'delete'
   payload    TEXT,                               -- JSON
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT                                -- 后补列，见下
 );
 CREATE INDEX idx_sync_log_user_rev ON sync_log(user_id, revision);
 ```
+
+> **实施补记（2026-10-01）**：`deleted_at` 是实现时补上的，建表时漏了。
+> 有它之后 pull 的消费者不必解析 `payload` 就能判断这条是不是删除。
+> 因为 `CREATE TABLE IF NOT EXISTS` **不会给已有表补列**，所以同步走了一条
+> 极轻量的迁移（`lib/stumate/db.ts` 的 `migrate()`：先 `PRAGMA table_info` 查列，
+> 没有再 `ALTER TABLE ADD COLUMN`）。SQLite 没有 `ADD COLUMN IF NOT EXISTS`，只能这么做。
 
 客户端持有 `lastCursor`（上次拿到的最大 revision）。
 

@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.classreminder.AppPaths
+import com.example.classreminder.BuildConfig
 import com.example.classreminder.Prefs
 import com.example.classreminder.data.MainViewModel
 import com.example.classreminder.data.backup.BackupCodec
@@ -533,7 +534,7 @@ private fun AboutSection() {
     SectionBlock(title = "关于", description = "StuMate 桌面版 · 离线运行的课表提醒客户端。") {
         FlCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                InfoRow("版本", "1.0.0")
+                InfoRow("版本", BuildConfig.VERSION)
                 InfoRow("数据目录", AppPaths.dataDir.absolutePath)
                 InfoRow("数据库", AppPaths.dbFile.name)
                 InfoRow("配置文件", AppPaths.settingsFile.name)

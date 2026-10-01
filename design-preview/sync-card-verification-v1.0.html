@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate · 云同步卡片验收页 v1.0</title>
+<style>
+  :root{
+    /* 浅色 —— 与 FluentTokens.kt FluentLightColors 逐值对齐 */
+    --l-bg:#F3F3F3; --l-surface:#FFFFFF; --l-surface2:#EBEBEB; --l-surface3:#E0E0E0;
+    --l-onSurface:#1A1A1A; --l-onSurfaceVariant:#5C5C5C; --l-borderRest:#D2D2D2;
+    --l-accent:#0067C0; --l-error:#C42B1C; --l-success:#0F7B0F;
+    /* 深色 —— FluentDarkColors */
+    --d-bg:#141414; --d-surface:#2B2B2B; --d-surface2:#272727; --d-surface3:#333333;
+    --d-onSurface:#FFFFFF; --d-onSurfaceVariant:#C5C5C5; --d-borderRest:#404040;
+    --d-accent:#60CDFF; --d-error:#FF99A4; --d-success:#6CCB5F;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 28px 56px;
+    font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    background:#0f0f10; color:#e8e8e8;
+  }
+  h1{font-size:24px;font-weight:600;margin:0 0 6px}
+  .lead{font-size:13px;line-height:20px;color:#a0a0a0;margin:0 0 28px;max-width:900px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:20px}
+  .pane{border-radius:8px;padding:18px 18px 20px;border:1px solid #2e2e2e}
+  .pane > h2{font-size:13px;font-weight:600;margin:0 0 2px}
+  .pane > .cap{font-size:11px;line-height:16px;margin:0 0 14px;opacity:.65}
+
+  /* ── 复刻 FlCard：4px 圆角 + 1px 描边扁平卡片 ── */
+  .flcard{border-radius:4px;overflow:hidden}
+  .row{display:flex;align-items:flex-start;gap:12px;padding:12px 16px}
+  .row .labels{flex:1;min-width:0}
+  .label{font-size:13px;font-weight:600;line-height:18px;margin:0 0 3px}
+  .detail{font-size:12px;line-height:17px;margin:0}
+  .btn{
+    flex:none;font:inherit;font-size:12px;line-height:16px;padding:5px 12px;border-radius:4px;
+    border:1px solid transparent;background:transparent;cursor:pointer;white-space:nowrap;
+  }
+  .btn.ghost{border-color:var(--btn-bd);color:var(--fg);background:var(--btn-bg)}
+  .btn[disabled]{opacity:.45;cursor:default}
+  .divider{height:1px;margin:0 16px}
+  .body{padding:12px 16px 14px}
+  .status{display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none;border:1px solid var(--borderRest)}
+  .msg{font-size:13px;line-height:18px;margin:0;flex:1}
+  .t-13{font-size:13px}
+  .t-12{font-size:12px;line-height:17px}
+  .t-11{font-size:11px;line-height:16px}
+  .muted{color:var(--variant)}
+  .sp4{height:4px} .sp8{height:8px} .sp10{height:10px} .sp3{height:3px}
+  .note{
+    margin:12px 0 0;font-size:11px;line-height:16px;color:var(--variant);
+    border-left:2px solid var(--borderRest);padding-left:8px;
+  }
+  /* 备份路径框：border 在 clip 之前 —— 对应 Modifier 链的 border → clip → background */
+  .pathbox{border-radius:4px;padding:8px 10px;overflow:hidden}
+
+  .L{--bg:var(--l-bg);--surface:var(--l-surface);--surface2:var(--l-surface2);
+     --fg:var(--l-onSurface);--variant:var(--l-onSurfaceVariant);--borderRest:var(--l-borderRest);
+     --accent:var(--l-accent);--error:var(--l-error);--success:var(--l-success);
+     --btn-bd:#d2d2d2;--btn-bg:rgba(0,0,0,.02);background:var(--l-bg);color:var(--l-onSurface)}
+  .D{--bg:var(--d-bg);--surface:var(--d-surface);--surface2:var(--d-surface2);
+     --fg:var(--d-onSurface);--variant:var(--d-onSurfaceVariant);--borderRest:var(--d-borderRest);
+     --accent:var(--d-accent);--error:var(--d-error);--success:var(--d-success);
+     --btn-bd:#4a4a4a;--btn-bg:rgba(255,255,255,.04);background:var(--d-bg);color:var(--d-onSurface)}
+  .L .flcard,.L .pathbox{border:1px solid var(--l-borderRest);background:var(--l-surface)}
+  .D .flcard,.D .pathbox{border:1px solid var(--d-borderRest);background:var(--d-surface)}
+  .L .divider{background:var(--l-borderRest)}
+  .D .divider{background:var(--d-borderRest)}
+  .L .pathbox{background:var(--l-surface)}
+  .D .pathbox{background:var(--d-surface)}
+
+  table.spec{width:100%;border-collapse:collapse;margin-top:14px;font-size:12px}
+  table.spec th,table.spec td{text-align:left;padding:7px 10px;border-bottom:1px solid #2a2a2a;line-height:17px}
+  table.spec th{color:#9a9a9a;font-weight:600;white-space:nowrap}
+  table.spec td code{background:#232323;padding:1px 5px;border-radius:3px;font-size:11px;color:#d6d6d6}
+  h3{font-size:14px;font-weight:600;margin:34px 0 10px}
+</style>
+</head>
+<body>
+
+<h1>StuMate · 设置页「云同步」卡片 —— 验收页 v1.0</h1>
+<p class="lead">
+  对应源码 <code style="color:#9ecbff">ui/fluent/SyncCard.kt</code>。色值全部照抄
+  <code style="color:#9ecbff">FluentTokens.kt</code>（浅色 / 深色两套），4px 圆角、1px 描边扁平卡片、
+  正文 13sp / 次要 12sp，均为皮肤 B（Windows 11 Fluent）。<br>
+  下面 10 个场景覆盖同步引擎全部 5 种状态，外加未登录态。
+</p>
+
+<div class="grid">
+
+  <!-- ═══ 场景 1：未登录 ═══ -->
+  <div class="pane L">
+    <h2>① 未登录 · 浅色</h2>
+    <p class="cap">引擎为 null，只有入口行，没有状态正文</p>
+    <div class="flcard"><div class="row">
+      <div class="labels">
+        <p class="label">云同步</p>
+        <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+      </div>
+      <button class="btn ghost">去登录</button>
+    </div></div>
+    <p class="note">这一态没有分隔线和状态区 —— 引擎是 null，硬渲染状态正文会显示「还没同步过」，反而误导。</p>
+  </div>
+
+  <div class="pane D">
+    <h2>① 未登录 · 深色</h2>
+    <p class="cap">同上</p>
+    <div class="flcard"><div class="row">
+      <div class="labels">
+        <p class="label">云同步</p>
+        <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+      </div>
+      <button class="btn ghost">去登录</button>
+    </div></div>
+    <p class="note">「去登录」用 GHOST 变体：不抢主按钮的位置，点完弹出登录对话框。</p>
+  </div>
+
+  <!-- ═══ 场景 2：IDLE ═══ -->
+  <div class="pane L">
+    <h2>② 空闲 · 从未同步 · 浅色</h2>
+    <p class="cap">SyncPhase.IDLE，首启默认文案</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--l-success)"></span>
+          <p class="msg muted">还没同步过</p>
+        </div>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">绿点 + 「还没同步过」。时间行不出现 —— <code style="background:#eee;color:#333;padding:1px 5px;border-radius:3px">lastSyncedAt == 0</code> 时不编造时间。</p>
+  </div>
+
+  <div class="pane D">
+    <h2>② 空闲 · 从未同步 · 深色</h2>
+    <p class="cap">同上</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--d-success)"></span>
+          <p class="msg muted">还没同步过</p>
+        </div>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">深色下点用 <code style="background:#333;color:#ddd;padding:1px 5px;border-radius:3px">#6CCB5F</code>，在 <code style="background:#333;color:#ddd;padding:1px 5px;border-radius:3px">#2B2B2B</code> 卡面上对比度约 4.6:1。</p>
+  </div>
+
+  <!-- ═══ 场景 3：同步成功 ═══ -->
+  <div class="pane L">
+    <h2>③ 同步成功 · 浅色</h2>
+    <p class="cap">lastSyncedAt 有值，overriddenCount = 0</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--l-success)"></span>
+          <p class="msg muted">已同步，课程和便签都是最新的</p>
+        </div>
+        <div class="sp4"></div>
+        <p class="t-12 muted" style="margin:0">上次同步：10月1日 21:47</p>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">时间格式 <code style="background:#eee;color:#333;padding:1px 5px;border-radius:3px">M月d日 HH:mm</code>，本地时区。</p>
+  </div>
+
+  <div class="pane D">
+    <h2>③ 同步成功 · 深色</h2>
+    <p class="cap">同上</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--d-success)"></span>
+          <p class="msg muted">已同步，课程和便签都是最新的</p>
+        </div>
+        <div class="sp4"></div>
+        <p class="t-12 muted" style="margin:0">上次同步：10月1日 21:47</p>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">状态点始终带 1px 描边（<code style="background:#333;color:#ddd;padding:1px 5px;border-radius:3px">borderRest</code>），8px 的点在深色底上不至于糊成一团。</p>
+  </div>
+
+  <!-- ═══ 场景 4：同步中 ═══ -->
+  <div class="pane L">
+    <h2>④ 同步中 · 浅色</h2>
+    <p class="cap">SyncPhase.SYNCING，按钮禁用</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost" disabled>同步中…</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--l-accent)"></span>
+          <p class="msg muted">正在同步…</p>
+        </div>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">用强调色 + 静止色点，<b>不转圈</b>：动画只在 StateFlow 更新时重绘，静止的色点更诚实 —— 它不假装在动。</p>
+  </div>
+
+  <div class="pane D">
+    <h2>④ 同步中 · 深色</h2>
+    <p class="cap">同上</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost" disabled>同步中…</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--d-accent)"></span>
+          <p class="msg muted">正在同步…</p>
+        </div>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">按钮禁用态靠 <code style="background:#333;color:#ddd;padding:1px 5px;border-radius:3px">enabled=false</code> 的 45% 透明度，不换颜色 —— 换了容易被读成另一种可点状态。</p>
+  </div>
+
+  <!-- ═══ 场景 5：LWW 覆盖提示 ═══ -->
+  <div class="pane L">
+    <h2>⑤ 有记录被覆盖 · 浅色</h2>
+    <p class="cap">overriddenCount = 3，设计 §5.5 要求「不隐藏」</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--l-success)"></span>
+          <p class="msg muted">已同步，课程和便签都是最新的</p>
+        </div>
+        <div class="sp4"></div>
+        <p class="t-12 muted" style="margin:0">上次同步：10月1日 21:47</p>
+        <div class="sp8"></div>
+        <p class="t-12 muted" style="margin:0">有 3 条本地记录被服务端版本覆盖。两台设备离线时改同一门课，后同步的那台会赢。</p>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">LWW 的已知限制必须写出来：用户有权在改动消失<b>之前</b>就知道它存在，而不是事后才发现。</p>
+  </div>
+
+  <div class="pane D">
+    <h2>⑤ 有记录被覆盖 · 深色</h2>
+    <p class="cap">同上</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--d-success)"></span>
+          <p class="msg muted">已同步，课程和便签都是最新的</p>
+        </div>
+        <div class="sp4"></div>
+        <p class="t-12 muted" style="margin:0">上次同步：10月1日 21:47</p>
+        <div class="sp8"></div>
+        <p class="t-12 muted" style="margin:0">有 3 条本地记录被服务端版本覆盖。两台设备离线时改同一门课，后同步的那台会赢。</p>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">这一条文案<b>不加图标、不加红色</b>：它不是错误，是预期内的仲裁结果，用错误色会让人以为同步失败了。</p>
+  </div>
+
+  <!-- ═══ 场景 6：失败 ═══ -->
+  <div class="pane L">
+    <h2>⑥ 同步失败 · 浅色</h2>
+    <p class="cap">SyncPhase.FAILED，唯一用 onSurface 高亮的态</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--l-error)"></span>
+          <p class="msg">同步失败：连不上服务器</p>
+        </div>
+        <div class="sp4"></div>
+        <p class="t-12 muted" style="margin:0">上次同步：10月1日 20:15</p>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">失败时文案提到 <b>onSurface</b>（不是 variant），让它比周围都显眼；上次同步时间仍然保留，方便判断是「刚断网」还是「一直连不上」。</p>
+  </div>
+
+  <div class="pane D">
+    <h2>⑥ 同步失败 · 深色</h2>
+    <p class="cap">同上</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--d-error)"></span>
+          <p class="msg">同步失败：登录已过期，请重新登录</p>
+        </div>
+        <div class="sp4"></div>
+        <p class="t-12 muted" style="margin:0">上次同步：10月1日 20:15</p>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">错误文案带上<b>用户下一步该干什么</b>（重新登录），而不是只丢一个 HTTP 状态码。</p>
+  </div>
+
+  <!-- ═══ 场景 7：未登录跳过 ═══ -->
+  <div class="pane L">
+    <h2>⑦ 已退出登录 · 浅色</h2>
+    <p class="cap">SyncPhase.SKIPPED</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--l-onSurfaceVariant)"></span>
+          <p class="msg muted">未登录，已跳过同步</p>
+        </div>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+      </div>
+    </div>
+    <p class="note">用中性灰点而不是红点：这不是错误，是「本地优先」设计下的正常状态。</p>
+  </div>
+
+  <!-- ═══ 场景 8：首端切换 + 备份路径 ═══ -->
+  <div class="pane D">
+    <h2>⑧ 首端切换 · 已自动备份 · 深色</h2>
+    <p class="cap">backupPath 非空，设计 §5.8 要求明确告知路径</p>
+    <div class="flcard">
+      <div class="row">
+        <div class="labels">
+          <p class="label">云同步</p>
+          <p class="detail muted">在多台设备之间同步课程表与便签。设置项不参与同步，未登录时数据只留在本机</p>
+        </div>
+        <button class="btn ghost">立即同步</button>
+      </div>
+      <div class="divider"></div>
+      <div class="body">
+        <div class="status">
+          <span class="dot" style="background:var(--d-success)"></span>
+          <p class="msg muted">已同步，课程和便签都是最新的</p>
+        </div>
+        <div class="sp4"></div>
+        <p class="t-12 muted" style="margin:0">上次同步：10月1日 21:52</p>
+        <div class="sp10"></div>
+        <p class="t-12 muted" style="margin:0">启动时同步一次，改动后 30 秒内没有新改动就会自动同步</p>
+        <div class="sp10"></div>
+        <div class="pathbox">
+          <p class="t-12 muted" style="margin:0">首次同步前已把本机原有数据备份到：</p>
+          <div class="sp3"></div>
+          <p class="t-11" style="margin:0;color:var(--d-onSurface)">C:\Users\Administrator\AppData\Roaming\StuMate\StuMate-preinit-backup-20261001-215204.json</p>
+        </div>
+      </div>
+    </div>
+    <p class="note">这一态下用户本地数据被清空过。备份框用 <b>border → clip → background</b> 的顺序（对应 Compose 的 <code style="background:#333;color:#ddd;padding:1px 5px;border-radius:3px">Modifier</code> 链），反过来圆角会把描边切出缺口。</p>
+  </div>
+
+</div>
+
+<h3>设计决策速查</h3>
+<table class="spec">
+  <tr><th>决策</th><th>为什么</th></tr>
+  <tr><td>单独一张卡，不塞进账号卡</td><td>账号卡每一行都是「点一下进对话框」的入口；同步的三个状态需要<b>持续可见</b>，混在入口中间等于看不见</td></tr>
+  <tr><td>状态点用纯色 + 文字，不靠颜色单独表意</td><td>色觉障碍用户读不出红/绿的区别。每个状态旁边都有一句明确的中文</td></tr>
+  <tr><td>同步中不转圈</td><td>动画只在 StateFlow 更新时重绘；一个静止的色点不假装在动，反而更诚实</td></tr>
+  <tr><td>LWW 覆盖提示不加错误色</td><td>它是预期内的仲裁结果，不是失败。用红色会让人以为同步坏了，反而更焦虑</td></tr>
+  <tr><td>失败时保留「上次同步」时间</td><td>用户要能分辨「刚断网」和「一直连不上」—— 前者本地数据还是新的，后者可能已经落后很久</td></tr>
+  <tr><td>备份路径用等宽感的小字 + 独立框</td><td>这一刻用户的数据被清空过，不告诉他备份在哪，他会以为数据没了</td></tr>
+  <tr><td><code>LocalSyncEngine</code> 用 staticCompositionLocalOf</td><td>它不跟踪读数，值在应用生命周期内不变，正好符合「一个引擎贯穿全局」的语义</td></tr>
+</table>
+
+</body>
+</html>
