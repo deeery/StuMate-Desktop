@@ -68,6 +68,7 @@ def runtime_classpath():
 
 DEFAULT_SCENARIOS = [
     ("account", "acc-01-account-signedout.png"),
+    ("firstrun", "acc-00-first-run.png"),
     ("auth", "acc-02-login-dialog.png"),
     ("authfail", "acc-03-login-failed.png"),
     ("register", "acc-04-register-dialog.png"),
@@ -218,7 +219,7 @@ def run_scenario(scenario, out_path, timeout=150, settle=4.0, state=None):
     try:
         # 需要登录的场景：等窗口标题出现 ' ready'（预览进程登录成功后才打），
         # 超时了要当失败报出来 —— 截一张「未登录」比不截更糟。
-        waits_ready = scenario in ("signedin", "setpwd", "modpwd")
+        waits_ready = scenario in ("signedin", "setpwd", "modpwd", "firstrun")
         deadline = time.time() + timeout
         hwnd = pid = None
         while time.time() < deadline:

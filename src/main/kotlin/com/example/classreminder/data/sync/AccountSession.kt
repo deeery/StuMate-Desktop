@@ -74,6 +74,24 @@ object AccountSession {
     private val _signedIn = MutableStateFlow(_user.value != null)
 
     /**
+     * 「**用户主动登录**」计数器。每次 [login] / [register] / 第三方登录成功自增。
+     *
+     * ⚠️ [restore] 与 [previewSignInWithToken] **不动它** —— 那两个是「本机还留着凭证」，
+     * 不是用户主动登录。
+     *
+     * 这个区分是必须的：同步引擎靠它决定「要不要把本地强制对齐到首端配置」，
+     * 而「每次开软件都对齐」＝「每次开软件都清一次库」—— 那正是 2026-10-02
+     * 刚修掉的缺陷（见 SyncEngine 的 replace_local 注释）。
+     */
+    private val _loginEpoch = MutableStateFlow(0)
+    val loginEpoch: StateFlow<Int> = _loginEpoch.asStateFlow()
+
+    /** 标记一次「用户主动登录」；见 [loginEpoch] */
+    private fun markFreshLogin() {
+        _loginEpoch.value += 1
+    }
+
+    /**
      * 登录态的**流**形式，供 Compose `collectAsState()` 用。
      *
      * 为什么不直接用 `user`：`user` 是整个用户对象，`refreshMe()` 每刷新一次
@@ -195,6 +213,9 @@ object AccountSession {
         val (user, next) = withContext(Dispatchers.IO) {
             AuthApi.login(email.trim(), password, device())
         }
+        // 先记「主动登录」再落盘：登录态翻转时计数器必须已经是新值，
+        // 否则同步侧会把它当成「启动恢复」而漏掉强制对齐
+        markFreshLogin()
         persist(user, next)
         return user
     }
@@ -204,6 +225,7 @@ object AccountSession {
         val (user, next) = withContext(Dispatchers.IO) {
             AuthApi.register(email.trim(), password, inviteCode.trim(), device())
         }
+        markFreshLogin()
         persist(user, next)
         return user
     }
@@ -342,7 +364,11 @@ object AccountSession {
                 onTick(round)
                 continue
             }
-            if (result is OAuthPollResult.SignedIn) persist(result.user, result.tokens)
+            // 第三方**登录**（不是绑定）同样算用户主动登录
+            if (result is OAuthPollResult.SignedIn) {
+                markFreshLogin()
+                persist(result.user, result.tokens)
+            }
             return result
         }
         return OAuthPollResult.Failed("TIMEOUT", "授权等待超时，请重新发起")

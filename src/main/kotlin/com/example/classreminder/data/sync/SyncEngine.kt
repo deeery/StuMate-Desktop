@@ -77,6 +77,9 @@ class SyncEngine(
 
     private var debounceJob: Job? = null
 
+    /** [startOnLaunch] 的一次性守卫；见该方法的 KDoc */
+    private var launchSyncDone = false
+
     companion object {
         /** 写操作后等这么久才真的同步（设计 §5.8） */
         const val DEBOUNCE_MS = 30_000L
@@ -109,22 +112,71 @@ class SyncEngine(
         scope.launch { onDone(syncOnce()) }
     }
 
-    /** 应用启动时调用 */
+    /**
+     * 应用启动时调用。**同一个登录会话内最多生效一次**。
+     *
+     * ## 为什么要自己去重，而不是指望上层只调一次
+     *
+     * 上层是 `LaunchedEffect(signedIn)`，而实测（2026-10-02，Compose 1.5.10）
+     * 该 effect 在**键值未变**的情况下也会被重复执行一次：
+     * 探针日志里连续出现两条 `prev=true now=true`，而 `_user` 只发射了
+     * `null → user` 两次（没有任何登出、`signOutLocally` 也没被调用）。
+     * 结果就是一次启动跑两遍同步 —— 每遍都会 `push`（`collectLocalChanges()`
+     * 是**无条件**把本地所有行推上去的，不是只推变更），于是服务端每遍都回
+     * `replace_local=true`，本地被清空重拉两遍，落两个备份文件。
+     *
+     * 与其在 Compose 的重组语义上赌，不如把「一次启动一次同步」放在引擎自己身上：
+     * 这里的守卫与重组、effect 重启、甚至上层将来多接几个触发点都无关。
+     * [resetForSignOut] 会把它清掉，所以「登出再登录」仍会同步一次。
+     */
     fun startOnLaunch() {
+        if (launchSyncDone) return
         if (!AccountSession.signedIn) return
+        launchSyncDone = true
         scope.launch { runCatching { syncOnce() } }
+    }
+
+    /**
+     * **用户主动登录后**调用：把本地强制对齐到服务端（＝首端设备）的配置。
+     *
+     * ## 和 [startOnLaunch] 的区别只有一点：要不要对齐
+     *
+     * - 启动时恢复登录态 = 「接着用本机已有的数据」，**不动它**；
+     * - 用户主动登录 = 「我要用这个账号的配置」，这时本地那份可能来自
+     *   上一次登录的账号、也可能早就跟云端分叉了，所以要拉回正轨。
+     *
+     * ## 对齐的具体动作
+     *
+     * 见 [syncOnce] 的第 0 步：先问服务端有没有数据，
+     * 有就**跳过 push** 直接「备份 → 清空 → 全量拉」。被覆盖掉的那份本地配置
+     * 会写到 `StuMate-preinit-backup-<时间戳>.json`，路径显示在同步卡上。
+     *
+     * ## 为什么不用 Compose 的登录态当触发信号
+     *
+     * `signedIn` 在「启动恢复」和「主动登录」两种情况下都会从 false 变 true，
+     * 拿它当信号会把「每次开软件」也变成「每次清库」—— 那正是刚修掉的缺陷。
+     * 所以用 [AccountSession.loginEpoch]：只有 [AccountSession.login] /
+     * [AccountSession.register] / 第三方登录成功才会自增，`restore()` 不动它。
+     */
+    fun syncAfterLogin() {
+        if (!AccountSession.signedIn) return
+        // 本次会话的「启动同步」已被它取代，别再让 startOnLaunch 多跑一遍
+        launchSyncDone = true
+        scope.launch { runCatching { syncOnce(forceAlign = true) } }
     }
 
     /** 退出登录时清掉游标 —— 换账号后不能接着上一个人的游标拉 */
     fun resetForSignOut() {
         debounceJob?.cancel()
+        // 允许下一个登录会话再走一次启动同步
+        launchSyncDone = false
         prefs.lastCursor = 0
         _state.value = SyncState(message = "未登录，不会同步")
     }
 
     // ── 主流程 ──────────────────────────────────────────────────
 
-    private suspend fun syncOnce(): SyncState = running.withLock {
+    private suspend fun syncOnce(forceAlign: Boolean = false): SyncState = running.withLock {
         _state.value = _state.value.copy(phase = SyncPhase.SYNCING, message = "同步中…")
 
         val token = AccountSession.accessToken()
@@ -134,24 +186,48 @@ class SyncEngine(
         }
 
         var pushedAny = false
+        var alignedToServer = false
         try {
-            // ── 1. push ────────────────────────────────────────
-            val outgoing = collectLocalChanges()
-            val push = if (outgoing.isEmpty()) null else SyncApi.push(outgoing, token)
-            if (push != null) pushedAny = true
-
-            // 服务端说「你不是第一台」→ 本地要备份后清空，再全量重拉（§5.8）
+            // ── 0. 登录对齐：先决定「本地这份分歧要不要推上去」 ──
             //
-            // ⚠️ 这里**必须**写 `== true`，不能写 `!= false` 或直接用。
-            // 服务端的 `isInitialDevice` 是**三态**的：
-            //   true  = 我就是首端 → 不清空
-            //   false = 首端是别的设备 → 要清空
-            //   null  = 还没任何设备认领过（用户刚注册）→ **绝不能清空**，会白丢数据
-            // 而 pull / push 路由里写的是 `replaceLocal = (initial === false)`，
-            // 把 true 和 null 合并成了 false。所以这里收到的 false 是
-            // 「我是首端」或「还没人认领」两种情况 —— **都清不得**。
-            // 反过来写（凡非 true 就清）会在用户刚注册首跑时把本地数据全丢掉。
-            if (push?.replaceLocal == true) {
+            // [syncAfterLogin] 的诉求是「让我这台设备显示**首端那台**的配置」。
+            // 如果照常先 push，本地这份分歧就会先污染服务端 —— 对齐也就落空了。
+            // 所以先问一次服务端有没有数据：
+            //   有   → 跳过 push，直接「备份 → 清空 → 全量拉」，
+            //          本地这份分歧只留在备份文件里（用户要求「备份被覆盖的配置」）
+            //   没有 → **必须**照常 push。否则 `initial_device_id` 永远是 null，
+            //          谁都成不了首端，之后所有设备都拿不到「以谁为准」的答案
+            var replaceNow = false
+            if (forceAlign) {
+                val status = SyncApi.status(token)
+                if (status.courses > 0 || status.notes > 0) {
+                    replaceNow = true
+                    alignedToServer = true
+                }
+            }
+
+            // ── 1. push ────────────────────────────────────────
+            var push: PushResult? = null
+            if (!replaceNow) {
+                val outgoing = collectLocalChanges()
+                push = if (outgoing.isEmpty()) null else SyncApi.push(outgoing, token)
+                if (push != null) pushedAny = true
+
+                // 服务端说「你不是第一台」→ 本地要备份后清空，再全量重拉（§5.8）
+                //
+                // ⚠️ 这里**必须**写 `== true`，不能写 `!= false` 或直接用。
+                // 服务端的 `isInitialDevice` 是**三态**的：
+                //   true  = 我就是首端 → 不清空
+                //   false = 首端是别的设备 → 要清空
+                //   null  = 还没任何设备认领过（用户刚注册）→ **绝不能清空**，会白丢数据
+                // 而 pull / push 路由里写的是 `replaceLocal = (initial === false)`，
+                // 把 true 和 null 合并成了 false。所以这里收到的 false 是
+                // 「我是首端」或「还没人认领」两种情况 —— **都清不得**。
+                // 反过来写（凡非 true 就清）会在用户刚注册首跑时把本地数据全丢掉。
+                if (push?.replaceLocal == true) replaceNow = true
+            }
+
+            if (replaceNow) {
                 // 备份路径要如实带到 UI 上：这一刻用户本地数据被清空了，
                 // 他必须知道去哪找那份备份才安心（设计 §5.8 要求「明确告知路径」）
                 val backup = handleReplaceLocal()
@@ -199,8 +275,16 @@ class SyncEngine(
             val result = SyncState(
                 phase = SyncPhase.IDLE,
                 lastSyncedAt = System.currentTimeMillis(),
-                message = describe(pushedAny, applied, overridden, purged),
-                overriddenCount = overridden
+                message = if (alignedToServer) {
+                    "已对齐首端配置 · 拉取 $applied 条"
+                } else {
+                    describe(pushedAny, applied, overridden, purged)
+                },
+                overriddenCount = overridden,
+                // ⚠️ 必须把备份路径**带过来**。`SyncState(...)` 是新建对象，
+                // 不显式传就丢 —— 上面刚写进 `_state.value` 的 backupPath 会被这行抹掉，
+                // 用户永远看不到「你的数据备份在哪」，而这正是他唯一能找回数据的地方。
+                backupPath = _state.value.backupPath
             )
             _state.value = result
             result

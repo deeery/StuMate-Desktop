@@ -23,6 +23,7 @@ import com.example.classreminder.data.sync.AccountSession
 import com.example.classreminder.data.sync.OAuthTicket
 import com.example.classreminder.data.sync.SyncPhase
 import com.example.classreminder.data.sync.SyncState
+import com.example.classreminder.FirstRunDialog
 import com.example.classreminder.platform.ToastHost
 import com.example.classreminder.ui.fluent.AccountAuthDialog
 import com.example.classreminder.ui.fluent.AppPage
@@ -140,8 +141,11 @@ fun main() = application {
                 // 死等会有假阴性 —— 浅色首帧慢 / 网络慢时登录还没回来就截图，
                 // 截出来一张「未登录」，看起来像功能没做，实际只是没等够。
                 val needsUser = scenario == "signedin" || scenario == "setpwd" || scenario == "modpwd"
-                LaunchedEffect(previewUser, needsUser) {
-                    if (needsUser && previewUser != null) {
+                // firstrun 是同步渲染的（没有异步登录），但仍然打 ready 信号：
+                // 截图脚本一律等信号、不死等秒数 —— 死等会截到「还没画完」的废图。
+                val readyWithoutUser = scenario == "firstrun"
+                LaunchedEffect(previewUser, needsUser, readyWithoutUser) {
+                    if (readyWithoutUser || (needsUser && previewUser != null)) {
                         window.title = "$WINDOW_TITLE ready"
                     }
                 }
@@ -217,6 +221,9 @@ fun main() = application {
                 }
 
                 when (scenario) {
+                    // 首启引导：推荐登录 / 注册，游客是无边框灰字。
+                    // 用 `internal` 的生产 Composable 而不是复制一份 —— 摆出来的必须就是用户看到的那个。
+                    "firstrun" -> FirstRunDialog(onGuest = {}, onAuth = {})
                     "auth" -> AccountAuthDialog(onDismiss = {}, onForgotPassword = {})
                     "authfail" -> AccountAuthDialog(
                         onDismiss = {},

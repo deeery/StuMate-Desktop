@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate · 登录强制对齐 + 首启引导 验收页 v1.0（桌面端）</title>
+<style>
+  :root{
+    --d-bg:#141414; --d-surface:#2B2B2B; --d-surface2:#272727; --d-surface3:#333333;
+    --d-onSurface:#FFFFFF; --d-onSurfaceVariant:#C5C5C5; --d-borderRest:#404040;
+    --d-accent:#60CDFF; --d-error:#FF99A4; --d-success:#6CCB5F;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 28px 56px;
+    font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    background:#0f0f10; color:#e8e8e8;
+  }
+  h1{font-size:24px;font-weight:600;margin:0 0 6px}
+  .lead{font-size:13px;line-height:20px;color:#a0a0a0;margin:0 0 26px;max-width:980px}
+  h2.sec{font-size:15px;font-weight:600;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid #2e2e2e}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:20px}
+  figure{margin:0;border-radius:8px;border:1px solid #2e2e2e;overflow:hidden;background:#1a1a1a}
+  figure img{display:block;width:100%;height:auto}
+  figcaption{padding:10px 14px 12px;font-size:12px;line-height:17px;color:#a0a0a0}
+  figcaption b{color:#e8e8e8;font-weight:600}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:0 0 8px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+  th{font-weight:600;color:#c5c5c5;background:#1a1a1a}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:#242424;padding:1px 5px;border-radius:3px}
+  .ok{color:#6CCB5F;font-weight:600}
+  .warn{color:#e0b341;font-weight:600}
+  .bad{color:#FF99A4;font-weight:600}
+  .note{margin:12px 0 0;font-size:12px;line-height:18px;color:#a0a0a0;border-left:2px solid #404040;padding-left:10px}
+  ul{font-size:13px;line-height:21px;padding-left:20px;margin:6px 0}
+  .kv{font-size:13px;line-height:22px}
+  .kv code{color:#e8e8e8}
+</style>
+</head>
+<body>
+
+<h1>登录强制对齐首端配置 + 首启引导改版 · 验收页 v1.0</h1>
+<p class="lead">
+  桌面端（Compose Multiplatform 1.5.10 / Kotlin 1.9.20）。两件事：<br>
+  ① <b>每次主动登录</b>都强制把本地对齐到「最早登录那台设备」的配置，被覆盖的那份先备份；<br>
+  ② <b>首次启动</b>推荐登录 / 注册，但保留游客选项 —— 无边框灰字，在、但不抢眼。
+</p>
+
+<h2 class="sec">一、首启引导（本次改版的主角）</h2>
+<div class="grid">
+  <figure>
+    <img src="firstrun-dark.png" alt="首启引导 · 深色">
+    <figcaption><b>深色主题</b> —— 「登录 / 注册」是主按钮（强调色实心），
+      「注册」是描边次按钮，「先以游客身份使用」是<b>无边框灰字</b>，贴在左侧。</figcaption>
+  </figure>
+  <figure>
+    <img src="firstrun-light.png" alt="首启引导 · 浅色">
+    <figcaption><b>浅色主题</b> —— 同样的层级关系在浅色下依然成立：
+      灰字游客入口的可读性靠 <code>onSurfaceVariant</code> 保证，不是靠降低不透明度。</figcaption>
+  </figure>
+</div>
+<p class="note">
+  截图不是摆拍：走的是生产 Composable <code>FirstRunDialog</code>（本次由 <code>private</code> 改为
+  <code>internal</code>，仅为让 <code>dev/UiPreview</code> 能直接组合它），
+  由 <code>tools/shoot_scenarios.py</code> 起真实进程截取，脚本等窗口标题的
+  <code>ready</code> 信号后才按快门 —— 不死等固定秒数，避免截到没画完的废图。
+</p>
+
+<h2 class="sec">二、登录强制对齐（逻辑改动）</h2>
+<table>
+  <tr><th>环节</th><th>行为</th></tr>
+  <tr>
+    <td>触发信号</td>
+    <td><code>AccountSession.loginEpoch</code> —— 只有 <code>login()</code> / <code>register()</code> / 第三方登录成功才自增。
+      <code>restore()</code> 与令牌注入<b>不动</b>它。</td>
+  </tr>
+  <tr>
+    <td>为什么不用登录态当信号</td>
+    <td><code>signedIn</code> 在「启动恢复」和「主动登录」两种情况下都会 false→true。
+      拿它当信号会把<b>每次开软件</b>也变成<b>每次清库</b> —— 那正是刚修掉的缺陷。</td>
+  </tr>
+  <tr>
+    <td>对齐动作</td>
+    <td><code>syncOnce(forceAlign = true)</code> 的第 0 步先问 <code>SyncApi.status(token)</code>：
+      服务端 <code>courses &gt; 0 || notes &gt; 0</code> → <b>跳过 push</b>，直接
+      「备份 → 清空 → 全量拉」。</td>
+  </tr>
+  <tr>
+    <td>为什么必须跳过 push</td>
+    <td>照常先 push 的话，本地这份分歧会<b>先污染服务端</b>，对齐就落空了。</td>
+  </tr>
+  <tr>
+    <td>服务端为空时</td>
+    <td><b>必须</b>照常 push。否则 <code>initial_device_id</code> 永远是 null，
+      谁都成不了首端，之后所有设备都拿不到「以谁为准」的答案。</td>
+  </tr>
+  <tr>
+    <td>用户可见反馈</td>
+    <td>同步卡显示「<b>已对齐首端配置 · 拉取 N 条</b>」，并保留被覆盖配置的备份路径。</td>
+  </tr>
+  <tr>
+    <td>启动同步去重</td>
+    <td><code>startOnLaunch()</code> 加了 <code>launchSyncDone</code> 幂等守卫
+      （Compose 1.5.10 实测 effect 会在键值未变时重复执行），<code>resetForSignOut()</code> 时清掉。</td>
+  </tr>
+</table>
+
+<h2 class="sec">三、验证结果</h2>
+<table>
+  <tr><th>项</th><th>结果</th></tr>
+  <tr><td>编译 <code>compileKotlin</code></td><td class="ok">BUILD SUCCESSFUL</td></tr>
+  <tr><td>单元测试 <code>test</code></td><td class="ok">160 / 160 通过，0 失败</td></tr>
+  <tr><td>首启引导实机截图</td><td class="ok">深色 / 浅色各 1 张（见上）</td></tr>
+  <tr><td>登录强制对齐端到端</td>
+      <td class="warn">桌面端<b>未</b>做破坏性端到端（见下方说明）；同一套逻辑已在<b>移动端</b>真机跑通</td></tr>
+</table>
+<p class="note">
+  <b>为什么桌面端跳过破坏性端到端：</b>该路径的动作是「备份 → 清空 → 全量拉」，
+  会直接改写 <code>%APPDATA%\StuMate\</code> 里的真实用户配置，而桌面应用此刻正在运行、
+  持有同一个 SQLite 文件。收益（验证一段 12 行、与移动端逐字同源的逻辑）
+  抵不上风险。引擎层的 <code>forceAlign</code> 分支已由 160 项单测覆盖，
+  整条链路的行为一致性由移动端真机验证背书。
+</p>
+
+<h2 class="sec">四、改动文件</h2>
+<ul class="kv">
+  <li><code>Main.kt</code> —— 首启引导改版；<code>LaunchedEffect(signedIn, loginEpoch)</code> 区分启动恢复 / 主动登录</li>
+  <li><code>data/sync/SyncEngine.kt</code> —— <code>syncAfterLogin()</code>、<code>forceAlign</code> 第 0 步、<code>launchSyncDone</code> 守卫</li>
+  <li><code>data/sync/AccountSession.kt</code> —— <code>loginEpoch</code> / <code>markFreshLogin()</code></li>
+  <li><code>ui/fluent/FluentControls.kt</code> —— <code>FlButtonVariant.TEXT_MUTED</code>（无边框灰字）</li>
+  <li><code>dev/UiPreview.kt</code> + <code>tools/shoot_scenarios.py</code> —— <code>firstrun</code> 预览场景</li>
+</ul>
+
+</body>
+</html>

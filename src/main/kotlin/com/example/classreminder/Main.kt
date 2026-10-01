@@ -51,14 +51,18 @@ import com.example.classreminder.platform.DesktopFileDialogs
 import com.example.classreminder.platform.ReminderEngine
 import com.example.classreminder.platform.ToastBus
 import com.example.classreminder.platform.ToastHost
+import com.example.classreminder.ui.fluent.AccountAuthDialog
 import com.example.classreminder.ui.fluent.AppShell
 import com.example.classreminder.ui.fluent.ApplyWindowCorners
 import com.example.classreminder.ui.fluent.FlButton
 import com.example.classreminder.ui.fluent.FlButtonVariant
 import com.example.classreminder.ui.fluent.FlDialog
 import com.example.classreminder.ui.fluent.FluentTheme
+import com.example.classreminder.ui.fluent.ForgotPasswordDialog
 import com.example.classreminder.ui.fluent.LocalSyncEngine
 import com.example.classreminder.ui.fluent.LocalWindowChrome
+import com.example.classreminder.ui.fluent.MODE_LOGIN
+import com.example.classreminder.ui.fluent.MODE_REGISTER
 import com.example.classreminder.ui.fluent.OverlayWindow
 import com.example.classreminder.ui.fluent.StuMateBrandInk
 import com.example.classreminder.ui.fluent.StuMateBrandTile
@@ -108,6 +112,10 @@ fun main() = application {
     var showCloseDialog by remember { mutableStateOf(false) }
     var dontAskAgain by remember { mutableStateOf(false) }
     var showFirstRun by remember { mutableStateOf(Prefs.isFirstRun()) }
+    // 首启引导里点「登录 / 注册」后要弹的账号对话框（null = 没弹）。
+    // 存的是 MODE_LOGIN / MODE_REGISTER，决定对话框开在哪个标签页
+    var firstRunAuthMode by remember { mutableStateOf<Int?>(null) }
+    var firstRunForgot by remember { mutableStateOf(false) }
     // 最大化是手工实现的（无边框窗口不能用 WindowPlacement.Maximized，会盖住任务栏），
     // 所以要自己记住还原时的位置与尺寸
     var maximized by remember { mutableStateOf(false) }
@@ -145,17 +153,44 @@ fun main() = application {
         // 有本机凭证就先恢复登录态（断网时也能显示「已登录」），再在后台核验一次。
         // 这是**唯一**一处主动拉起账号会话的地方 —— 启动流程不等待它，界面不会被登录卡住
         AccountSession.restore()
-        // 登录态恢复完再同步：顺序反了的话 syncNow 会看到「未登录」直接跳过，
-        // 于是这次启动永远不同步（要等用户手动点一次）
-        syncEngine.startOnLaunch()
     }
 
     // 登录状态一变（登录成功 / 退出登录）就重新同步。
     // 用 `signedIn` 而不是 `user`：用户对象每次 refreshMe 都会被替换成新实例，
     // 用它当 key 会在「刷新了昵称」这种无关变更上白白重跑一轮同步。
+    //
+    // ⚠️ 这里**只能**在「真的登录了」时同步，且**只能**在「真的登出」时清游标。
+    // `signedInFlow` 的初始值是 false（`_user` 构造时是 null），而 `restore()`
+    // 是异步的 —— 所以本 effect 第一次执行时看到的 false 是「凭证还没读出来」，
+    // **不是**「用户退出了」。
+    // 早期版本写成 `if (!signedIn) resetForSignOut() else startOnLaunch()`，两个后果：
+    //   1. 每次启动都先把游标清零 → 首轮同步必然从 cursor=0 全量重拉；
+    //   2. 同一个启动里 `LaunchedEffect(Unit)` 也调了 startOnLaunch()
+    //      → 一轮启动跑两遍同步（实测：一次启动产出两个 preinit 备份文件）。
+    // 用上一次的值区分「初始 false」与「true → false」的真登出。
+    //
+    // 另外要分开**两种「已登录」**，它们的同步动作不一样：
+    //   · 启动恢复登录态 → `startOnLaunch()`，接着用本机数据，不动它
+    //   · 用户主动登录   → `syncAfterLogin()`，把本地强制对齐到首端配置
+    //     （先备份被覆盖的那份，路径显示在同步卡上）
+    // 区分靠 `loginEpoch` —— 只有 login/register/第三方登录才自增。
     val signedIn by AccountSession.signedInFlow.collectAsState()
-    LaunchedEffect(signedIn) {
-        if (!signedIn) syncEngine.resetForSignOut() else syncEngine.startOnLaunch()
+    // 只有「用户主动登录」才会自增（见 AccountSession.loginEpoch）。
+    // 启动时恢复登录态不动它 —— 否则每次开软件都会被当成刚登录而强制对齐一次。
+    val loginEpoch by AccountSession.loginEpoch.collectAsState()
+    val prevSignedIn = remember { mutableStateOf<Boolean?>(null) }
+    val handledLoginEpoch = remember { mutableStateOf(0) }
+    LaunchedEffect(signedIn, loginEpoch) {
+        val prev = prevSignedIn.value
+        prevSignedIn.value = signedIn
+        if (!signedIn) {
+            if (prev == true) syncEngine.resetForSignOut()
+            return@LaunchedEffect // 启动时凭证还没恢复完，游标不动
+        }
+        // 这次「已登录」是不是用户主动登录带来的？是就强制对齐首端配置
+        val freshLogin = loginEpoch != handledLoginEpoch.value
+        handledLoginEpoch.value = loginEpoch
+        if (freshLogin) syncEngine.syncAfterLogin() else syncEngine.startOnLaunch()
     }
 
     if (isTraySupported) {
@@ -294,10 +329,35 @@ fun main() = application {
             }
 
             if (showFirstRun) {
-                FirstRunDialog(onDismiss = {
-                    Prefs.setFirstRunDone()
-                    showFirstRun = false
-                })
+                FirstRunDialog(
+                    onGuest = {
+                        Prefs.setFirstRunDone()
+                        showFirstRun = false
+                    },
+                    onAuth = { mode -> firstRunAuthMode = mode }
+                )
+            }
+            // 首启引导里点「登录 / 注册」拉起的账号对话框。
+            // 与设置页那份共用同一个 Composable，只是出口不同：
+            // 登录成功要顺手把首启引导收掉，用户点「取消」则留着 —— 他还能选游客。
+            firstRunAuthMode?.let { mode ->
+                AccountAuthDialog(
+                    onDismiss = {
+                        firstRunAuthMode = null
+                        if (AccountSession.signedIn) {
+                            Prefs.setFirstRunDone()
+                            showFirstRun = false
+                        }
+                    },
+                    onForgotPassword = {
+                        firstRunAuthMode = null
+                        firstRunForgot = true
+                    },
+                    initialMode = mode
+                )
+            }
+            if (firstRunForgot) {
+                ForgotPasswordDialog(onDismiss = { firstRunForgot = false })
             }
         }
     }
@@ -369,24 +429,64 @@ private fun FlCheckbox(checked: Boolean, onToggle: () -> Unit) {
     }
 }
 
+/**
+ * 首次运行引导。
+ *
+ * ## 取舍：**推荐登录，但不强制**
+ *
+ * 主按钮给「登录 / 注册」—— 这份应用的价值有一半在多设备同步上，
+ * 首启是唯一一次「用户愿意听你说完」的时机，值得提一句。
+ *
+ * 但「先以游客身份使用」必须**真实存在且能被一眼看到**：
+ * 全部功能本来就离线可用，把游客选项藏进小字注释、或者干脆不给，
+ * 等于用界面骗人。所以它做成无边框灰字按钮 —— 在、但不抢眼。
+ *
+ * 对话框右上角没有 ✕，点外面 / 按 Esc 等价于「游客」，
+ * 不会出现「关不掉」的死路。
+ *
+ * ⚠️ `internal` 而不是 `private`：`dev/UiPreview` 要能直接组合它来做视觉验收，
+ * 而 Kotlin 的 `private` 顶层函数是**文件私有**，跨文件调用不了。
+ */
 @Composable
-private fun FirstRunDialog(onDismiss: () -> Unit) {
+internal fun FirstRunDialog(onGuest: () -> Unit, onAuth: (Int) -> Unit) {
     val c = FluentTheme.colors
     FlDialog(
-        onDismiss = onDismiss,
+        onDismiss = onGuest,
         title = "欢迎使用 StuMate",
         width = 480.dp,
         content = {
-            Text(
-                "这是一份离线运行的课表提醒客户端，数据全部存在本机，不需要联网。\n\n" +
-                    "到点会弹出置顶提醒卡片，并在系统托盘发一条通知。" +
-                    "关闭窗口时可以选择最小化到托盘，让提醒继续工作。",
-                fontSize = 13.sp,
-                color = c.onSurfaceVariant
-            )
+            Column {
+                Text(
+                    "到点会弹出置顶提醒卡片，并在系统托盘发一条通知；" +
+                        "关闭窗口时可以选择最小化到托盘，让提醒继续工作。",
+                    fontSize = 13.sp,
+                    color = c.onSurfaceVariant
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "登录后，课表与便签会同步到云端，多台设备自动保持一致。\n" +
+                        "不登录也能用 —— 数据只存在本机，随时可以在「设置 → 账号」里登录。",
+                    fontSize = 13.sp,
+                    color = c.onSurfaceVariant
+                )
+            }
         },
         actions = {
-            FlButton("知道了", onClick = onDismiss, compact = true)
+            FlButton(
+                "先以游客身份使用",
+                onClick = onGuest,
+                variant = FlButtonVariant.TEXT_MUTED,
+                compact = true
+            )
+            Spacer(Modifier.weight(1f))
+            FlButton(
+                "注册",
+                onClick = { onAuth(MODE_REGISTER) },
+                variant = FlButtonVariant.GHOST,
+                compact = true
+            )
+            Spacer(Modifier.width(8.dp))
+            FlButton("登录", onClick = { onAuth(MODE_LOGIN) }, compact = true)
         }
     )
 }

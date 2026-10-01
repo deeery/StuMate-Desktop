@@ -76,7 +76,14 @@ private fun Color.brighten(factor: Float): Color = if (factor == 1f) this else C
 
 // ── 按钮 ────────────────────────────────────────────────────────
 
-enum class FlButtonVariant { PRIMARY, GHOST, TEXT, DANGER }
+/**
+ * `TEXT` 与 `TEXT_MUTED` 都是**无边框纯文字**按钮，区别只在颜色：
+ * `TEXT` 用强调色（当链接用），`TEXT_MUTED` 用次要灰（当「次要出路」用）。
+ *
+ * 需要 `TEXT_MUTED` 的典型场景：首次运行引导里那句「先以游客身份使用」——
+ * 它必须存在（不能逼人登录），但也不能长得像主按钮。
+ */
+enum class FlButtonVariant { PRIMARY, GHOST, TEXT, TEXT_MUTED, DANGER }
 
 @Composable
 fun FlButton(
@@ -96,12 +103,13 @@ fun FlButton(
     val base = when (variant) {
         FlButtonVariant.PRIMARY -> c.accent
         FlButtonVariant.GHOST -> c.surface
-        FlButtonVariant.TEXT, FlButtonVariant.DANGER -> Color.Transparent
+        FlButtonVariant.TEXT, FlButtonVariant.TEXT_MUTED, FlButtonVariant.DANGER -> Color.Transparent
     }
     val textColor = when (variant) {
         FlButtonVariant.PRIMARY -> c.onAccent
         FlButtonVariant.GHOST -> c.onSurface
         FlButtonVariant.TEXT -> c.accent
+        FlButtonVariant.TEXT_MUTED -> c.onSurfaceVariant
         FlButtonVariant.DANGER -> c.error
     }
     val borderColor = if (variant == FlButtonVariant.GHOST || variant == FlButtonVariant.DANGER) c.outlineStrong else Color.Transparent
@@ -112,6 +120,7 @@ fun FlButton(
             FlButtonVariant.PRIMARY -> base
             FlButtonVariant.GHOST, FlButtonVariant.DANGER -> c.hover
             FlButtonVariant.TEXT -> c.accentHover
+            FlButtonVariant.TEXT_MUTED -> c.hover
         }
         else -> base
     }
