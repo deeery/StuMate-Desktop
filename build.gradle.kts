@@ -92,7 +92,35 @@ compose.desktop {
         mainClass = "com.example.classreminder.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Msi)
+            // Dmg 是 macOS 的，本项目只面向 Windows。
+            //
+            // 两种产物的性质完全不同，别混为一谈：
+            //  - Exe：jpackage 的**安装引导程序**（双击弹安装向导），不是绿色版。
+            //    想要免安装直接跑，得用 `createDistributable` 出的目录版。
+            //  - Msi：真正的安装包，还能进「程序和功能」列表。
+            //
+            // ## MSI 为什么默认关着
+            // MSI 依赖 WiX 工具链，而 JDK **不自带**。缺WiX 时插件会走
+            // `:downloadWix` 去 GitHub 拉 `wix311-binaries.zip`，
+            // 在走 HTTPS 代理的网络下会直接挂在 PKIX 证书校验上：
+            //   SSLHandshakeException: unable to find valid certification path
+            //（注意这不是「网络不通」—— curl 走同一个代理是通的，
+            //   是 Java 信任库不认代理的证书。）
+            //
+            // 两条出路，优先用第一条：
+            //  1. 装 WiX 后设 **WIX_PATH** 环境变量指向它，插件就完全跳过下载：
+            //       WIX_PATH="C:\Program Files (x86)\WiX Toolset v3.14" ./gradlew packageMsi -PwithMsi=true
+            //     已验证 v3.14 可用（插件自己只想用 3.11.2，但 candle/light 向后兼容）。
+            //     ⚠️ WIX_PATH 是**环境变量**，Gradle daemon 是长驻进程，
+            //        改完必须先`./gradlew --stop`，否则 daemon 拿不到新值。
+            //  2. 自己下好 wix311-binaries.zip，放到 ~/.gradle/compose-jb/wix311.zip
+            //     （文件名固定，插件 `:unzipWix` 按名字找）。
+            //
+            // 默认只出 exe：它零外部依赖，任何机器上都能出；
+            // MSI 是可选产物，不该把 exe 的构建一起拖死。
+            val withMsi = providers.gradleProperty("withMsi").orNull?.toBoolean() ?: false
+            if (withMsi) targetFormats(TargetFormat.Exe, TargetFormat.Msi)
+            else targetFormats(TargetFormat.Exe)
             packageName = "StuMate"
             packageVersion = project.version.toString()
             description = "StuMate 桌面课表提醒"

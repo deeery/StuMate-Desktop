@@ -31,6 +31,10 @@ _p3-backup-*/
 hs_err_pid*.log
 replay_pid*.log
 
+### 打包产物 ###
+# jpackage 出来的安装包单个 70 MB，每次打包都会重新生成，不该进版本库
+dist/
+
 ### 验收素材（截图产物，3.9 MB 且每次改动都会重新生成）###
 //!design-preview/
 // 想留 HTML 验收页的话把上面这行的 // 去掉，只忽略截图素材：
