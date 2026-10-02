@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate · 上课提醒「自定义卡片 · 正上方居中」 验收页 v3.0</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 28px 56px;
+    font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    background:#0f0f10; color:#e8e8e8;
+  }
+  h1{font-size:24px;font-weight:600;margin:0 0 6px}
+  .lead{font-size:13px;line-height:20px;color:#a0a0a0;margin:0 0 26px;max-width:1000px}
+  h2.sec{font-size:15px;font-weight:600;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid #2e2e2e}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:0 0 8px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+  th{font-weight:600;color:#c5c5c5;background:#1a1a1a}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:#242424;padding:1px 5px;border-radius:3px}
+  pre{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:18px;
+      background:#1a1a1a;border:1px solid #2e2e2e;border-radius:6px;padding:12px 14px;overflow-x:auto;color:#d0d0d0}
+  .ok{color:#6CCB5F;font-weight:600}
+  .bad{color:#FF99A4;font-weight:600}
+  .warn{color:#e0b341;font-weight:600}
+  .note{margin:12px 0 0;font-size:12px;line-height:18px;color:#a0a0a0;border-left:2px solid #404040;padding-left:10px}
+  figure{margin:0;border-radius:8px;border:1px solid #2e2e2e;overflow:hidden;background:#1a1a1a}
+  figure img{display:block;width:100%;height:auto}
+  figcaption{padding:10px 14px 12px;font-size:12px;line-height:17px;color:#a0a0a0}
+  figcaption b{color:#e8e8e8;font-weight:600}
+  ul{font-size:13px;line-height:21px;padding-left:20px;margin:6px 0}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .dep{background:#2a1f10;border:1px solid #5a4520;color:#e0b341;border-radius:6px;
+       padding:8px 12px;font-size:12px;margin:0 0 16px}
+</style>
+</head>
+<body>
+
+<h1>上课提醒「自定义卡片 · 正上方居中」 · 验收页 v3.0</h1>
+<p class="lead">
+  反馈：「这是 Windows 默认格式；有无自定义格式？显示在屏幕正上方也可以。」<br>
+  → 两件都做了：外观改成<b>有品牌感的自定义卡片</b>（不再是系统通知的灰底 + 左侧色条），
+  位置从右下角挪到<b>屏幕正上方居中</b>。
+  <br>上一版 v2.0 是「右下角通知卡」，本页取代它。
+</p>
+
+<h2 class="sec">一、自定义在哪</h2>
+<table>
+  <tr><th>元素</th><th>Windows 系统通知</th><th>本卡片</th></tr>
+  <tr>
+    <td>左侧</td>
+    <td>应用小图标（16–24px）</td>
+    <td><b>StuMate 品牌标识 46dp</b> —— 课表九宫格 + 待提醒格 + 铃铛，多色不跟随 tint</td>
+  </tr>
+  <tr>
+    <td>底色</td>
+    <td>纯色亚克力灰</td>
+    <td><code>accentTint → 透明</code> 的竖向渐变，顶部一层强调色氛围</td>
+  </tr>
+  <tr>
+    <td>进度</td>
+    <td class="bad">没有这个概念</td>
+    <td><b>上课进度条</b>（4dp，surface3 槽 + accent 填充）—— 一眼看出「这节上到哪了」</td>
+  </tr>
+  <tr>
+    <td>时间</td>
+    <td>绝对时间戳</td>
+    <td>右上角<b>实时倒计时</b>：「已上课 25 分钟」/「还有 12 分钟」</td>
+  </tr>
+  <tr>
+    <td>操作</td>
+    <td>系统按钮样式</td>
+    <td>Fluent <code>FlButton</code>「知道了」，与主界面同一套控件</td>
+  </tr>
+</table>
+<p class="note">
+  进度与倒计时都<b>从时间区间现算</b>，不是额外状态；区间退化（<code>end &lt;= start</code>）时
+  降级成「只显示时间」，不做除零。
+</p>
+
+<h2 class="sec">二、位置与几何</h2>
+<table>
+  <tr><th>项</th><th>取值</th></tr>
+  <tr><td>窗口</td><td>460 × 176 dp，无边框、置顶、不可缩放</td></tr>
+  <tr><td>位置</td><td><b>工作区</b>（已扣掉任务栏）水平中线，距上沿 24 dp</td></tr>
+  <tr><td>为什么是 24 不是 16</td><td>系统通知用 16。顶部横条压得太贴边会「显得像系统级 UI」，24 更像应用自己的东西</td></tr>
+  <tr><td>圆角 / 描边</td><td>走 DWM（Win11 原生圆角 + 跟随主题的 1px 描边），与主窗口同一套</td></tr>
+  <tr><td>任务栏</td><td><code>WS_EX_TOOLWINDOW</code> —— 不占任务栏、不进 Alt+Tab</td></tr>
+  <tr><td>抢焦点</td><td><b>不抢</b>。只 <code>toFront()</code> 抬高 z 序 —— 提醒不该把你正在输入的光标夺走</td></tr>
+  <tr><td>进场</td><td>从上方落下 200 ms</td></tr>
+  <tr><td>关闭</td><td>「知道了」按钮；点过卡片之后 Esc 也能关</td></tr>
+</table>
+<p class="note">
+  ⚠️ 顺序坑：<code>toFront()</code> / <code>setAlwaysOnTop</code> 会让 AWT 按它自己缓存的样式
+  <b>重写</b> <code>GWL_EXSTYLE</code>，把 <code>WS_EX_TOOLWINDOW</code> 抹掉。
+  所以工具窗口标记必须排在它们<b>之后</b>下发（代码里用 <code>repeat(6)</code> 兜底重试）。
+</p>
+
+<h2 class="sec">三、卡片特写（2× 放大）</h2>
+<div class="pair">
+  <figure>
+    <img src="overlay-toast-card-dark.png" alt="深色主题下的提醒卡片">
+    <figcaption><b>深色主题</b> —— 卡片面 <code>#2B2B2B</code>，强调色 <code>#60CDFF</code></figcaption>
+  </figure>
+  <figure>
+    <img src="overlay-toast-card-light.png" alt="浅色主题下的提醒卡片">
+    <figcaption><b>浅色主题</b> —— 卡片面 <code>#FFFFFF</code>，强调色 <code>#0067C0</code></figcaption>
+  </figure>
+</div>
+<p class="note">
+  两张图都是 <code>tools/check_overlay.py</code> 自动跑出来的真机截图裁的，
+  不是手绘稿 —— 所以图里长什么样，运行时就是什么样。
+</p>
+
+<h2 class="sec">四、整屏：只占正上方一块</h2>
+<div class="pair">
+  <figure>
+    <img src="overlay-toast-dark.png" alt="深色主题整屏">
+    <figcaption><b>深色</b> —— 底窗是替身「你正在看的画面」（高饱和绿 + 大字）</figcaption>
+  </figure>
+  <figure>
+    <img src="overlay-toast-light.png" alt="浅色主题整屏">
+    <figcaption><b>浅色</b> —— 卡片以外整片绿色原样可见</figcaption>
+  </figure>
+</div>
+
+<h2 class="sec">五、可自证的验收：10 条断言，全绿</h2>
+<p style="font-size:13px;line-height:21px;margin:0 0 10px">
+  遮挡范围是<b>几何事实</b>，所以能断言、不需要人看。<code>tools/check_overlay.py</code>
+  起一次预览、量窗口矩形、查扩展样式、再采样像素，任一条不成立就退非零。
+</p>
+<pre>工作区 (0, 0, 2800, 1224)  底窗客户区 (0, 0, 2800, 1224)
+提醒窗口 rect=(1170, 24, 1630, 200)  460x176  占工作区 2.36%
+
+① 遮挡范围
+   [<span style="color:#6CCB5F">OK</span>] 提醒窗口面积 &lt; 工作区 10%  2.36%
+   [<span style="color:#6CCB5F">OK</span>] 贴着工作区上边  上差 24px
+   [<span style="color:#6CCB5F">OK</span>] 水平居中  中心偏 +0px
+   [<span style="color:#6CCB5F">OK</span>] 尺寸是「卡片」而不是铺满  460x176
+
+② 窗口样式
+   [<span style="color:#6CCB5F">OK</span>] 带 WS_EX_TOOLWINDOW（不占任务栏）  exstyle=0x00000088
+
+③ 像素：卡片以外必须还能看见底窗
+   [<span style="color:#6CCB5F">OK</span>] 左上角是底窗绿色（= 提醒没盖住那里）  rgb(27, 127, 75)
+   [<span style="color:#6CCB5F">OK</span>] 卡片正左方 40px 是绿色（遮挡边界就在卡片边上）  rgb(27, 127, 75)
+   [<span style="color:#6CCB5F">OK</span>] 卡片正下方 40px 是绿色  rgb(24, 113, 67)
+   [<span style="color:#6CCB5F">OK</span>] 卡片内部不是绿色（卡片真的画出来了）  rgb(43, 43, 43)
+
+④ 卡片自身底色（防「渐变混白窗底」回归）
+   [<span style="color:#6CCB5F">OK</span>] 深色主题下卡片顶部是深色（没露出白色窗底）  rgb(49, 61, 66) 亮度 59
+
+全部通过：提醒只占正上方一块，其余区域未被遮挡。</pre>
+<p class="note">
+  第 ③ 组直接证明「提醒没有覆盖整个桌面」，机器判的。
+  第 ④ 组是这一版<b>新加的回归防线</b> —— 就是下面那个 bug，不写断言它只能靠肉眼发现。
+</p>
+
+<h2 class="sec">六、这一版顺手修掉的一个渲染 bug</h2>
+<p style="font-size:13px;line-height:21px;margin:0 0 10px">
+  第一版卡片做出来，肉眼看顶部是一片<b>亮银</b>，不是「深色卡片顶部微亮」。采样确认：
+</p>
+<table>
+  <tr><th>采样点</th><th>实测</th><th>预期</th></tr>
+  <tr><td>卡片顶部 padding 区（深色主题）</td><td class="bad">rgb(230, 243, 249) 亮银</td><td>rgb(49, 61, 66)</td></tr>
+</table>
+<p style="font-size:13px;line-height:21px;margin:10px 0 10px">
+  根因：卡片根 Box <b>只写了渐变、没铺不透明底色</b>。渐变的起始色
+  <code>accentTint</code> 是 <code>0x1F</code> 半透明（α≈0.12），
+  于是它和<b>窗口自身的白底</b>混合 → 白 + 12% 蓝 = 亮银。
+</p>
+<p style="font-size:13px;line-height:21px;margin:0 0 10px">修法两处一起：</p>
+<pre>// 1) 卡片根：先铺不透明底色，再叠渐变
+.background(c.surface)                                        // ← 新增
+.background(Brush.verticalGradient(0f to c.accentTint, 0.45f to Color.Transparent))
+
+// 2) 窗口自身的底色也跟着主题走，别留白
+LaunchedEffect(surface) {
+    runCatching { window.background = java.awt.Color(surface.toArgb(), true) }
+}</pre>
+<p class="note">
+  修完实测：卡片顶部 <code>rgb(49, 61, 66)</code>，与「surface #2B2B2B 上叠 12% #60CDFF」的
+  理论值 <code>(50, 63, 69)</code> 一致。
+  <br>第 2 处不只是为了这个 bug —— 进场的 alpha 渐隐阶段也会闪白。
+</p>
+
+<h2 class="sec">七、已知限制（会写进设置页文案）</h2>
+<ul>
+  <li>对<b>独占全屏</b>的游戏 / 播放器可能压不住 —— 与安卓上 ColorOS 拦截全屏弹窗是同一类平台限制。</li>
+  <li>不做「卡片以外逐像素透明」。试过两条路，都不成立，且<b>无法自证</b>：
+    <code>Window(transparent = true)</code> 根本没建出分层窗口（<code>WS_EX_LAYERED</code> 从未置位）；
+    手写色键 <code>LWA_COLORKEY</code> API 层回 <code>ok=1</code> 但实机仍全屏不透明。
+    详见 <code>overlay-transparency-verification-v1.0.html</code>。</li>
+  <li>本机缩放在两次测量之间从 200% 变成过 100%。卡片位置<b>与缩放无关</b>（用工作区算，不除 density），
+    两种缩放下都实测正确。</li>
+</ul>
+
+<h2 class="sec">八、需要你做的</h2>
+<ul>
+  <li><b>重启桌面端 App</b> —— 现在跑着的实例是旧代码，不重启看不到新提醒。</li>
+  <li>看外观是否满意。要调的话，下面这些都是一行常量：
+    <code>CARD_WIDTH</code> / <code>CARD_HEIGHT</code> / <code>CARD_TOP_MARGIN</code>
+    （<code>OverlayScreen.kt</code> 顶部）。</li>
+  <li>位置也能再挪（右下角 / 右上角都只是改 <code>cardPosition()</code> 一个函数）。</li>
+</ul>
+
+</body>
+</html>

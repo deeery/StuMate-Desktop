@@ -201,7 +201,7 @@ fun main() = application {
                         ) {
                             Text(
                                 "模拟你正在看的课件 / 视频\n" +
-                                    "右下角是上课提醒 —— 除此之外的区域应当完全不被遮挡",
+                                    "正上方是上课提醒 —— 除此之外的区域应当完全不被遮挡",
                                 color = Color.White,
                                 fontSize = 30.sp,
                                 textAlign = TextAlign.Center,
@@ -339,16 +339,19 @@ fun main() = application {
     // 自己搭一个只能验出「卡片长什么样」，验不出「卡片以外到底透没透」——
     // 而那正是这次要修的问题。
     if (scenario == "overlay") {
+        // 卡片上有「已上课 N 分钟」和进度条，它们**必然依赖当前时间** ——
+        // 所以这里用「相对 now 的固定偏移」而不是绝对时刻：
+        // 每次截出来的相对状态都一样（上到 25/80 的位置），只有时钟数字不同。
+        // 写死绝对时刻的话，过了那个点截出来就是「已上课 300 分钟」这种废图。
+        val now = System.currentTimeMillis()
+        val minute = 60_000L
         OverlayWindow(
             alert = ReminderEngine.Alert(
                 classId = 1,
                 title = "高等数学（A）",
                 room = "教三 402",
-                // 固定时刻，不取 now()：截图要可复现
-                startMillis = LocalDateTime.of(2026, 10, 2, 10, 0)
-                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
-                endMillis = LocalDateTime.of(2026, 10, 2, 11, 40)
-                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                startMillis = now - 25 * minute,
+                endMillis = now + 55 * minute,
                 ongoing = true
             ),
             themeMode = themeMode,

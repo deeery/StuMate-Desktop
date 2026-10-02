@@ -10,9 +10,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,7 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -43,48 +51,46 @@ import kotlinx.coroutines.delay
 import java.util.Calendar
 import java.util.Locale
 
-/**
- * 提醒小窗的尺寸（dp）。按 Windows 11 通知卡的体量取 —— 再宽会显得像对话框。
- */
-private val TOAST_WIDTH = 380.dp
-private val TOAST_HEIGHT = 168.dp
+/** 提醒卡尺寸（dp）。460 是「读得清课程名 + 放得下进度条」的下限。 */
+private val CARD_WIDTH = 460.dp
+private val CARD_HEIGHT = 176.dp
 
-/** 距工作区右下角的留白。Windows 自己的通知也是 16 左右。 */
-private val TOAST_MARGIN = 16.dp
+/** 距工作区上沿的留白。24 比系统通知的 16 略大 —— 顶部横条压得太贴边会显得是系统级 UI。 */
+private val CARD_TOP_MARGIN = 24.dp
 
 /**
- * 上课提醒：**右下角置顶小卡片**，替代安卓的 `LockOverlayActivity`。
+ * 上课提醒：**屏幕正上方居中的置顶卡片**。
  *
  * 安卓靠「全屏 Intent 通知 + `setShowWhenLocked` + `setTurnScreenOn`」在锁屏上弹出来；
  * Windows 没有应用级的锁屏覆盖能力，等价物是「无边框 + 置顶」的窗口。
  *
- * ## 为什么是「右下角小窗」而不是「全屏透明覆盖层」
+ * ## 位置：正上方居中
  *
- * 曾经做成**最大化 + 卡片以外全透明**（用户的原话是「置顶卡片会让屏幕其他部分变黑，
- * 让其他部分保持透明」）。透明这条路在本项目上**走不通**，两个方案都试过了：
+ * 最初的方案是「全屏 + 卡片以外透明」，但那条路在 Compose Desktop 上走不通
+ * （详见下面「不做什么」）。退成小窗之后位置就自由了 —— 现在是**正上方居中**，
+ * 理由：课程名和进度条是横向信息，顶部横条比右下角方块更好读，
+ * 也不会和系统通知（右下角）打架。
  *
- * 1. `Window(transparent = true)` —— 实测**没有真的建出分层窗口**，
- *    `GetWindowLongW(hwnd, GWL_EXSTYLE)` 里 `WS_EX_LAYERED` 从未置位，卡片以外是不透明的纯黑。
- *    讽刺的是 `isWindowTranslucencySupported(PERPIXEL_TRANSLUCENT)` 返回 `true`
- *    —— 平台支持，是 Compose 这条渲染路径没走到。
- * 2. 自己上**色键透明**（`WS_EX_LAYERED` + `LWA_COLORKEY`）—— 连
- *    `GetLayeredWindowAttributes` 都回 `ok=1 key=0xFF00FF`，看起来是对的，
- *    但**用户实机验收仍是「卡片完全覆盖整个桌面」**。
- *    推测是 AWT 在 `alwaysOnTop` / `toFront()` 时会按自己缓存的样式重写 `GWL_EXSTYLE`，
- *    把 `WS_EX_LAYERED` 抹掉；也可能是 Skia 的呈现路径不走 GDI 表面，色键根本没被应用。
+ * ## 自定义外观（不是「系统通知」的样式）
  *
- * 更关键的是：**这条路没法自证**。色键挖出来的洞在 `BitBlt` 截图里是未初始化的白，
- * 我拿不到「透出底下画面」的证据，只能请用户肉眼看 —— 已经因此白跑一轮。
+ * 刻意做成一张**有品牌感的卡片**，而不是系统通知的灰底 + 左侧色条：
+ *  - 左侧放 [stuMateMark] 品牌标识（课表九宫格 + 待提醒格 + 铃铛）；
+ *  - 背景是 `accentTint → surface` 的竖向渐变，顶部带一层强调色氛围；
+ *  - 中间一条**上课进度条** —— 一眼看出「这节上到哪了」，
+ *    这是系统通知给不了的信息；
+ *  - 右上角实时倒计时（「已上课 25 分钟」/「还有 12 分钟」）。
  *
- * 所以换成**小窗**：不依赖任何透明能力，窗口本身就只占右下角一块，
- * 「不挡住用户正在看的东西」由**尺寸和位置**保证，而不是由透明保证。
- * 这也正好是 Windows 自己的通知（右下角）的形态，截图可验证、失败模式可预测。
+ * ## 不做什么（都是实测踩过的）
  *
- * ## 与安卓的差异（写进设置页文案）
+ * ⚠️ **不用 `Window(transparent = true)`**：实测没建出分层窗口
+ * （`GWL_EXSTYLE` 里 `WS_EX_LAYERED` 从未置位），卡片以外是不透明纯黑。
+ * ⚠️ **也不用色键透明**（`WS_EX_LAYERED` + `LWA_COLORKEY`）：API 层回 `ok=1` 看着成功，
+ * 但实机仍然全屏不透明 —— 疑似被 AWT 的样式重写抹掉。且色键洞在 `BitBlt` 截图里
+ * 取不到数据，**无法自证**，只能靠肉眼看。
+ * → 结论：不依赖任何逐像素透明，窗口尺寸就是遮挡范围，可断言。
  *
- * 安卓是**全屏覆盖**且能压在锁屏上；Windows 这里只是右下角一块。
- * 对独占全屏的游戏 / 播放器，置顶窗口仍可能被压住 —— 与安卓上 ColorOS
- * 拦截全屏弹窗是同一类平台限制。
+ * 已知限制（写进设置页文案）：对独占全屏的游戏 / 播放器可能压不住，
+ * 这与安卓上 ColorOS 拦截全屏弹窗是同一类平台限制。
  */
 @Composable
 fun OverlayWindow(
@@ -93,9 +99,9 @@ fun OverlayWindow(
     onDismiss: () -> Unit
 ) {
     val windowState = rememberWindowState(
-        size = DpSize(TOAST_WIDTH, TOAST_HEIGHT),
+        size = DpSize(CARD_WIDTH, CARD_HEIGHT),
         // 位置只算一次：屏幕几何不会变，重算反而会让窗口在重组时抖一下
-        position = remember { toastPosition() },
+        position = remember { cardPosition() },
         placement = WindowPlacement.Floating
     )
 
@@ -109,11 +115,11 @@ fun OverlayWindow(
         resizable = false
     ) {
         // 抬高 z 序 + 打上工具窗口标记。**不** requestFocus()：提醒不该把用户正在输入的
-        // 光标抢走 —— 「不打断手头的事」正是这次改成小窗的初衷。
+        // 光标抢走 —— 「不打断手头的事」正是改成小窗的初衷。
         //
         // ⚠️ 顺序不能反：`toFront()` / `setAlwaysOnTop` 会让 AWT 按它自己缓存的样式
         // **重写 GWL_EXSTYLE**，把 `WS_EX_TOOLWINDOW` 抹掉。所以标记必须排在后面。
-        // 这也是上一版色键透明在生产环境失效的嫌疑原因（`WS_EX_LAYERED` 被同样地抹掉）。
+        // 这也是色键透明在生产环境失效的嫌疑原因（`WS_EX_LAYERED` 被同样地抹掉）。
         LaunchedEffect(alert.classId) {
             runCatching { window.toFront() }
             repeat(6) {
@@ -122,9 +128,17 @@ fun OverlayWindow(
             }
         }
         FluentTheme(themeMode = themeMode) {
+            // 窗口自身的底色跟着卡片走。
+            // ⚠️ 不设的话，Compose 根没画到的地方会露出**白色**窗底 ——
+            // 实测：卡片顶部的 accentTint 渐变压在那层白上，量出来是 (230,243,249) 的亮银，
+            // 而不是预期的 (40,53,59)。进场的 alpha 渐隐也会跟着闪白。
+            val surface = FluentTheme.colors.surface
+            LaunchedEffect(surface) {
+                runCatching { window.background = java.awt.Color(surface.toArgb(), true) }
+            }
             // Win11 原生圆角 + 跟随主题的 1px 描边，与主窗口同一套（走 DWM）
             ApplyWindowCorners(window)
-            ReminderToast(
+            ReminderCard(
                 name = alert.title,
                 start = alert.startMillis,
                 end = alert.endMillis,
@@ -137,13 +151,13 @@ fun OverlayWindow(
 }
 
 /**
- * 卡片本体。左边一条强调色（与主界面卡片同一套语言），右边是内容。
+ * 卡片本体。
  *
- * 尺寸由窗口给定，所以这里用 `fillMaxSize()` + `weight(1f)` 把按钮钉在底部，
- * 教室为空时（`room == ""`）按钮位置也不会跳。
+ * 尺寸由窗口给定，所以内部用 `fillMaxSize()` + `weight(1f)` 撑开，
+ * 教室为空（`room == ""`）或时间区间退化时布局也不会跳。
  */
 @Composable
-fun ReminderToast(
+fun ReminderCard(
     name: String,
     start: Long,
     end: Long,
@@ -153,22 +167,56 @@ fun ReminderToast(
 ) {
     val c = FluentTheme.colors
 
-    // 从右侧滑入 180ms。够快，不会让人等；又比「啪一下出现」舒服。
+    // 从上方落下 200ms。够快，不会让人等；又比「啪一下出现」舒服。
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
     val enter by animateFloatAsState(
         targetValue = if (shown) 1f else 0f,
-        animationSpec = tween(durationMillis = 180),
-        label = "toastEnter"
+        animationSpec = tween(durationMillis = 200),
+        label = "cardEnter"
     )
+
+    // 倒计时与进度都从时间区间现算，而不是读 `ongoing` 之外的状态。
+    // 区间退化（end <= start）时一律降级成「只显示时间」，不做除零。
+    val now = System.currentTimeMillis()
+    val hasRange = end > start
+    val inClass = hasRange && now in start..end
+    val minutesIn = if (inClass) ((now - start) / 60_000L).toInt() else 0
+    val minutesToStart = if (hasRange && now < start) {
+        ((start - now + 59_999L) / 60_000L).toInt()
+    } else 0
+    val progress = if (inClass) ((now - start).toFloat() / (end - start)) else 0f
+
+    val phase = when {
+        ongoing && inClass -> "正在上课"
+        ongoing -> "正在上课"
+        else -> "即将上课"
+    }
+    val countdown = when {
+        inClass -> "已上课 $minutesIn 分钟"
+        minutesToStart > 0 -> "还有 $minutesToStart 分钟"
+        else -> ""
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // ⚠️ 先铺一层**不透明**底色，再叠渐变。
+            // 只写渐变的话，渐变里半透明的那些像素会与窗口底（白色）混合 ——
+            // 顶部会变成一片亮银而不是「深色卡片顶部微亮」。这个坑实测踩过：
+            // 量出来 (230,243,249)，预期 (40,53,59)。
             .background(c.surface)
+            // 强调色氛围：顶部一层 accentTint 渐隐到透明。
+            // 这是「自定义」最省力也最有效的一笔 —— 系统通知是纯色底。
+            .background(
+                Brush.verticalGradient(
+                    0f to c.accentTint,
+                    0.45f to Color.Transparent
+                )
+            )
             .graphicsLayer {
                 alpha = enter
-                translationX = (1f - enter) * 24.dp.toPx()
+                translationY = (1f - enter) * -16.dp.toPx()
             }
             .onPreviewKeyEvent { event ->
                 // 窗口默认不抢焦点，所以 Esc 只在用户点过卡片之后才有效；
@@ -179,71 +227,110 @@ fun ReminderToast(
                 } else false
             }
     ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            // 左侧强调条：主界面的卡片也是这个语言
-            Box(Modifier.width(3.dp).fillMaxHeight().background(c.accent))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 17.dp, end = 18.dp, top = 15.dp, bottom = 15.dp)
-            ) {
-                Text(
-                    if (ongoing) "正在上课" else "即将上课",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.6.sp,
-                    color = c.accent
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 20.dp)
+        ) {
+            Row {
+                // 品牌标识：课表九宫格 + 待提醒格 + 铃铛。
+                // 多色 ImageVector 必须 tint = Color.Unspecified，否则会被刷成单色。
+                Icon(
+                    imageVector = stuMateMark(),
+                    contentDescription = null,
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(46.dp)
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    name,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = c.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    buildString {
-                        append("${formatTime(start)} – ${formatTime(end)}")
-                        if (room.isNotBlank()) append("  ·  教室 $room")
-                    },
-                    fontSize = 13.sp,
-                    color = c.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.weight(1f))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Start
-                ) {
-                    FlButton("知道了", onClick = onDismiss)
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            phase,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.6.sp,
+                            color = c.accent
+                        )
+                        Spacer(Modifier.weight(1f))
+                        if (countdown.isNotEmpty()) {
+                            Text(
+                                countdown,
+                                fontSize = 12.sp,
+                                color = c.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        name,
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = c.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        buildString {
+                            append("${formatTime(start)} – ${formatTime(end)}")
+                            if (room.isNotBlank()) append("   ·   $room")
+                        },
+                        fontSize = 13.sp,
+                        color = c.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            // 上课进度条。只有「正在上课」时才有意义，其余情况留一条空槽保持布局稳定。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(c.surface3)
+            ) {
+                if (progress > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(c.accent)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                FlButton("知道了", onClick = onDismiss)
             }
         }
     }
 }
 
 /**
- * 右下角位置：**工作区**（已扣掉任务栏）的右下角，留 [TOAST_MARGIN]。
- *
- * 不能用 `WindowPosition(Alignment.BottomEnd)` —— 它按**屏幕**算，
- * 卡片会有一半压在任务栏上（与主窗口最大化时必须自己算工作区是同一个坑）。
+ * 正上方居中：工作区（已扣掉任务栏）水平中线，距上沿 [CARD_TOP_MARGIN]。
  *
  * ⚠️ `primaryWorkArea()` 返回的**已经是 dp**（AWT 用户空间 = 物理像素 / uiScale，
  * 而 Compose 的 density 恰好就是那个 uiScale），**不要再除 density**。
  * 实测探针：`density=2.0`、`screenSize=1400x636`、`gcBounds=1400x636`、
  * `insets.bottom=48` → 物理屏幕其实是 2800x1272。多除一次 density
- * 会把卡片摆到屏幕正中偏左（实测落在 608px 处，而正确值是 2008px）。
+ * 会把卡片摆到屏幕正中偏左（实测落在 608px 处）。
  */
-private fun toastPosition(): WindowPosition {
+private fun cardPosition(): WindowPosition {
     val area = primaryWorkArea()
+    val left = area.x + (area.width - CARD_WIDTH.value) / 2f
     return WindowPosition(
-        x = (area.x + area.width - TOAST_WIDTH.value - TOAST_MARGIN.value).dp,
-        y = (area.y + area.height - TOAST_HEIGHT.value - TOAST_MARGIN.value).dp
+        x = left.dp,
+        y = (area.y + CARD_TOP_MARGIN.value).dp
     )
 }
 
