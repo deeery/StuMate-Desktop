@@ -47,6 +47,7 @@ import com.example.classreminder.ui.fluent.OverlayWindow
 import com.example.classreminder.ui.fluent.SetPasswordDialog
 import com.example.classreminder.ui.fluent.ThemeMode
 import com.example.classreminder.ui.fluent.WindowChrome
+import com.example.classreminder.ui.fluent.primaryWorkArea
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -109,14 +110,25 @@ fun main() = application {
         ThemeMode.DARK
     }
     val viewModel = remember { MainViewModel() }
-    // overlay 场景：主窗口故意做成**小窗并偏到左上**，而不是铺满屏幕。
-    // 这样屏幕被分成两块 —— 一块底下是这个绿色替身窗口、一块底下是桌面，
-    // 一次截图就能同时验出「透出下面的窗口」和「透出桌面」两件事，
-    // 而且能反证「不是整块糊成白色/黑色」。
+    // overlay 场景：主窗口铺满**工作区**，扮演「用户正在看的内容」。
+    //
+    // 提醒现在是右下角小窗（见 `OverlayWindow` 的 KDoc）。要验的是
+    // 「它只占右下角一块，别的区域一点没被挡」。
+    //
+    // 底窗铺满工作区之后，截图脚本按「本进程所有窗口的并集」裁剪，拿到的就是整块工作区：
+    // 绿色替身 = 用户的内容，右下角那张卡片 = 提醒。**卡片以外还能看见绿色**，
+    // 就证明提醒没有覆盖桌面 —— 这件事截图能自证。
+    // （上一版是「全屏透明覆盖层」，那种效果 `BitBlt` 截不出来，只能请用户肉眼看，
+    //  也因此白跑过一轮。现在换成可证伪的形态。）
     val isOverlayScenario = scenario == "overlay"
+    val overlayArea = remember(isOverlayScenario) {
+        if (isOverlayScenario) primaryWorkArea() else null
+    }
+    // ⚠️ `primaryWorkArea()` 返回的**已经是 dp**（AWT 用户空间 = 物理 / uiScale，
+    // 而 Compose 的 density 就是那个 uiScale），**不要**再除 density。
     val windowState = rememberWindowState(
-        size = if (isOverlayScenario) DpSize(1000.dp, 700.dp) else DpSize(1200.dp, 800.dp),
-        position = if (isOverlayScenario) WindowPosition(200.dp, 200.dp) else WindowPosition.PlatformDefault,
+        size = overlayArea?.let { DpSize(it.width.dp, it.height.dp) } ?: DpSize(1200.dp, 800.dp),
+        position = overlayArea?.let { WindowPosition(it.x.dp, it.y.dp) } ?: WindowPosition.PlatformDefault,
         placement = WindowPlacement.Floating
     )
 
@@ -128,9 +140,16 @@ fun main() = application {
         // （SetForegroundWindow / SetWindowPos / BringWindowToTop 全被系统忽略，
         // 连 ShowWindow(SW_MINIMIZE) 都无效），外部工具没法把预览窗口提到最前。
         // 不置顶的话窗口会被别的窗口盖住，截图里看起来就像「窗口是透明的」。
-        // overlay 场景下要让位：置顶提醒窗口自己也置顶，两个都置顶时
-        // 谁在上面就变成看运气了，截图会随机拍到「提醒被主窗口盖住」。
-        alwaysOnTop = scenario != "overlay",
+        //
+        // overlay 场景也必须置顶：底窗扮演的是「用户正在看的画面」，验收时
+        // 机器上很可能正开着别的全屏窗口（实测就是用户自己那个还在跑旧版的 App，
+        // 它的全屏提醒把整块屏幕压成黑的）。底窗被盖住的话，
+        // 「卡片以外还能看见底窗」这条断言会假失败。
+        //
+        // 提醒小窗也是置顶的，但它是**后创建**的、并且会 `toFront()`，
+        // 同进程里它稳定压在底窗之上 —— 这一点由 `tools/check_overlay.py`
+        // 的像素断言兜底，不靠假设。
+        alwaysOnTop = true,
         state = windowState
     ) {
         // 自绘标题栏要用到 window 与 windowState，和 Main.kt 里是同一套接线，
@@ -174,14 +193,15 @@ fun main() = application {
                         // 替身「用户正在看的画面」。
                         //
                         // 为什么不用 AppShell 当底：深色主题下 AppShell 本身就是一片深灰，
-                        // 截出来和「透明失败渲染成黑色」长得一模一样 —— 这种图没法验收。
-                        // 换成高饱和纯色 + 大字，卡片以外的区域到底透没透，一眼就能判。
+                        // 截出来和「覆盖层渲染成黑色」长得一模一样 —— 这种图没法验收。
+                        // 换成高饱和纯色 + 大字，右下角那块卡片有没有挡住别的区域，一眼就能判。
                         Box(
                             modifier = Modifier.fillMaxSize().background(Color(0xFF1B7F4B)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "这是提醒卡片「下面」的窗口\n卡片以外的区域应当能看到这一层",
+                                "模拟你正在看的课件 / 视频\n" +
+                                    "右下角是上课提醒 —— 除此之外的区域应当完全不被遮挡",
                                 color = Color.White,
                                 fontSize = 30.sp,
                                 textAlign = TextAlign.Center,

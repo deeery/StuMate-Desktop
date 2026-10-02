@@ -55,13 +55,21 @@ object WindowEffects {
         ): Int
     }
 
-    /** `user32` 里做色键透明需要的三个函数 */
+    /** `user32` 里改窗口扩展样式需要的两个函数 */
     private interface User32 : Library {
         fun GetWindowLongW(hwnd: Pointer, index: Int): Int
         fun SetWindowLongW(hwnd: Pointer, index: Int, value: Int): Int
 
-        /** `SetLayeredWindowAttributes(HWND, COLORREF crKey, BYTE bAlpha, DWORD dwFlags)` */
-        fun SetLayeredWindowAttributes(hwnd: Pointer, key: Int, alpha: Byte, flags: Int): Int
+        /** `SetWindowPos(HWND, HWND, int, int, int, int, UINT)` —— 只用来让新样式生效 */
+        fun SetWindowPos(
+            hwnd: Pointer,
+            insertAfter: Pointer,
+            x: Int,
+            y: Int,
+            cx: Int,
+            cy: Int,
+            flags: Int
+        ): Int
     }
 
     /** 只在 Windows 上能加载；其它平台返回 null，调用点一律走降级分支 */
@@ -112,66 +120,64 @@ object WindowEffects {
     /** DWM 当前是否可用（Windows 11 上为 true） */
     fun isSupported(): Boolean = supported
 
-    // ── 色键透明（置顶提醒卡片专用） ────────────────────────────────
+    // ── 工具窗口（提醒小窗专用） ──────────────────────────────────
 
     private const val GWL_EXSTYLE = -20
-    private const val WS_EX_LAYERED = 0x00080000
-    private const val LWA_COLORKEY = 0x00000001
+    private const val WS_EX_TOOLWINDOW = 0x00000080
+
+    private const val SWP_NOSIZE = 0x0001
+    private const val SWP_NOMOVE = 0x0002
+    private const val SWP_NOZORDER = 0x0004
+    private const val SWP_FRAMECHANGED = 0x0020
 
     /**
-     * 置顶提醒卡片用的「透明键」颜色。
+     * 把窗口变成**工具窗口**（`WS_EX_TOOLWINDOW`）：不出现在任务栏、不进 Alt+Tab。
      *
-     * ## 为什么不用 `Window(transparent = true)`
+     * 上课提醒是一张「通知」，不是一个「窗口」—— 往任务栏里塞一条
+     * 「StuMate 提醒」既噪音，也让人以为要自己去关。
      *
-     * 实测（2026-10-02，Compose 1.5.10 / JDK 17 / Win11）：即使
-     * `GraphicsDevice.isWindowTranslucencySupported(PERPIXEL_TRANSLUCENT)` 返回 **true**，
-     * Compose 的 `transparent = true` 也没有真的建出分层窗口 ——
-     * 用 `GetWindowLongW(hwnd, GWL_EXSTYLE)` 查出来 `WS_EX_LAYERED` **没有置位**，
-     * 屏幕采样确认卡片以外的像素是**不透明的纯黑 (0,0,0)**，而不是透出底下的窗口。
-     * 这就是用户看到的「屏幕其他部分变黑」的真正原因：不是那层 `0xCC000000` 遮罩，
-     * 而是窗口本身就是不透明的黑。（去掉遮罩只能少压暗一点，治不了本。）
+     * ## 曾经的方案：色键透明（已放弃，2026-10-02）
      *
-     * ## 色键方案
+     * 提醒卡最初做成「全屏 + 卡片以外全透明」，试过两条路，**都不可靠**：
      *
-     * 自己给窗口加 `WS_EX_LAYERED`，再用 `LWA_COLORKEY` 指定一个「魔术色」：
-     * 画成这个颜色的像素会被 DWM 当作全透明。于是
-     *   ① 视觉上真的透出底下的窗口；
-     *   ② **鼠标命中测试也会穿透**（色键像素不接收点击）——
-     *      「背景透明」和「不挡用户点击」一次拿到，不必再轮询鼠标位置去切 `WS_EX_TRANSPARENT`。
+     * 1. `Window(transparent = true)` —— 实测没真的建出分层窗口，
+     *    `GWL_EXSTYLE` 里 `WS_EX_LAYERED` 从未置位，卡片以外是不透明的纯黑
+     *    （而 `isWindowTranslucencySupported(PERPIXEL_TRANSLUCENT)` 返回 `true`，
+     *    说明是 Compose 这条路径没走到，不是平台不支持）。
+     * 2. 自己加 `WS_EX_LAYERED` + `SetLayeredWindowAttributes(..., LWA_COLORKEY)` ——
+     *    `GetLayeredWindowAttributes` 回 `ok=1 key=0xFF00FF`，**看起来完全成功**，
+     *    但用户实机验收仍然是「卡片完全覆盖整个桌面」。
+     *    推测 AWT 在 `alwaysOnTop` / `toFront()` 时会按自己缓存的样式重写 `GWL_EXSTYLE`
+     *    抹掉 `WS_EX_LAYERED`；也可能 Skia 的呈现路径不走 GDI 表面，色键压根没生效。
      *
-     * 代价：卡片边缘的抗锯齿会把这个魔术色混进去，圆角处可能有 1px 的品红描边。
-     * 所以选品红 —— 它离 Fluent 调色板（灰/蓝）最远，混出来的边最不显眼，
-     * 而且**绝不能**出现在卡片自身的内容里。
+     * 更要命的是**无法自证**：色键挖出来的洞在 `BitBlt` 截图里是未初始化的白，
+     * 拿不到「透出底下画面」的证据，只能请用户肉眼看 —— 已经白跑过一轮。
      *
-     * 具体颜色值由调用方给（见 `OverlayScreen.OVERLAY_KEY_ARGB`），
-     * 这里只负责把它交给 Windows。
+     * → 结论：**不再依赖任何逐像素透明**。提醒改成右下角小窗，
+     *   「不挡住用户」由尺寸和位置保证。教训是「能注册成功 ≠ 能看到效果」，
+     *   凡是要靠肉眼才能确认的机制，都得先想清楚怎么用截图证伪。
+     *
+     * @return 是否成功；非 Windows 或拿不到 HWND 时返回 false，窗口保持普通窗口
      */
-
-    private val user32: User32? by lazy {
-        runCatching { Native.load("user32", User32::class.java) }.getOrNull()
-    }
-
-    /**
-     * 把窗口上「画成 [keyArgb] 的像素」变成真透明（含鼠标穿透）。
-     *
-     * @param keyArgb 魔术色，`0xRRGGBB`（忽略 alpha）
-     * @return 是否成功；非 Windows 或拿不到 HWND 时返回 false，调用方保持原样即可
-     *         （最坏情况退化成「不透明窗口」，也就是改动之前的样子）。
-     */
-    fun makeColorKeyTransparent(window: Window, keyArgb: Int): Boolean {
+    fun makeToolWindow(window: Window): Boolean {
         val api = user32 ?: return false
         val hwnd = runCatching { Native.getWindowPointer(window) }.getOrNull() ?: return false
         return runCatching {
             val ex = api.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            // 置位 WS_EX_LAYERED —— 没有它 SetLayeredWindowAttributes 会直接失败
-            api.SetWindowLongW(hwnd, GWL_EXSTYLE, ex or WS_EX_LAYERED)
-            api.SetLayeredWindowAttributes(
+            if (ex and WS_EX_TOOLWINDOW != 0) return@runCatching true
+            api.SetWindowLongW(hwnd, GWL_EXSTYLE, ex or WS_EX_TOOLWINDOW)
+            // 扩展样式改完必须让它生效，否则要等下一次窗口几何变化才应用
+            api.SetWindowPos(
                 hwnd,
-                toColorRef(keyArgb),
-                0, // bAlpha 在 LWA_COLORKEY 模式下不参与运算
-                LWA_COLORKEY
+                Pointer.NULL,
+                0, 0, 0, 0,
+                SWP_NOMOVE or SWP_NOSIZE or SWP_NOZORDER or SWP_FRAMECHANGED
             ) != 0
         }.getOrDefault(false)
+    }
+
+    private val user32: User32? by lazy {
+        runCatching { Native.load("user32", User32::class.java) }.getOrNull()
     }
 
     private fun set(api: DwmApi, hwnd: Pointer, attribute: Int, value: Int): Boolean =

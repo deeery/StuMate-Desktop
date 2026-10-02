@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate · 上课提醒改版「右下角通知卡」 验收页 v2.0</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 28px 56px;
+    font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    background:#0f0f10; color:#e8e8e8;
+  }
+  h1{font-size:24px;font-weight:600;margin:0 0 6px}
+  .lead{font-size:13px;line-height:20px;color:#a0a0a0;margin:0 0 26px;max-width:1000px}
+  h2.sec{font-size:15px;font-weight:600;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid #2e2e2e}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:0 0 8px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+  th{font-weight:600;color:#c5c5c5;background:#1a1a1a}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:#242424;padding:1px 5px;border-radius:3px}
+  pre{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:18px;
+      background:#1a1a1a;border:1px solid #2e2e2e;border-radius:6px;padding:12px 14px;overflow-x:auto;color:#d0d0d0}
+  .ok{color:#6CCB5F;font-weight:600}
+  .bad{color:#FF99A4;font-weight:600}
+  .warn{color:#e0b341;font-weight:600}
+  .note{margin:12px 0 0;font-size:12px;line-height:18px;color:#a0a0a0;border-left:2px solid #404040;padding-left:10px}
+  figure{margin:0;border-radius:8px;border:1px solid #2e2e2e;overflow:hidden;background:#1a1a1a}
+  figure img{display:block;width:100%;height:auto}
+  figcaption{padding:10px 14px 12px;font-size:12px;line-height:17px;color:#a0a0a0}
+  figcaption b{color:#e8e8e8;font-weight:600}
+  ul{font-size:13px;line-height:21px;padding-left:20px;margin:6px 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:20px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+</style>
+</head>
+<body>
+
+<h1>上课提醒改版「右下角通知卡」 · 验收页 v2.0</h1>
+<p class="lead">
+  反馈：「卡片依旧完全覆盖整个桌面，修复这个问题，或者用 WINDOWS 自带的右下角弹窗。」<br>
+  → 采用第二条：提醒改成<b>右下角置顶小卡片</b>，不再依赖任何逐像素透明能力。
+</p>
+
+<h2 class="sec">一、为什么放弃「全屏 + 卡片以外透明」</h2>
+<table>
+  <tr><th>#</th><th>方案</th><th>结果</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>Window(transparent = true)</code></td>
+    <td class="bad">没建出分层窗口 —— <code>GWL_EXSTYLE</code> 里 <code>WS_EX_LAYERED</code> 从未置位，
+        卡片以外是不透明的纯黑。而 <code>isWindowTranslucencySupported(PERPIXEL_TRANSLUCENT)</code>
+        返回 <code>true</code>，说明是 Compose 这条渲染路径没走到，不是平台不支持。</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>自己加 <code>WS_EX_LAYERED</code> + <code>SetLayeredWindowAttributes(LWA_COLORKEY)</code></td>
+    <td class="bad">API 层面<b>看起来完全成功</b>：<code>GetLayeredWindowAttributes → ok=1 key=0xFF00FF flags=0x1</code>，
+        截图里也没有品红残留。但实机验收仍是「完全覆盖整个桌面」。</td>
+  </tr>
+</table>
+<p class="note">
+  <b>现场证据（这次验收时抓到的）</b>：机器上还在跑的旧版 App 正好弹了一次真实提醒
+  （「编译原理 14:20–15:55」），截图里整块屏幕被压成黑色 —— 那个实例带的就是色键那版代码。<br>
+  <b>更要命的是没法自证</b>：色键挖出来的洞在 <code>BitBlt</code> 截图里是未初始化的白/黑，
+  我拿不到「透出底下画面」的证据，只能请你肉眼确认 —— 已经因此白跑过一轮。
+  <span class="warn">凡是只能靠肉眼才能确认的机制，都不该用在关键路径上。</span>
+</p>
+
+<h2 class="sec">二、新方案：右下角小窗</h2>
+<table>
+  <tr><th>项</th><th>取值</th></tr>
+  <tr><td>窗口</td><td>380 × 168 dp，无边框、置顶、不可缩放</td></tr>
+  <tr><td>位置</td><td><b>工作区</b>（已扣掉任务栏）右下角，留 16 dp 边距</td></tr>
+  <tr><td>圆角 / 描边</td><td>走 DWM（Win11 原生圆角 + 跟随主题的 1px 描边），与主窗口同一套</td></tr>
+  <tr><td>任务栏</td><td><code>WS_EX_TOOLWINDOW</code> —— 不占任务栏、不进 Alt+Tab（它是一张通知，不是一个「窗口」）</td></tr>
+  <tr><td>抢焦点</td><td><b>不抢</b>。只 <code>toFront()</code> 抬高 z 序 —— 提醒不该把你正在输入的光标夺走</td></tr>
+  <tr><td>进场</td><td>从右侧滑入 180 ms</td></tr>
+  <tr><td>关闭</td><td>「知道了」按钮；点过卡片之后 Esc 也能关</td></tr>
+</table>
+<p class="note">
+  左侧 3 dp 强调条与主界面卡片同一套语言；课程名一行省略号，时间与教室合并成一行。
+</p>
+
+<h2 class="sec">三、这次是「可自证」的验收</h2>
+<p style="font-size:13px;line-height:21px;margin:0 0 10px">
+  遮挡范围是个<b>几何事实</b>，所以能断言，不需要人看。
+  新增 <code>tools/check_overlay.py</code>：起一次预览、量窗口矩形、查扩展样式、再采样像素。
+  任一条不成立就退非零 —— 可以进 CI。
+</p>
+<pre>工作区 (0, 0, 2800, 1176)  底窗客户区 (0, 0, 2800, 1176)
+提醒窗口 rect=(2008, 808, 2768, 1144)  760x336  占工作区 7.76%
+
+① 遮挡范围
+   [<span style="color:#6CCB5F">OK</span>] 提醒窗口面积 &lt; 工作区 10%  7.76%
+   [<span style="color:#6CCB5F">OK</span>] 贴着工作区右边  右差 -32px
+   [<span style="color:#6CCB5F">OK</span>] 贴着工作区下边  下差 -32px
+   [<span style="color:#6CCB5F">OK</span>] 尺寸是「小窗」而不是铺满  760x336
+
+② 窗口样式
+   [<span style="color:#6CCB5F">OK</span>] 带 WS_EX_TOOLWINDOW（不占任务栏）  exstyle=0x00000088
+
+③ 像素：卡片以外必须还能看见底窗
+   [<span style="color:#6CCB5F">OK</span>] 左上角是底窗绿色（= 提醒没盖住那里）  rgb(27, 127, 75)
+   [<span style="color:#6CCB5F">OK</span>] 提醒窗口正左方 40px 是绿色（遮挡边界就在卡片边上）  rgb(26, 123, 73)
+   [<span style="color:#6CCB5F">OK</span>] 提醒窗口正上方 40px 是绿色  rgb(27, 127, 75)
+   [<span style="color:#6CCB5F">OK</span>] 提醒窗口内部不是绿色（卡片真的画出来了）  rgb(43, 43, 43)
+
+全部通过：提醒只占右下角，其余区域未被遮挡。</pre>
+<p class="note">
+  第 ③ 组是这次的关键：底窗是替身「你正在看的画面」（高饱和绿 + 大字）。
+  采样点落在卡片<b>外面</b>时必须是绿色 —— 这一条直接证明「提醒没有覆盖整个桌面」，
+  而且是机器判的，不是我描述的。深色 / 浅色两套主题都跑过，均全绿。
+</p>
+
+<h2 class="sec">四、截图</h2>
+<div class="grid">
+  <figure>
+    <img src="overlay-toast-dark.png" alt="深色 · 全屏">
+    <figcaption><b>深色 · 全屏</b> —— 绿色是替身「你正在看的画面」，
+      右下角那块才是提醒。除此之外的区域<b>一点没被遮</b>。</figcaption>
+  </figure>
+  <figure>
+    <img src="overlay-toast-light.png" alt="浅色 · 全屏">
+    <figcaption><b>浅色 · 全屏</b> —— 同上。</figcaption>
+  </figure>
+</div>
+<div class="pair" style="margin-top:20px">
+  <figure>
+    <img src="overlay-toast-card-dark.png" alt="深色 · 卡片特写">
+    <figcaption><b>深色 · 卡片特写</b></figcaption>
+  </figure>
+  <figure>
+    <img src="overlay-toast-card-light.png" alt="浅色 · 卡片特写">
+    <figcaption><b>浅色 · 卡片特写</b> —— 圆角与 1px 描边由 DWM 绘制。</figcaption>
+  </figure>
+</div>
+
+<h2 class="sec">五、顺带修掉一个更早就存在的 bug</h2>
+<p style="font-size:13px;line-height:21px;margin:0 0 8px">
+  查提醒位置时发现坐标系被多除了一次 <code>density</code>，导致
+  <b>「最大化」只铺满屏幕左上四分之一</b>（<code>Main.kt</code> 的 <code>onToggleMaximize</code>）。
+</p>
+<pre>实测探针：density=2.0  screenSize=1400x636  gcBounds=1400x636  insets.bottom=48
+          → 物理屏幕实为 2800x1272，工作区 2800x1176
+          <span style="color:#6CCB5F">结论：GraphicsConfiguration.bounds 已经是 dp</span>（AWT 用户空间 = 物理 / uiScale，
+          Compose 的 density 恰好就是那个 uiScale）—— 不该再除</pre>
+<table>
+  <tr><th>位置</th><th>修前</th><th>修后</th></tr>
+  <tr><td>提醒卡片</td><td class="bad">落在 (608, 220)，屏幕正中偏左</td><td class="ok">(2008, 808)，右下角</td></tr>
+  <tr><td>主窗口最大化</td><td class="bad">1400×588 物理像素（四分之一屏）</td><td class="ok">2800×1176（整个工作区）</td></tr>
+</table>
+
+<h2 class="sec">六、你需要做的</h2>
+<ul>
+  <li><b>重启一下 App</b>：现在跑着的那个实例还是旧代码，它弹的还是全屏黑色覆盖层。
+      重启后提醒才会变成右下角小卡片。</li>
+  <li>如果想再确认一次，跑 <code>python tools/check_overlay.py</code>（约 40 秒，全绿即通过）。</li>
+</ul>
+<p class="note">
+  不需要再肉眼判断透明度了 —— 这次没有任何「只有眼睛能验」的机制。
+</p>
+
+<h2 class="sec">七、仍然存在的限制（与安卓的差异）</h2>
+<ul>
+  <li>安卓是<b>全屏覆盖 + 能压在锁屏上</b>；Windows 这里只是右下角一块，
+      对独占全屏的游戏 / 播放器仍可能被压住（与安卓上 ColorOS 拦截全屏弹窗同类）。</li>
+  <li>多屏时固定落在<b>主屏</b>（跟鼠标跑反而让人找不到，系统通知也是固定主屏）。</li>
+</ul>
+
+</body>
+</html>

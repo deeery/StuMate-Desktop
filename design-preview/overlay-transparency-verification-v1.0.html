@@ -33,10 +33,22 @@
 </head>
 <body>
 
+<div style="margin:0 0 22px;padding:14px 16px;border:1px solid #6b4a1f;border-radius:8px;
+            background:#2a1f10;color:#e0b341;font-size:13px;line-height:20px">
+  <b>⚠️ 本页方案已废弃（2026-10-02 当天推翻）。</b><br>
+  色键透明在 API 层面「成功」了（<code>GetLayeredWindowAttributes → ok=1</code>），
+  但用户实机验收仍是「卡片完全覆盖整个桌面」。根因推测是 AWT 在
+  <code>alwaysOnTop</code> / <code>toFront()</code> 时按自己缓存的样式重写了
+  <code>GWL_EXSTYLE</code>，把 <code>WS_EX_LAYERED</code> 抹掉。<br>
+  更关键的是这条路<b>无法用截图自证</b>，只能靠肉眼 —— 所以整体放弃，
+  改为右下角小窗。请看 <a href="overlay-toast-verification-v2.0.html"
+  style="color:#60CDFF">overlay-toast-verification-v2.0.html</a>。
+</div>
+
 <h1>置顶提醒卡片「背景透明」修复 · 验收页 v1.0</h1>
 <p class="lead">
   反馈：「桌面端提醒需要优化；置顶卡片会让屏幕其他部分变黑。让其他部分保持透明。」<br>
-  查下来是**两个原因叠在一起**，只去掉那层黑色遮罩治不了本 —— 详见下面「根因」。
+  查下来是<b>两个原因叠在一起</b>，只去掉那层黑色遮罩治不了本 —— 详见下面「根因」。
 </p>
 
 <h2 class="sec">一、根因（实测，不是推测）</h2>

@@ -11,7 +11,7 @@ group = "com.example.classreminder"
 //  - `packageVersion`（下面 nativeDistributions 用它）跟着走
 //  - 下面的 `generateBuildConfig` 任务据此生成 `BuildConfig.VERSION`
 //  - 设置页「版本」那一行读 `BuildConfig.VERSION`，不会再和实际版本对不上
-version = "1.3.0"
+version = "1.4.0"
 
 kotlin {
     jvmToolchain(17)

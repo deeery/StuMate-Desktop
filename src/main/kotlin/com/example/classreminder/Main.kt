@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -228,7 +227,6 @@ fun main() = application {
                 window.minimumSize = Dimension(900, 600)
             }
 
-            val scale = LocalDensity.current.density
             val chrome = remember(window) {
                 WindowChrome(
                     window = window,
@@ -244,9 +242,12 @@ fun main() = application {
                         } else {
                             restorePosition = windowState.position
                             restoreSize = windowState.size
+                            // ⚠️ `workAreaOf` 返回的**已经是 dp**（AWT 用户空间 =
+                            // 物理 / uiScale，Compose 的 density 就是那个 uiScale），
+                            // 不要再除 `scale` —— 除一次「最大化」只铺满左上四分之一屏。
                             val area = workAreaOf(window)
-                            windowState.position = WindowPosition((area.x / scale).dp, (area.y / scale).dp)
-                            windowState.size = DpSize((area.width / scale).dp, (area.height / scale).dp)
+                            windowState.position = WindowPosition(area.x.dp, area.y.dp)
+                            windowState.size = DpSize(area.width.dp, area.height.dp)
                             maximized = true
                         }
                     },

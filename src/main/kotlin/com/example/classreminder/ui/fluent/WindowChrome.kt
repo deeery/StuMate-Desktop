@@ -38,6 +38,7 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.awt.ComposeWindow
 import com.example.classreminder.platform.WindowEffects
 import kotlinx.coroutines.delay
+import java.awt.GraphicsEnvironment
 import java.awt.MouseInfo
 import java.awt.Point
 import java.awt.Rectangle
@@ -151,11 +152,42 @@ fun ApplyWindowCorners(window: ComposeWindow) {
  * 无边框窗口不能用 `WindowPlacement.Maximized`：那个走的是 AWT 的
  * `MAXIMIZED_BOTH`，对没有边框的窗口会把任务栏一起盖掉（实测 2560×1440 全屏，
  * 底部任务栏被遮住）。所以最大化改成「自己算工作区 + 直接设 size/position」。
+ *
+ * ⚠️ **返回值已经是 dp**，不要再除 density。`GraphicsConfiguration.bounds` 在
+ * AWT 用户空间里，而 AWT 用户空间 = 物理像素 / uiScale；Compose Desktop 的
+ * `LocalDensity.density` 恰好就是那个 uiScale，所以两者单位相同。
+ * 实测探针（2026-10-02，本机）：`density=2.0`、`screenSize=1400x636`、
+ * `gcBounds=1400x636`、`insets.bottom=48`，物理屏幕实为 2800x1272。
+ * 曾经这里被外面除过一次 density，结果「最大化」只铺满左上四分之一屏。
  */
 fun workAreaOf(window: ComposeWindow): Rectangle {
     val toolkit = Toolkit.getDefaultToolkit()
     val gc = window.graphicsConfiguration
     if (gc == null) {
+        val size = toolkit.screenSize
+        return Rectangle(0, 0, size.width, size.height)
+    }
+    val insets = toolkit.getScreenInsets(gc)
+    val bounds = gc.bounds
+    return Rectangle(
+        bounds.x + insets.left,
+        bounds.y + insets.top,
+        bounds.width - insets.left - insets.right,
+        bounds.height - insets.top - insets.bottom
+    )
+}
+
+/**
+ * **主屏**工作区（屏幕减去任务栏）。给「还没拿到窗口」的场合用 ——
+ * 比如在 `rememberWindowState` 里就要先算好提醒小窗的位置。
+ *
+ * 提醒小窗固定落在主屏：多屏时跟着鼠标跑反而让人找不到，系统通知也是固定主屏。
+ */
+fun primaryWorkArea(): Rectangle {
+    val toolkit = Toolkit.getDefaultToolkit()
+    val gc = runCatching {
+        GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration
+    }.getOrNull() ?: run {
         val size = toolkit.screenSize
         return Rectangle(0, 0, size.width, size.height)
     }
