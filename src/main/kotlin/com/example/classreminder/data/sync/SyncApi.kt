@@ -3,6 +3,7 @@ package com.example.classreminder.data.sync
 import com.example.classreminder.data.backup.JsonValue
 import com.example.classreminder.data.backup.array
 import com.example.classreminder.data.backup.bool
+import com.example.classreminder.data.backup.boolOrNull
 import com.example.classreminder.data.backup.int
 import com.example.classreminder.data.backup.jsonArray
 import com.example.classreminder.data.backup.jsonObject
@@ -47,7 +48,8 @@ data class PushResult(
 /** `GET /sync/status` 的响应 */
 data class SyncStatus(
     val cursor: Int,
-    val isInitialDevice: Boolean,
+    /** 三态：true=我是首端 / false=首端是别人 / null=还没人认领。见 [boolOrNull] */
+    val isInitialDevice: Boolean?,
     val courses: Int,
     val notes: Int,
     val deleted: Int
@@ -119,7 +121,8 @@ internal object SyncApi {
         val counts = o.objOrNull("counts")
         return SyncStatus(
             cursor = o.int("cursor"),
-            isInitialDevice = o.bool("is_initial_device"),
+            // ⚠️ 用 boolOrNull 保三态，别用 bool —— 见 SyncStatus.isInitialDevice 的注释
+            isInitialDevice = o.boolOrNull("is_initial_device"),
             courses = counts?.int("classes") ?: 0,
             notes = counts?.int("notes") ?: 0,
             deleted = counts?.int("deleted") ?: 0

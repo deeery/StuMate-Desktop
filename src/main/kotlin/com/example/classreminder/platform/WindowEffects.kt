@@ -55,6 +55,15 @@ object WindowEffects {
         ): Int
     }
 
+    /** `user32` 里做色键透明需要的三个函数 */
+    private interface User32 : Library {
+        fun GetWindowLongW(hwnd: Pointer, index: Int): Int
+        fun SetWindowLongW(hwnd: Pointer, index: Int, value: Int): Int
+
+        /** `SetLayeredWindowAttributes(HWND, COLORREF crKey, BYTE bAlpha, DWORD dwFlags)` */
+        fun SetLayeredWindowAttributes(hwnd: Pointer, key: Int, alpha: Byte, flags: Int): Int
+    }
+
     /** 只在 Windows 上能加载；其它平台返回 null，调用点一律走降级分支 */
     private val dwm: DwmApi? by lazy {
         runCatching { Native.load("dwmapi", DwmApi::class.java) }.getOrNull()
@@ -102,6 +111,68 @@ object WindowEffects {
 
     /** DWM 当前是否可用（Windows 11 上为 true） */
     fun isSupported(): Boolean = supported
+
+    // ── 色键透明（置顶提醒卡片专用） ────────────────────────────────
+
+    private const val GWL_EXSTYLE = -20
+    private const val WS_EX_LAYERED = 0x00080000
+    private const val LWA_COLORKEY = 0x00000001
+
+    /**
+     * 置顶提醒卡片用的「透明键」颜色。
+     *
+     * ## 为什么不用 `Window(transparent = true)`
+     *
+     * 实测（2026-10-02，Compose 1.5.10 / JDK 17 / Win11）：即使
+     * `GraphicsDevice.isWindowTranslucencySupported(PERPIXEL_TRANSLUCENT)` 返回 **true**，
+     * Compose 的 `transparent = true` 也没有真的建出分层窗口 ——
+     * 用 `GetWindowLongW(hwnd, GWL_EXSTYLE)` 查出来 `WS_EX_LAYERED` **没有置位**，
+     * 屏幕采样确认卡片以外的像素是**不透明的纯黑 (0,0,0)**，而不是透出底下的窗口。
+     * 这就是用户看到的「屏幕其他部分变黑」的真正原因：不是那层 `0xCC000000` 遮罩，
+     * 而是窗口本身就是不透明的黑。（去掉遮罩只能少压暗一点，治不了本。）
+     *
+     * ## 色键方案
+     *
+     * 自己给窗口加 `WS_EX_LAYERED`，再用 `LWA_COLORKEY` 指定一个「魔术色」：
+     * 画成这个颜色的像素会被 DWM 当作全透明。于是
+     *   ① 视觉上真的透出底下的窗口；
+     *   ② **鼠标命中测试也会穿透**（色键像素不接收点击）——
+     *      「背景透明」和「不挡用户点击」一次拿到，不必再轮询鼠标位置去切 `WS_EX_TRANSPARENT`。
+     *
+     * 代价：卡片边缘的抗锯齿会把这个魔术色混进去，圆角处可能有 1px 的品红描边。
+     * 所以选品红 —— 它离 Fluent 调色板（灰/蓝）最远，混出来的边最不显眼，
+     * 而且**绝不能**出现在卡片自身的内容里。
+     *
+     * 具体颜色值由调用方给（见 `OverlayScreen.OVERLAY_KEY_ARGB`），
+     * 这里只负责把它交给 Windows。
+     */
+
+    private val user32: User32? by lazy {
+        runCatching { Native.load("user32", User32::class.java) }.getOrNull()
+    }
+
+    /**
+     * 把窗口上「画成 [keyArgb] 的像素」变成真透明（含鼠标穿透）。
+     *
+     * @param keyArgb 魔术色，`0xRRGGBB`（忽略 alpha）
+     * @return 是否成功；非 Windows 或拿不到 HWND 时返回 false，调用方保持原样即可
+     *         （最坏情况退化成「不透明窗口」，也就是改动之前的样子）。
+     */
+    fun makeColorKeyTransparent(window: Window, keyArgb: Int): Boolean {
+        val api = user32 ?: return false
+        val hwnd = runCatching { Native.getWindowPointer(window) }.getOrNull() ?: return false
+        return runCatching {
+            val ex = api.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            // 置位 WS_EX_LAYERED —— 没有它 SetLayeredWindowAttributes 会直接失败
+            api.SetWindowLongW(hwnd, GWL_EXSTYLE, ex or WS_EX_LAYERED)
+            api.SetLayeredWindowAttributes(
+                hwnd,
+                toColorRef(keyArgb),
+                0, // bAlpha 在 LWA_COLORKEY 模式下不参与运算
+                LWA_COLORKEY
+            ) != 0
+        }.getOrDefault(false)
+    }
 
     private fun set(api: DwmApi, hwnd: Pointer, attribute: Int, value: Int): Boolean =
         runCatching {

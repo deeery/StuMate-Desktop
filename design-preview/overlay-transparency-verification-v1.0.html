@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate · 置顶提醒卡片「背景透明」修复 验收页 v1.0</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 28px 56px;
+    font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    background:#0f0f10; color:#e8e8e8;
+  }
+  h1{font-size:24px;font-weight:600;margin:0 0 6px}
+  .lead{font-size:13px;line-height:20px;color:#a0a0a0;margin:0 0 26px;max-width:980px}
+  h2.sec{font-size:15px;font-weight:600;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid #2e2e2e}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:0 0 8px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+  th{font-weight:600;color:#c5c5c5;background:#1a1a1a}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:#242424;padding:1px 5px;border-radius:3px}
+  pre{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:18px;
+      background:#1a1a1a;border:1px solid #2e2e2e;border-radius:6px;padding:12px 14px;overflow-x:auto;color:#d0d0d0}
+  .ok{color:#6CCB5F;font-weight:600}
+  .bad{color:#FF99A4;font-weight:600}
+  .warn{color:#e0b341;font-weight:600}
+  .note{margin:12px 0 0;font-size:12px;line-height:18px;color:#a0a0a0;border-left:2px solid #404040;padding-left:10px}
+  figure{margin:0;border-radius:8px;border:1px solid #2e2e2e;overflow:hidden;background:#1a1a1a}
+  figure img{display:block;width:100%;height:auto}
+  figcaption{padding:10px 14px 12px;font-size:12px;line-height:17px;color:#a0a0a0}
+  figcaption b{color:#e8e8e8;font-weight:600}
+  ul{font-size:13px;line-height:21px;padding-left:20px;margin:6px 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:20px}
+</style>
+</head>
+<body>
+
+<h1>置顶提醒卡片「背景透明」修复 · 验收页 v1.0</h1>
+<p class="lead">
+  反馈：「桌面端提醒需要优化；置顶卡片会让屏幕其他部分变黑。让其他部分保持透明。」<br>
+  查下来是**两个原因叠在一起**，只去掉那层黑色遮罩治不了本 —— 详见下面「根因」。
+</p>
+
+<h2 class="sec">一、根因（实测，不是推测）</h2>
+<table>
+  <tr><th>#</th><th>问题</th><th>证据</th></tr>
+  <tr>
+    <td>1</td>
+    <td>卡片外面铺了一层 80% 黑遮罩 <code>Color(0xCC000000)</code>，
+        把整屏压暗 —— 用户正看课件/视频时等于被盖掉。</td>
+    <td>源码 <code>OverlayContent</code> 的第一层 <code>Box</code> 背景色</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><b>更根本</b>：<code>Window(transparent = true)</code> <b>没有真的建出分层窗口</b>，
+        卡片以外的区域本来就是<b>不透明的纯黑</b>。</td>
+    <td><code>GetWindowLongW(hwnd, GWL_EXSTYLE)</code> →
+        <code>0x00080008</code>，<span class="bad">WS_EX_LAYERED 未置位</span>；
+        屏幕采样 <code>(1400,1000) = (0,0,0)</code></td>
+  </tr>
+</table>
+<p class="note">
+  ⚠️ 顺带排除了「环境不支持」这个可能：<code>GraphicsDevice.isWindowTranslucencySupported(
+  PERPIXEL_TRANSLUCENT)</code> 返回 <code>true</code>，<code>headless = false</code> ——
+  平台是支持的，是 Compose 这条路径没走到。<br>
+  所以只删遮罩的话，用户看到的仍然是<b>一块黑</b>，只是没那么黑 —— 问题没解决。
+</p>
+
+<h2 class="sec">二、修法：色键透明（color key）</h2>
+<p class="lead" style="margin-bottom:12px">
+  不再依赖 AWT 的逐像素透明，改成自己给窗口加 <code>WS_EX_LAYERED</code>，
+  再用 <code>SetLayeredWindowAttributes(..., LWA_COLORKEY)</code> 指定一个「魔术色」：
+  画成这个颜色的像素被 DWM 当作全透明。
+</p>
+<table>
+  <tr><th>收益</th><th>说明</th></tr>
+  <tr><td>背景真的透明</td><td>卡片以外原样露出底下的画面，不再压暗、不再变黑</td></tr>
+  <tr><td><b>鼠标自动穿透</b></td>
+      <td>色键像素按定义就不接收点击 —— 「看得见」和「点得到」一次拿到，
+          不需要再轮询鼠标位置去动态切 <code>WS_EX_TRANSPARENT</code></td></tr>
+  <tr><td>卡片照常可点</td><td>卡片本身不是魔术色，命中测试不变，「知道了」按钮正常</td></tr>
+</table>
+<p class="note">
+  魔术色选<b>品红</b>（<code>0xFF00FF</code>）：离 Fluent 调色板（灰 / 蓝）最远，
+  卡片圆角抗锯齿混出来的 1px 边最不显眼。<br>
+  ⚠️ 代价是卡片边缘可能有极细的品红描边，需要在真机上看一眼 —— 见下面「需要你确认的」。
+</p>
+
+<h2 class="sec">三、验证证据</h2>
+<p style="font-size:13px;line-height:21px;margin:0 0 10px">
+  直接问 Windows「这个窗口的色键到底登记成什么了」，比看截图可靠 ——
+  因为截图能不能拍到分层窗口是另一回事（见下方说明）。
+</p>
+<pre>窗口 'StuMate 提醒'  rect=(0, 0, 2800, 2000)
+   exstyle=0x00080008   LAYERED=<span style="color:#6CCB5F">True</span>   TRANSPARENT=False
+
+色键登记：ok=1  key=0xFF00FF  flags=0x1（LWA_COLORKEY=0x1；期望 key 0xFF00FF）</pre>
+<table>
+  <tr><th>检查项</th><th>结果</th></tr>
+  <tr><td><code>WS_EX_LAYERED</code> 已置位</td><td class="ok">是</td></tr>
+  <tr><td>色键颜色登记为 <code>0xFF00FF</code></td><td class="ok">是（<code>ok=1</code>）</td></tr>
+  <tr><td>抓屏里出现品红残留</td>
+      <td class="ok">无 —— 说明 DWM 确实把魔术色吃掉了，而不是原样画出来</td></tr>
+  <tr><td>桌面端编译 / 单测</td><td class="ok">BUILD SUCCESSFUL / <b>160/160</b></td></tr>
+  <tr><td>移动端编译 / 单测</td><td class="ok">BUILD SUCCESSFUL / <b>153/153</b></td></tr>
+</table>
+<p class="note">
+  <b>为什么截图里的背景是白色，而不是「底下的窗口」：</b>
+  <code>ImageGrab.grab()</code> 走的是 <code>BitBlt</code>，
+  它对<b>色键挖出来的洞</b>取不到数据，返回白色（未初始化）。
+  试过 <code>include_layered_windows=True</code> 也一样。
+  换句话说：<b>这张图能证明「黑色没了」，但证明不了「底下的画面透出来了」</b> ——
+  后者只能靠眼睛，所以需要你确认。
+</p>
+
+<h2 class="sec">四、卡片外观（真实截图）</h2>
+<div class="grid">
+  <figure>
+    <img src="overlay-reminder-dark.png" alt="提醒卡片 · 深色">
+    <figcaption><b>深色主题</b> —— 卡片本身没变，只把外面那层去掉了。
+      背景的白是抓屏限制（见上），不是界面颜色。</figcaption>
+  </figure>
+  <figure>
+    <img src="overlay-reminder-light.png" alt="提醒卡片 · 浅色">
+    <figcaption><b>浅色主题</b> —— 圆角与 1px 描边完好，没有看到品红描边。</figcaption>
+  </figure>
+</div>
+
+<h2 class="sec">五、需要你确认的</h2>
+<ul>
+  <li>提醒弹出时，<b>卡片以外是否真的看得见你正在看的内容</b>（而不是黑 / 白）。</li>
+  <li>卡片<b>圆角边缘有没有品红描边</b>（抗锯齿与魔术色混合的副作用）。</li>
+  <li>在卡片以外的地方<b>能不能正常点到别的窗口</b>（鼠标穿透）。</li>
+</ul>
+<p class="note">
+  预览入口：<code>./gradlew uiPreview -Ppreview=overlay</code>，
+  或直接跑主程序等一次真实提醒。
+</p>
+
+</body>
+</html>

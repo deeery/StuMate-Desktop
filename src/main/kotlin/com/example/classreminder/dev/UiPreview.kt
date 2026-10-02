@@ -1,8 +1,10 @@
 package com.example.classreminder.dev
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -13,9 +15,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.example.classreminder.data.MainViewModel
@@ -24,6 +31,7 @@ import com.example.classreminder.data.sync.OAuthTicket
 import com.example.classreminder.data.sync.SyncPhase
 import com.example.classreminder.data.sync.SyncState
 import com.example.classreminder.FirstRunDialog
+import com.example.classreminder.platform.ReminderEngine
 import com.example.classreminder.platform.ToastHost
 import com.example.classreminder.ui.fluent.AccountAuthDialog
 import com.example.classreminder.ui.fluent.AppPage
@@ -35,6 +43,7 @@ import com.example.classreminder.ui.fluent.LocalSyncPreviewState
 import com.example.classreminder.ui.fluent.LocalWindowChrome
 import com.example.classreminder.ui.fluent.MODE_REGISTER
 import com.example.classreminder.ui.fluent.ModifyPasswordDialog
+import com.example.classreminder.ui.fluent.OverlayWindow
 import com.example.classreminder.ui.fluent.SetPasswordDialog
 import com.example.classreminder.ui.fluent.ThemeMode
 import com.example.classreminder.ui.fluent.WindowChrome
@@ -100,7 +109,16 @@ fun main() = application {
         ThemeMode.DARK
     }
     val viewModel = remember { MainViewModel() }
-    val windowState = rememberWindowState(size = DpSize(1200.dp, 800.dp))
+    // overlay 场景：主窗口故意做成**小窗并偏到左上**，而不是铺满屏幕。
+    // 这样屏幕被分成两块 —— 一块底下是这个绿色替身窗口、一块底下是桌面，
+    // 一次截图就能同时验出「透出下面的窗口」和「透出桌面」两件事，
+    // 而且能反证「不是整块糊成白色/黑色」。
+    val isOverlayScenario = scenario == "overlay"
+    val windowState = rememberWindowState(
+        size = if (isOverlayScenario) DpSize(1000.dp, 700.dp) else DpSize(1200.dp, 800.dp),
+        position = if (isOverlayScenario) WindowPosition(200.dp, 200.dp) else WindowPosition.PlatformDefault,
+        placement = WindowPlacement.Floating
+    )
 
     Window(
         onCloseRequest = ::exitApplication,
@@ -110,7 +128,9 @@ fun main() = application {
         // （SetForegroundWindow / SetWindowPos / BringWindowToTop 全被系统忽略，
         // 连 ShowWindow(SW_MINIMIZE) 都无效），外部工具没法把预览窗口提到最前。
         // 不置顶的话窗口会被别的窗口盖住，截图里看起来就像「窗口是透明的」。
-        alwaysOnTop = true,
+        // overlay 场景下要让位：置顶提醒窗口自己也置顶，两个都置顶时
+        // 谁在上面就变成看运气了，截图会随机拍到「提醒被主窗口盖住」。
+        alwaysOnTop = scenario != "overlay",
         state = windowState
     ) {
         // 自绘标题栏要用到 window 与 windowState，和 Main.kt 里是同一套接线，
@@ -150,21 +170,41 @@ fun main() = application {
                     }
                 }
                 Box(Modifier.fillMaxSize()) {
-                    AppShell(
-                        viewModel = viewModel,
-                        themeModeOrdinal = if (themeMode == ThemeMode.LIGHT) 1 else 2,
-                        onThemeModeChanged = {},
-                        onTestNotification = {},
-                        onOpenDataFolder = {},
-                        onImportTimetable = {},
-                        // 生产入口现在固定开「今日」（见 AppShell 注释），所以预览必须能
-                        // 指定起始页，否则课表页的截图根本走不到。
-                        initialPage = when (scenario) {
-                            "week" -> AppPage.WEEK
-                            "notes" -> AppPage.NOTES
-                            else -> AppPage.SETTINGS
+                    if (scenario == "overlay") {
+                        // 替身「用户正在看的画面」。
+                        //
+                        // 为什么不用 AppShell 当底：深色主题下 AppShell 本身就是一片深灰，
+                        // 截出来和「透明失败渲染成黑色」长得一模一样 —— 这种图没法验收。
+                        // 换成高饱和纯色 + 大字，卡片以外的区域到底透没透，一眼就能判。
+                        Box(
+                            modifier = Modifier.fillMaxSize().background(Color(0xFF1B7F4B)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "这是提醒卡片「下面」的窗口\n卡片以外的区域应当能看到这一层",
+                                color = Color.White,
+                                fontSize = 30.sp,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 44.sp
+                            )
                         }
-                    )
+                    } else {
+                        AppShell(
+                            viewModel = viewModel,
+                            themeModeOrdinal = if (themeMode == ThemeMode.LIGHT) 1 else 2,
+                            onThemeModeChanged = {},
+                            onTestNotification = {},
+                            onOpenDataFolder = {},
+                            onImportTimetable = {},
+                            // 生产入口现在固定开「今日」（见 AppShell 注释），所以预览必须能
+                            // 指定起始页，否则课表页的截图根本走不到。
+                            initialPage = when (scenario) {
+                                "week" -> AppPage.WEEK
+                                "notes" -> AppPage.NOTES
+                                else -> AppPage.SETTINGS
+                            }
+                        )
+                    }
                     ToastHost(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -270,6 +310,30 @@ fun main() = application {
                 }
             }
         }
+    }
+
+    // ── 置顶提醒卡片（overlay 场景）────────────────────────────────
+    //
+    // 直接调**生产**的 `OverlayWindow`，而不是自己再搭一个 `Window(...)`：
+    // 窗口参数、色键透明、抢焦点全走真实那条路，验的才是用户会遇到的东西。
+    // 自己搭一个只能验出「卡片长什么样」，验不出「卡片以外到底透没透」——
+    // 而那正是这次要修的问题。
+    if (scenario == "overlay") {
+        OverlayWindow(
+            alert = ReminderEngine.Alert(
+                classId = 1,
+                title = "高等数学（A）",
+                room = "教三 402",
+                // 固定时刻，不取 now()：截图要可复现
+                startMillis = LocalDateTime.of(2026, 10, 2, 10, 0)
+                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                endMillis = LocalDateTime.of(2026, 10, 2, 11, 40)
+                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                ongoing = true
+            ),
+            themeMode = themeMode,
+            onDismiss = {}
+        )
     }
 }
 

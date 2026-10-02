@@ -69,6 +69,7 @@ def runtime_classpath():
 DEFAULT_SCENARIOS = [
     ("account", "acc-01-account-signedout.png"),
     ("firstrun", "acc-00-first-run.png"),
+    ("overlay", "overlay-01-reminder-card.png"),
     ("auth", "acc-02-login-dialog.png"),
     ("authfail", "acc-03-login-failed.png"),
     ("register", "acc-04-register-dialog.png"),

@@ -171,6 +171,9 @@ class SyncEngine(
         // 允许下一个登录会话再走一次启动同步
         launchSyncDone = false
         prefs.lastCursor = 0
+        // 忘掉「本地数据属于哪个账号」：下一个账号的第一轮同步要重新走
+        // §5.8 的归属判定，否则会拿上一个账号的资格去推新账号的数据。
+        prefs.syncedAccountId = 0
         _state.value = SyncState(message = "未登录，不会同步")
     }
 
@@ -188,19 +191,36 @@ class SyncEngine(
         var pushedAny = false
         var alignedToServer = false
         try {
-            // ── 0. 登录对齐：先决定「本地这份分歧要不要推上去」 ──
+            // ── 0. 先决定「本地这份分歧能不能推上去」（§5.8 首端权威）──
             //
-            // [syncAfterLogin] 的诉求是「让我这台设备显示**首端那台**的配置」。
-            // 如果照常先 push，本地这份分歧就会先污染服务端 —— 对齐也就落空了。
-            // 所以先问一次服务端有没有数据：
-            //   有   → 跳过 push，直接「备份 → 清空 → 全量拉」，
-            //          本地这份分歧只留在备份文件里（用户要求「备份被覆盖的配置」）
-            //   没有 → **必须**照常 push。否则 `initial_device_id` 永远是 null，
-            //          谁都成不了首端，之后所有设备都拿不到「以谁为准」的答案
+            // 两种情况必须先问服务端，不能上来就 push：
+            //   · [syncAfterLogin]：用户主动登录，要求「让我这台显示首端那台的配置」；
+            //   · 本设备还没跟这个账号同步过：本地这份数据的来历不明
+            //     （上一台设备？上一个账号？上一次安装？），没有资格覆盖服务端。
+            //
+            // 判定只有一条规则：
+            //   服务端没有数据         → 照常 push。**必须**这样，否则
+            //                            `initial_device_id` 永远是 null，谁都成不了首端
+            //   服务端有数据 + 我是首端 → 照常 push（本地就是权威本身，没什么可「对齐」的）
+            //   服务端有数据 + 我不是首端 → **跳过 push**，直接「备份 → 清空 → 全量拉」，
+            //                            本地这份分歧只留在备份文件里
+            //
+            // ## 为什么非要提前问
+            //
+            // 原来的写法是「先 push，再看服务端回的 `replace_local`」—— 可那时
+            // 本地数据**已经推上去了**，§5.8「首端权威」形同虚设。
+            // 实测后果：桌面端的演示数据被推成服务端 revision 140–154，与安卓数据并存。
+            //
+            // ⚠️ `isInitialDevice != true` 而不是 `== false`：这个字段是三态的，
+            // null（还没有设备认领）和 false（首端是别人）要区别对待 ——
+            // 见 `SyncStatus.isInitialDevice` 与 `boolOrNull`。
+            val accountId = AccountSession.user.value?.id ?: 0
+            val neverSyncedThisAccount = prefs.syncedAccountId != accountId
             var replaceNow = false
-            if (forceAlign) {
+            if (forceAlign || neverSyncedThisAccount) {
                 val status = SyncApi.status(token)
-                if (status.courses > 0 || status.notes > 0) {
+                val serverHasData = status.courses > 0 || status.notes > 0
+                if (serverHasData && status.isInitialDevice != true) {
                     replaceNow = true
                     alignedToServer = true
                 }
@@ -267,6 +287,10 @@ class SyncEngine(
             // ── 4. 记游标 ─────────────────────────────────────
             // 只在成功收尾后推进。中途失败保持原值，下次重来 —— 宁可多拉一次，不可漏数据。
             prefs.lastCursor = serverCursor
+            // 记下「本地这份数据现在属于哪个账号」。下一轮起就不必再问服务端
+            // 「我有没有资格 push」了 —— 这一轮已经按 §5.8 把归属理清了。
+            // **只在成功收尾后写**：失败时保持原值，下一轮重新判定。
+            prefs.syncedAccountId = accountId
 
             // 同步成功顺手清理 30 天前的墓碑
             val purged = syncDao.purgeOldTombstones()
@@ -531,6 +555,24 @@ class SyncPrefs(
         set(value) {
             val fields = LinkedHashMap(read())
             fields["cursor"] = JsonValue.Num(value.toDouble())
+            runCatching { file.writeText(MiniJson.write(JsonValue.Obj(fields), pretty = false)) }
+        }
+
+    /**
+     * 本地这份数据 / 这个游标属于哪个账号（`users.id`）。0 = 还没同步过任何账号。
+     *
+     * 用途只有一个：判断「本设备跟这个账号同步过没有」。没同步过就意味着
+     * 本地这份数据的来历不明，**没有资格覆盖服务端** —— 见 `SyncEngine.syncOnce`
+     * 第 0 步与设计 §5.8「首端权威」。
+     *
+     * 和游标放同一个文件、同生共死：两者都是「本地同步到哪了」的一部分，
+     * 单独存会出现「游标是新的、账号还是旧的」这种自相矛盾的状态。
+     */
+    var syncedAccountId: Int
+        get() = (read().get("accountId") as? JsonValue.Num)?.value?.toInt() ?: 0
+        set(value) {
+            val fields = LinkedHashMap(read())
+            fields["accountId"] = JsonValue.Num(value.toDouble())
             runCatching { file.writeText(MiniJson.write(JsonValue.Obj(fields), pretty = false)) }
         }
 

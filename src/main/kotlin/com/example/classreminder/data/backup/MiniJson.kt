@@ -53,6 +53,23 @@ fun JsonValue.Obj.long(key: String, fallback: Long = 0L): Long =
 fun JsonValue.Obj.bool(key: String, fallback: Boolean = false): Boolean =
     (fields[key] as? JsonValue.Bool)?.value ?: fallback
 
+/**
+ * 取**三态**布尔：字段缺失或是 JSON `null` 时返回 null，而不是压成 false。
+ *
+ * 服务端的 `is_initial_device` 就是三态的，三种值含义完全不同：
+ *   - `true`  = 我就是最早那台设备（首端）
+ *   - `false` = 首端是别的设备
+ *   - `null`  = 还没有任何设备认领过首端（用户刚注册、一次都没同步过）
+ *
+ * 用 [bool] 读会把 `null` 和 `false` 混成一个值 —— 而这两者要采取的动作是相反的：
+ * `false` 要「备份 + 清空 + 全量拉」，`null` **绝不能清空**，会白丢本地数据。
+ * 这类判断必须写 `boolOrNull(key) == true`。
+ *
+ * 移动端 `MiniJson` 有同名函数，语义一致，改这里记得同步。
+ */
+fun JsonValue.Obj.boolOrNull(key: String): Boolean? =
+    (fields[key] as? JsonValue.Bool)?.value
+
 fun JsonValue.Obj.array(key: String): List<JsonValue> =
     (fields[key] as? JsonValue.Arr)?.items ?: emptyList()
 
