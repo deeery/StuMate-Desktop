@@ -111,7 +111,29 @@
   而且是机器判的，不是我描述的。深色 / 浅色两套主题都跑过，均全绿。
 </p>
 
-<h2 class="sec">四、截图</h2>
+<h2 class="sec">四、实机验证（真实 App，不是预览）</h2>
+<p style="font-size:13px;line-height:21px;margin:0 0 12px">
+  预览跑通还不算数 —— 所以直接重启了真实 App 再看一遍。
+  <b>重启前的那个实例是前一天 17:32 启动的</b>，新代码根本没加载，这就是「还是全屏覆盖」的原因。
+</p>
+<figure>
+  <img src="overlay-toast-real-app.png" alt="真实 App 里的提醒卡片">
+  <figcaption>
+    <b>真实 App</b> —— 提醒是右下角一张小卡片，压在「微软电脑管家」窗口之上，
+    其余内容（包括下面的任务栏）完全可见。<br>
+    实测：窗口 <code>380×168</code>，rect <code>(2404, 1040, 2784, 1208)</code>，
+    工作区 <code>(0,0,2800,1224)</code> → 右边/下边各留 16 px；样式 <code>TOOLWIN,TOPMOST</code>；
+    占屏 <b>1.9%</b>。
+  </figcaption>
+</figure>
+<p class="note">
+  <b>顺带发现</b>：两次测量之间显示器缩放从 200% 变成了 100%（density 2.0 → 1.0，
+  任务栏 96 → 48 物理像素）。卡片在两种缩放下都落在正确位置
+  （<code>2800−380×2−16×2=2008</code> / <code>2800−380×1−16×1=2404</code>）——
+  定位代码与缩放无关，这一点是被实测过的，不是推测。
+</p>
+
+<h2 class="sec">五、截图（预览底窗）</h2>
 <div class="grid">
   <figure>
     <img src="overlay-toast-dark.png" alt="深色 · 全屏">
@@ -134,7 +156,7 @@
   </figure>
 </div>
 
-<h2 class="sec">五、顺带修掉一个更早就存在的 bug</h2>
+<h2 class="sec">六、顺带修掉一个更早就存在的 bug</h2>
 <p style="font-size:13px;line-height:21px;margin:0 0 8px">
   查提醒位置时发现坐标系被多除了一次 <code>density</code>，导致
   <b>「最大化」只铺满屏幕左上四分之一</b>（<code>Main.kt</code> 的 <code>onToggleMaximize</code>）。
@@ -149,21 +171,24 @@
   <tr><td>主窗口最大化</td><td class="bad">1400×588 物理像素（四分之一屏）</td><td class="ok">2800×1176（整个工作区）</td></tr>
 </table>
 
-<h2 class="sec">六、你需要做的</h2>
+<h2 class="sec">七、你需要做的</h2>
 <ul>
-  <li><b>重启一下 App</b>：现在跑着的那个实例还是旧代码，它弹的还是全屏黑色覆盖层。
-      重启后提醒才会变成右下角小卡片。</li>
-  <li>如果想再确认一次，跑 <code>python tools/check_overlay.py</code>（约 40 秒，全绿即通过）。</li>
+  <li>旧实例（前一天启动）<b>已关闭，新实例已启动</b> —— 上面那张实机截图就是它弹的。</li>
+  <li>想按需再看一次：<b>设置 → 启动 → 「发送测试通知」</b>（会走 <code>ReminderEngine.checkNow()</code>），
+      不用等真实上课时间。</li>
+  <li>想自动复验：<code>python tools/check_overlay.py</code>（约 40 秒，全绿即通过）。</li>
 </ul>
 <p class="note">
   不需要再肉眼判断透明度了 —— 这次没有任何「只有眼睛能验」的机制。
 </p>
 
-<h2 class="sec">七、仍然存在的限制（与安卓的差异）</h2>
+<h2 class="sec">八、仍然存在的限制（与安卓的差异）</h2>
 <ul>
   <li>安卓是<b>全屏覆盖 + 能压在锁屏上</b>；Windows 这里只是右下角一块，
       对独占全屏的游戏 / 播放器仍可能被压住（与安卓上 ColorOS 拦截全屏弹窗同类）。</li>
   <li>多屏时固定落在<b>主屏</b>（跟鼠标跑反而让人找不到，系统通知也是固定主屏）。</li>
+  <li>卡片不会自动消失，要按「知道了」。系统通知会自动消失 —— 上课提醒这类
+      「必须被看到」的场景，留着更好。</li>
 </ul>
 
 </body>
