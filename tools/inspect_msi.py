@@ -42,11 +42,52 @@ def show(title):
 
 
 def decompile(msi, work):
+    """dark 反编译。**顺带收下 DARK1059 警告文本** —— 它是 2819 的判据，
+    不能像以前那样当噪声丢掉（见 check_dir_dialog_2819）。"""
     wxs = os.path.join(work, "out.wxs")
-    # dark 对 jpackage 原包的 ControlEvent 外键会给一堆 DARK1059 警告，无害
-    run([os.path.join(WIX, "dark.exe"), "-x", work, "-o", wxs, msi])
-    tree = ET.parse(wxs)
-    return tree.getroot(), work
+    p = subprocess.run([os.path.join(WIX, "dark.exe"), "-x", work, "-o", wxs, msi],
+                       capture_output=True)
+    out = p.stdout.decode("utf-8", "replace") + p.stderr.decode("utf-8", "replace")
+    if p.returncode != 0:
+        raise SystemExit("dark 失败 (%s)\n%s" % (p.returncode, out[-2000:]))
+    return ET.parse(wxs).getroot(), out
+
+
+def check_dir_dialog_2819(dark_out):
+    """🔴 检查安装时会不会报 **2819**（`InstallDirDlg` 的 `Folder` 控件缺属性）。
+
+    ## 为什么用 dark 的 DARK1059 警告当判据
+    2819 的本质是：`InstallDirDlg` 的 `Folder`（DirectoryCombo）控件引用了
+    `WIXUI_INSTALLDIR`，而这个属性当时没被定义。dark 反编译时会把这种
+    「ControlEvent 指向不存在的 Control」报成 DARK1059。
+
+    实测对照（同一份原包，只差 `WIXUI_INSTALLDIR` 这一行）：
+        原包          -> 9 条 DARK1059
+        补属性后的包  -> 4 条，且**消失的正好是全部 5 条 InstallDirDlg 相关的**
+    → 数量下降本身就是「属性被正确挂上」的证据。
+
+    ⚠️ 别改成「只看dark 出的 XML 里有没有 WIXUI_INSTALLDIR」——
+    `WixUIExtension` 在链接时会自己注入这个属性，dark 反编译**不会**输出它，
+    实测：手写的那行在输出里查不到，但警告数从 9 降到 4。
+    对照探针（同批插入的 `StuMateProbeAlpha` 能查到）证明判据本身没错。
+    """
+    import re
+    rows = re.findall(
+        r"primary key\(s\) '([^']+)' whose Dialog_ and Control_ columns contain "
+        r"the values, '([^']+)' and '([^']+)'", dark_out)
+    bad = [r for r in rows if r[1].startswith("InstallDir")]
+    show("7. 安装目录对话框（2819 风险）")
+    print("  DARK1059 总数: %d" % len(rows))
+    print("  其中 InstallDirDlg 相关: %d" % len(bad))
+    if bad:
+        for pk, dlg, ctl in bad:
+            print("    ✗ %s  (%s / %s)" % (pk, dlg, ctl))
+        print("  → 会报 2819：InstallDirDlg 的 Folder 控件没有可用属性")
+        return False
+    # 剩下这些是 jpackage 把整个 WixUI 流程都拉进来后的固有产物，
+    # 与用户能否改安装目录无关（我们不需要 License/Resume 那些对话框）
+    print("  → 无 2819 风险（InstallDirDlg 相关警告为 0）")
+    return True
 
 
 def main():
@@ -61,7 +102,7 @@ def main():
     work = keep or tempfile.mkdtemp(prefix="stumate-inspect-")
     try:
         print("dark 解包 %s（%s）" % (os.path.basename(msi), work))
-        root, _ = decompile(msi, work)
+        root, dark_out = decompile(msi, work)
 
         problems = []
         dirs = {e.get("Id"): e for e in root.iter(NS + "Directory")}
@@ -177,39 +218,20 @@ def main():
         elif arp not in icons:
             problems.append("ARPPRODUCTICON=%s 在 Icon 表里没有对应节点" % arp)
 
-        # ── 4.5 Dialog 控件的 Property（2819）──────────────────
-        show("4.5 Dialog 控件 Property（缺了会在重装时报 2819）")
-        props_all = set(props.keys())
-        missing_prop = []
-        for d in root.iter(NS + "Dialog"):
-            did = d.get("Id")
-            for c in d.findall(NS + "Control"):
-                # Button 类控件必须挂 Property，否则安装时 2819
-                t = (c.get("Type") or "")
-                if t.endswith("Button") and not c.get("Property"):
-                    missing_prop.append((did, c.get("Id"), t))
-        if missing_prop:
-            for did, cid, t in missing_prop:
-                print("  [问题] dialog=%s control=%s type=%s 没有 Property"
-                      % (did, cid, t))
-            problems.append(
-                "有%d 个 Button 控件缺 Property —— 重装（目录已存在）时会报"
-                "2819: Control needs a property linked to it"
-                % len(missing_prop))
-        else:
-            n_btn = sum(1 for d in root.iter(NS + "Dialog")
-                        for c in d.findall(NS + "Control")
-                        if (c.get("Type") or "").endswith("Button"))
-            print("  Button 控件 %d 个，全部带 Property ✓" % n_btn)
-        # INSTALLDIR_VALID：jpackage 的 InstallDirNotEmptyDlg 条件里用到
-        if "JpCheckInstallDir" in [ca for ca in cas] or \
-                any("JpCheckInstallDir" in (e.get("Action") or "")
-                    for e in root.iter(NS + "Custom")):
-            if "INSTALLDIR_VALID" not in props_all:
-                print("  [问题] 用了 JpCheckInstallDir 但没声明 INSTALLDIR_VALID")
-                problems.append("缺 INSTALLDIR_VALID 属性声明")
-            else:
-                print("  INSTALLDIR_VALID = %s ✓" % props.get("INSTALLDIR_VALID"))
+        # ── 4.5 安装目录对话框：2819 ────────────────────────────
+        # 旧的「Button 控件缺 Property」判据是**错的**（照着错误根因写的）：
+        #   jpackage 自绘的 InstallDirNotEmptyDlg 里 Yes/No 走
+        #   `<Publish Event="NewDialog">`，本来就不需要 Property；
+        #   2819 报的是 WixUI 的 `InstallDirDlg` / `Folder`。
+        # 正解见 check_dir_dialog_2819()，详细输出放在最后一节（7）。
+        # ⚠️ 顺手确认：INSTALLDIR_VALID **不该**出现在 Property 表里——
+        #   它由 wixhelper.dll 的 CheckInstallDir 在运行时设置。
+        #   谁把它声明成 Value="1"，「目录已存在」的确认框就永远不弹。
+        if "INSTALLDIR_VALID" in props:
+            print("  [问题] Property 表里有 INSTALLDIR_VALID=%r —— 它应由 "
+                  "wixhelper.dll 运行时设置，预先声明会让「目录已存在」"
+                  "确认框永远不弹" % props["INSTALLDIR_VALID"])
+            problems.append("INSTALLDIR_VALID 被预先声明，会屏蔽目录非空确认框")
 
         # ── 5. 目录 ─────────────────────────────────────────────
         show("5. 目录")
@@ -228,6 +250,10 @@ def main():
             fn = (f.get("Name") or "")
             if fn.lower().endswith(".exe") or fn.lower().endswith(".ico"):
                 print("  %-32s comp=%s" % (fn, f.get("Id")))
+
+        # ── 7. 2819 风险 ───────────────────────────────────────
+        if not check_dir_dialog_2819(dark_out):
+            problems.append("InstallDirDlg 相关 DARK1059 > 0 —— 安装向导会报 2819")
 
         show("结论")
         if problems:

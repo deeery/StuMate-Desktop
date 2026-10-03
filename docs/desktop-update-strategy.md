@@ -54,17 +54,17 @@ StuMate/
 
 | 产物 | 用途 | 体积 |
 |---|---|---|
-| `StuMate-1.5.0-final.msi` | **首次安装**（进「程序和功能」/ 开始菜单 / 桌面快捷方式 / 装完自动启动） | 71,539,578 字节（68.22 MB） |
+| `StuMate-1.5.0-final.msi` | **首次安装**（进「程序和功能」/ 开始菜单 / 桌面快捷方式 / 装完自动启动） | 71,539,518 字节（68.22 MB） |
 | `StuMate-portable-1.5.0-icon.zip` | **免安装 + 后续更新**（解压即用） | 70,231,960 字节（66.97 MB） |
 
-> ⚠️ 发 MSI 时认`-final.msi` 后缀那个：`packageMsi` 直接出的原包**没有**
+> ⚠️ 发 MSI 时认 `-final.msi` 后缀那个：`packageMsi` 直接出的原包**没有**
 > 「程序和功能」图标治理、没有完成后启动、没有 AppUserModelID，
-> **而且重装会报 2819**（见下面 jpackage 上游缺陷那节）。
+> **而且在「选择安装位置」那一步会报 2819**（见下面 jpackage 上游缺陷那节）。
 
 **SHA-256**（品牌图标 + 快捷方式 + 完成后启动 + 2819 修复后的包）
 
 ```
-39a3a6ac5ad7b01f568d62350fce6286a856788c685271226c18810c5529f877  StuMate-1.5.0-final.msi
+c4c05f0346bb62fce744a376c0df2552f2197b0d51c57c6e6c17913c104b6366  StuMate-1.5.0-final.msi
 cb291ce1b0a34ff20360dcfdc3d9130ef727c57e4027515d9007ac42634327d1  StuMate-portable-1.5.0-icon.zip
 c8359df0902fcdc2b772a756c510bc2e5b6b69b083527a9d5a3563a6981f74fd  app-icon.ico
 ```
@@ -72,42 +72,78 @@ c8359df0902fcdc2b772a756c510bc2e5b6b69b083527a9d5a3563a6981f74fd  app-icon.ico
 绿色版 zip = 198 个文件、原始 136,354,746 字节、压缩后 70,231,960 字节。
 （比上一版大 20 KB，正是换上的品牌图标。）
 
-## 🔴 jpackage 上游缺陷：重装时报 2819（后处理已修）
+## 🔴 jpackage 上游缺陷：安装向导报 2819（后处理已修）
 
-**症状**：安装过程弹 `Error 2819`，日志：
+**症状**：安装向导弹
 
 ```
-Control [3] on dialog [2] needs a property linked to it.
+The installer has encountered an unexpected error installing this package.
+The error code is 2819.  The arguments are:  InstallDirDlg, Folder,
 ```
 
-**根因**（挖 `$JAVA_HOME/jmods/jdk.jpackage.jmod` 里的
-`classes/jdk/jpackage/internal/resources/InstallDirNotEmptyDlg.wxs` 才确认）：
+日志里对应 `Control [3] on dialog [2] needs a property linked to it.` ——
+代入实参就是「**`InstallDirDlg` 上的 `Folder` 控件**需要绑定一个 Property」。
+`Folder` 是 DirectoryCombo 控件，用户就在「选择安装位置」那一步炸。
 
-```xml
-<Control Id="Yes" Type="PushButton" X="100" Y="55" … Text="!(loc.WixUIYes)">
-  <Publish Event="NewDialog" Value="$(var.JpAfterInstallDirDlg)">1</Publish>
-</Control>
-<Control Id="No" Type="PushButton" X="150" Y="55" …>
-  <Publish Event="NewDialog" Value="InstallDirDlg">1</Publish>
-</Control>
-```
+**根因**（挖三处才确认，中间判断错过一次）：
 
-两个 PushButton **都没有 `Property` 属性** —— Oracle 源码本身如此，属**上游缺陷**，
-不是我们后处理引入的（原包与后处理包这段逐字一致）。
-同一个 WXS 里还引用 `INSTALLDIR_VALID="0"/"1"` 做条件，
-而 `INSTALLDIR_VALID` **在 Property 表里根本没定义**。
+1. `<UIRef Id="WixUI_InstallDir" />` 把 WixUI 的 `InstallDirDlg` 拉进来。
+   MSI 原始数据里该控件写的是 `Property=WIXUI_INSTALLDIR`，
+   且 `Change` 事件里 `SetTargetPath [WIXUI_INSTALLDIR]` ——
+   **这个属性必须存在**，否则 MSI 引擎抛 2819。
+2. jpackage 的 `WixUiFragmentBuilder.addUI()`（反编译
+   `$JAVA_HOME/jmods/jdk.jpackage.jmod` 里的
+   `jdk/jpackage/internal/WixUiFragmentBuilder.class` 可见）本来会写
+   `<Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />`，
+   但它写在 **Fragment** 里、位置在 `<UI>` 节点**之前**。
+3. light 链接后**这一行没进最终 MSI 的 Property 表**。
+   实测：`WIXUI_INSTALLDIR` 在 MSI 二进制里只出现在 WixUI 的原始表数据段
+   （控件属性 / ControlEvent 条件），**不在** Property 字符串池段
+   （对照基线 `JP_INSTALL_STARTMENU_SHORTCUT` 的偏移量即可分辨两段）。
 
-**为什么长期没人发现**：这个 Dialog 只在 `INSTALLDIR_VALID="0"`
-（目标目录**已存在**）时才弹。干净机器首次安装根本不经过它，
-于是「我这儿装得好好的」，**用户在重装/覆盖装时才炸**。
+属Oracle 上游问题，不是我们后处理引入的（原包与后处理包这段一致）。
+
+**为什么编译期发现不了**：2819 由 MSI 引擎在**显示该对话框时**才校验，
+candle / light 一路绿灯，必须真的点进安装向导才炸。
 
 **修法**（`tools/postprocess_msi.py` 的 `fix_jpackage_dir_dialog`）：
-给两个按钮补 `Property`（值只为过校验，不参与逻辑）+ 补声明
-`INSTALLDIR_VALID=1`。幂等，重复跑不会重复加。
+在 Product 的 Property 区补一行 `WIXUI_INSTALLDIR=INSTALLDIR`。幂等，
+重复跑不会插第二行（否则 LGHT0207 重名）。
 
-**校验**：`tools/inspect_msi.py` 的第 4.5 项专查这个
-（Button 型控件缺 Property、或用了 `JpCheckInstallDir` 却没声明
-`INSTALLDIR_VALID` → 退出码 1）。
+> 实际效果是 `WixUIExtension` 在链接时接管了这个属性 —— 手写那行不会
+> 出现在 dark 的输出里，但**属性确实挂上了**，证据见下面的校验判据。
+
+### ⚠️ 曾经做错的两处，别加回来
+
+1. ❌ **给 `InstallDirNotEmptyDlg` 的 `Yes`/`No` 按钮补 `Property`**。
+   那两个按钮走 `<Publish Event="NewDialog">`，本来就不需要 Property。
+   2819 报的是 WixUI 的 `InstallDirDlg`/`Folder`，**不是**这个自绘对话框。
+2. ❌ **补声明 `INSTALLDIR_VALID=1`**。它由 `wixhelper.dll` 的
+   `CheckInstallDir` 在**运行时**设置（从该 DLL 能直接读到
+   `INSTALLDIR_VALID` 与 `INSTALLDIR` 两个字符串）。预先声明成 `1`
+   会让「目标目录已存在」的确认分支**永远不弹** ——
+   等于把 2819 换成另一个更难查的用户困惑。
+
+`inspect_msi.py` 现在会**主动拦**第2 条（Property 表里出现
+`INSTALLDIR_VALID` 就退出码 1）。
+
+### 校验判据：`DARK1059` 警告数从 9 降到 4
+
+`tools/inspect_msi.py` 第 7 项用 dark 的 DARK1059 警告当判据：
+
+| 包 | DARK1059 总数 | 其中 InstallDirDlg 相关 |
+|---|---|---|
+| 原包 | 9 | **4** |
+| 修复后 | 4 | **0** |
+
+消失的正好是全部 `InstallDirDlg` 相关行（`Back`、`Next`×3）。
+原理：属性没挂上时，MSI 里 `InstallDirDlg` 的 Control 行解析不出来，
+dark 就把引用它的 ControlEvent 行报成「外键悬空」。
+
+> ⚠️ **别改成「查 dark 输出的 XML 里有没有 `WIXUI_INSTALLDIR`」** ——
+> 那样恒为 False，会误判成没修好。对照实验：同批插入的
+> `StuMateProbeAlpha` 查得到、`WIXUI_INSTALLDIR` 查不到，
+> 说明是 `WixUIExtension` 接管了它，不是没写进去。
 
 ## 打包命令
 

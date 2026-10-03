@@ -211,80 +211,63 @@ def fix_jpackage_dir_dialog(wxs):
     🔴 修 jpackage 的**上游缺陷**，否则安装时报 **2819**。
 
     ## 症状
-    安装过程弹「Error 2819」，日志里是：
+    弹「The installer has encountered an unexpected error installing this
+    package.  The error code is 2819.  The arguments are:
+    InstallDirDlg, Folder,」，日志里是：
         Control [3] on dialog [2] needs a property linked to it.
+    代入实参就是「InstallDirDlg 上的 Folder 控件需要绑定一个 Property」。
 
-    ## 根因（挖到 JDK 里的原始 WXS 才确认）
-    jpackage 自带的 `InstallDirNotEmptyDlg.wxs`（在
-    `$JAVA_HOME/jmods/jdk.jpackage.jmod` 里，
-    `classes/jdk/jpackage/internal/resources/`）里两个 PushButton 是这么写的：
-        <Control Id="Yes" Type="PushButton" X="100" Y="55" … Text="!(loc.WixUIYes)">
-          <Publish Event="NewDialog" Value="$(var.JpAfterInstallDirDlg)">1</Publish>
-        </Control>
-        <Control Id="No"  Type="PushButton" X="150" Y="55" … >
-          <Publish Event="NewDialog" Value="InstallDirDlg">1</Publish>
-        </Control>
-    ——**两个按钮都没有 `Property` 属性**，而 `<Publish>` 走的是
-    `Event="NewDialog"`（不需要 Property）。但 Windows Installer 的
-    `ControlEvent` 校验仍然要求 Button 型控件挂一个 Property，
-    于是安装时抛 2819。**Oracle 源码本身如此**，不是我们后处理引入的
-    （原包与后处理包这段完全一致）。
+    ## 根因（挖到 JDK 源码 + MSI 字节流才确认；先前判断错过一次）
+    `<UIRef Id="WixUI_InstallDir" />` 把 `InstallDirDlg` 拉进来，它的
+    `Folder` 是 DirectoryCombo 控件。MSI 原始数据里写的是：
+        Folder ... Property=WIXUI_INSTALLDIR ... (&C)
+    即该控件**必须**在 Property 列有值。WixUIExtension 的对话框靠
+    `WIXUI_INSTALLDIR` 才知道该改哪个目录（`Change` 事件里
+    `SetTargetPath [WIXUI_INSTALLDIR]`）。
 
-    同一个 WXS 里还引用了 `INSTALLDIR_VALID="0"/"1"` 这个条件，
-    而 `INSTALLDIR_VALID` **在 Property 表里根本没定义** —— 一并补上，
-    否则条件永远求不出真值，目录已存在时进错分支。
+    jpackage 的 `WixUiFragmentBuilder.addUI()`（反编译字节码可见）本来会写
+        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+    但它写在 **Fragment** 里、位置在 `<UI>` 节点**之前**。light 链接后
+    这一行**没进最终 MSI 的 Property 表** —— 实测：MSI 二进制里
+    `WIXUI_INSTALLDIR` 只出现在 WixUI 的原始表数据段（控件属性 /
+    ControlEvent 条件），**不在** Property 字符串池段
+    （对照基线 `JP_INSTALL_STARTMENU_SHORTCUT` 的偏移量即可分辨两段）。
+    于是控件引用了一个不存在的属性，MSI 引擎抛 2819。
 
-    ## 为什么本地测不出来
-    这个 Dialog 只在 `INSTALLDIR_VALID="0"`（目标目录**已存在**）时才弹。
-    干净机器上首次安装根本不经过它，于是「我这儿装得好好的」，
-    用户在**重装/覆盖装**时才炸。这也是它能活到今天的原因。
+    Oracle 上游的问题，不是我们后处理引入的（原包与后处理包这段一致）。
+
+    ## 为什么编译期测不出来
+    2819 由 MSI 引擎在**显示该对话框时**才校验，不是编译期，
+    所以 candle / light 一路绿灯。只有真的点进安装向导才炸。
 
     ## 修法
-    给两个 PushButton 各补一个 Property（值只为过校验，不参与逻辑），
-    并把 `INSTALLDIR_VALID` 声明成 Property。
-    ⚠️ 必须**幂等**：已经带Property 的不能重复加。
+    在 Product 的 Property 区补一行 `WIXUI_INSTALLDIR=INSTALLDIR`。
+    注意必须**幂等**：重复后处理不能插第二行（会报 LGHT0207 重名）。
+
+    ## 明确**不做**的两件事（前一版做错了，别加回来）
+    1. 给 `InstallDirNotEmptyDlg` 的 `Yes`/`No` PushButton 补 Property。
+       那两个按钮走 `<Publish Event="NewDialog">`，本来就不需要 Property；
+       硬塞一个假属性只会让 MSI 多一列无意义的值。2819 报的是
+       `InstallDirDlg` 的 `Folder`，**不是**这个自绘对话框。
+    2. 补 `INSTALLDIR_VALID` Property。
+       它由 `wixhelper.dll` 的 `CheckInstallDir` 在**运行时**设置
+       （从该 DLL 能直接读到 `INSTALLDIR_VALID` 与 `INSTALLDIR` 两个串）。
+       预先声明成 `Value="1"` 会让「目标目录已存在」的确认分支
+       **永远不弹** —— 把 2819 换成另一个更难查的用户困惑。
     """
-    # 1) 给 InstallDirNotEmptyDlg 的无 Property 控件补上
-    m = re.search(r'<Dialog\s+Id="InstallDirNotEmptyDlg".*?</Dialog>', wxs, re.S)
-    if not m:
-        print("  ⚠️ 没找到 InstallDirNotEmptyDlg，跳过 2819 修复")
+    if 'Id="WIXUI_INSTALLDIR"' in wxs:
+        print("  2819 修复: WIXUI_INSTALLDIR 已存在，跳过")
         return wxs
 
-    block = m.group(0)
-    fixed = block
-    n_btn = 0
-    # Button 类控件需要 Property。逐个查、补。
-    def _add_prop(mo):
-        nonlocal n_btn
-        tag = mo.group(0)
-        if "Property=" in tag:
-            return tag
-        cid = re.search(r'Id="([^"]+)"', tag)
-        if not cid:
-            return tag
-        n_btn += 1
-        #插在 Type="…" 之后，保持属性顺序可读
-        return re.sub(r'(Type="[^"]+")',
-                      r'\1 Property="JpBtn_%s"' % cid.group(1), tag, count=1)
-
-    fixed = re.sub(r'<Control\s+Id="(?:Yes|No|Text)"[^>]*>',
-                   _add_prop, fixed)
-    if n_btn:
-        wxs = wxs.replace(block, fixed, 1)
-        print("  2819 修复: 给 %d 个控件补了 Property" % n_btn)
-
-    # 2) 补 INSTALLDIR_VALID 属性（条件里用到但表里没定义）
-    #    ⚠️ 用「在第一个 Property 前插入」这种定位，不要用正则去改已有 Property 的属性串
-    #    —— 那样很容易把相邻的 Property 结构改坏，且很难一眼看出。
-    if 'Id="INSTALLDIR_VALID"' not in wxs:
-        anchor = '        <Property Id="'
-        idx = wxs.find(anchor)
-        if idx >= 0:
-            wxs = (wxs[:idx]
-                   + '        <Property Id="INSTALLDIR_VALID" Value="1"'
-                     + ' Secure="yes" />\n'
-                   + wxs[idx:])
-            print("  2819 修复: 补声明 INSTALLDIR_VALID=1")
+    anchor = '        <Property Id="'
+    idx = wxs.find(anchor)
+    if idx < 0:
+        raise SystemExit("WXS 里找不到 Property 区，无法补 WIXUI_INSTALLDIR")
+    wxs = (wxs[:idx]
+           + '        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />\n'
+           + wxs[idx:])
+    print("  2819 修复: 补声明 WIXUI_INSTALLDIR=INSTALLDIR "
+          "(InstallDirDlg 的 Folder 控件依赖它)")
     return wxs
 
 
