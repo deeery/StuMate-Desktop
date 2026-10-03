@@ -15,11 +15,12 @@ MSI 后处理: dark 解包 -> 改 WXS -> light 重编。
    完整存在，只是**默认 false**（构造时只把 `dirChooser` 默认成 true）。
 2. 以为 jpackage 不做桌面快捷方式 → 实际 `shortcut=true` 时桌面那条也有。
 
-所以本脚本只做**jpackage 没有**的：
+所以本脚本只做**jpackage 没有或做错的**：
   1. AppUserModelID 注册表项 → 任务栏右键菜单里的「固定到任务栏」的来源
   2. 安装完成后启动（deferred CustomAction + InstallExecuteSequence）
   3. 确保 `JpARPPRODUCTICON`（「程序和功能」列表图标）是品牌 ico
-  4. 快捷方式/目录的**幂等兜底**（万一某版本 jpackage 不生成）
+  4. 🔴 修 jpackage 上游缺陷：重装时报 **2819**（见 `fix_jpackage_dir_dialog`）
+  5. 快捷方式/目录的**幂等兜底**（万一某版本 jpackage 不生成）
 
 ## 「保存到任务栏」做不到
 Windows Installer **没有**「pin to taskbar」的动作。任务栏固定是Explorer 的
@@ -205,6 +206,88 @@ def add_shortcuts(wxs, exe_component, want_desktop=True):
 
 
 
+def fix_jpackage_dir_dialog(wxs):
+    """
+    🔴 修 jpackage 的**上游缺陷**，否则安装时报 **2819**。
+
+    ## 症状
+    安装过程弹「Error 2819」，日志里是：
+        Control [3] on dialog [2] needs a property linked to it.
+
+    ## 根因（挖到 JDK 里的原始 WXS 才确认）
+    jpackage 自带的 `InstallDirNotEmptyDlg.wxs`（在
+    `$JAVA_HOME/jmods/jdk.jpackage.jmod` 里，
+    `classes/jdk/jpackage/internal/resources/`）里两个 PushButton 是这么写的：
+        <Control Id="Yes" Type="PushButton" X="100" Y="55" … Text="!(loc.WixUIYes)">
+          <Publish Event="NewDialog" Value="$(var.JpAfterInstallDirDlg)">1</Publish>
+        </Control>
+        <Control Id="No"  Type="PushButton" X="150" Y="55" … >
+          <Publish Event="NewDialog" Value="InstallDirDlg">1</Publish>
+        </Control>
+    ——**两个按钮都没有 `Property` 属性**，而 `<Publish>` 走的是
+    `Event="NewDialog"`（不需要 Property）。但 Windows Installer 的
+    `ControlEvent` 校验仍然要求 Button 型控件挂一个 Property，
+    于是安装时抛 2819。**Oracle 源码本身如此**，不是我们后处理引入的
+    （原包与后处理包这段完全一致）。
+
+    同一个 WXS 里还引用了 `INSTALLDIR_VALID="0"/"1"` 这个条件，
+    而 `INSTALLDIR_VALID` **在 Property 表里根本没定义** —— 一并补上，
+    否则条件永远求不出真值，目录已存在时进错分支。
+
+    ## 为什么本地测不出来
+    这个 Dialog 只在 `INSTALLDIR_VALID="0"`（目标目录**已存在**）时才弹。
+    干净机器上首次安装根本不经过它，于是「我这儿装得好好的」，
+    用户在**重装/覆盖装**时才炸。这也是它能活到今天的原因。
+
+    ## 修法
+    给两个 PushButton 各补一个 Property（值只为过校验，不参与逻辑），
+    并把 `INSTALLDIR_VALID` 声明成 Property。
+    ⚠️ 必须**幂等**：已经带Property 的不能重复加。
+    """
+    # 1) 给 InstallDirNotEmptyDlg 的无 Property 控件补上
+    m = re.search(r'<Dialog\s+Id="InstallDirNotEmptyDlg".*?</Dialog>', wxs, re.S)
+    if not m:
+        print("  ⚠️ 没找到 InstallDirNotEmptyDlg，跳过 2819 修复")
+        return wxs
+
+    block = m.group(0)
+    fixed = block
+    n_btn = 0
+    # Button 类控件需要 Property。逐个查、补。
+    def _add_prop(mo):
+        nonlocal n_btn
+        tag = mo.group(0)
+        if "Property=" in tag:
+            return tag
+        cid = re.search(r'Id="([^"]+)"', tag)
+        if not cid:
+            return tag
+        n_btn += 1
+        #插在 Type="…" 之后，保持属性顺序可读
+        return re.sub(r'(Type="[^"]+")',
+                      r'\1 Property="JpBtn_%s"' % cid.group(1), tag, count=1)
+
+    fixed = re.sub(r'<Control\s+Id="(?:Yes|No|Text)"[^>]*>',
+                   _add_prop, fixed)
+    if n_btn:
+        wxs = wxs.replace(block, fixed, 1)
+        print("  2819 修复: 给 %d 个控件补了 Property" % n_btn)
+
+    # 2) 补 INSTALLDIR_VALID 属性（条件里用到但表里没定义）
+    #    ⚠️ 用「在第一个 Property 前插入」这种定位，不要用正则去改已有 Property 的属性串
+    #    —— 那样很容易把相邻的 Property 结构改坏，且很难一眼看出。
+    if 'Id="INSTALLDIR_VALID"' not in wxs:
+        anchor = '        <Property Id="'
+        idx = wxs.find(anchor)
+        if idx >= 0:
+            wxs = (wxs[:idx]
+                   + '        <Property Id="INSTALLDIR_VALID" Value="1"'
+                     + ' Secure="yes" />\n'
+                   + wxs[idx:])
+            print("  2819 修复: 补声明 INSTALLDIR_VALID=1")
+    return wxs
+
+
 def add_launch_after_install(wxs, want_launch=True):
     """
     安装完成后启动（WiX官方 LaunchApplication 模式）。
@@ -344,6 +427,7 @@ def main():
         exe_comp = find_exe_component_id(wxs)
         print("StuMate.exe 所在组件: %s" % exe_comp)
         wxs, (need_menu, need_desk) = add_shortcuts(wxs, exe_comp, want_desktop)
+        wxs = fix_jpackage_dir_dialog(wxs)
         wxs = add_launch_after_install(wxs, want_launch)
 
         # ICE64：登记开始菜单/桌面目录的卸载清理。

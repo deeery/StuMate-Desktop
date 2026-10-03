@@ -54,23 +54,60 @@ StuMate/
 
 | 产物 | 用途 | 体积 |
 |---|---|---|
-| `StuMate-1.5.0-final.msi` | **首次安装**（进「程序和功能」/ 开始菜单 / 桌面快捷方式 / 装完自动启动） | 71,539,518 字节（68.22 MB） |
+| `StuMate-1.5.0-final.msi` | **首次安装**（进「程序和功能」/ 开始菜单 / 桌面快捷方式 / 装完自动启动） | 71,539,578 字节（68.22 MB） |
 | `StuMate-portable-1.5.0-icon.zip` | **免安装 + 后续更新**（解压即用） | 70,231,960 字节（66.97 MB） |
 
 > ⚠️ 发 MSI 时认`-final.msi` 后缀那个：`packageMsi` 直接出的原包**没有**
-> 「程序和功能」图标治理、没有完成后启动、没有 AppUserModelID。
-> 后处理包由 `./gradlew postprocessMsi` 产出。
+> 「程序和功能」图标治理、没有完成后启动、没有 AppUserModelID，
+> **而且重装会报 2819**（见下面 jpackage 上游缺陷那节）。
 
-**SHA-256**（品牌图标 + 快捷方式 + 完成后启动后的重出包）
+**SHA-256**（品牌图标 + 快捷方式 + 完成后启动 + 2819 修复后的包）
 
 ```
-025a64c2fd1a66e614f9747870c805b8d5bed813fdfd211dcb14c497e4fa2adb  StuMate-1.5.0-final.msi
+39a3a6ac5ad7b01f568d62350fce6286a856788c685271226c18810c5529f877  StuMate-1.5.0-final.msi
 cb291ce1b0a34ff20360dcfdc3d9130ef727c57e4027515d9007ac42634327d1  StuMate-portable-1.5.0-icon.zip
 c8359df0902fcdc2b772a756c510bc2e5b6b69b083527a9d5a3563a6981f74fd  app-icon.ico
 ```
 
 绿色版 zip = 198 个文件、原始 136,354,746 字节、压缩后 70,231,960 字节。
 （比上一版大 20 KB，正是换上的品牌图标。）
+
+## 🔴 jpackage 上游缺陷：重装时报 2819（后处理已修）
+
+**症状**：安装过程弹 `Error 2819`，日志：
+
+```
+Control [3] on dialog [2] needs a property linked to it.
+```
+
+**根因**（挖 `$JAVA_HOME/jmods/jdk.jpackage.jmod` 里的
+`classes/jdk/jpackage/internal/resources/InstallDirNotEmptyDlg.wxs` 才确认）：
+
+```xml
+<Control Id="Yes" Type="PushButton" X="100" Y="55" … Text="!(loc.WixUIYes)">
+  <Publish Event="NewDialog" Value="$(var.JpAfterInstallDirDlg)">1</Publish>
+</Control>
+<Control Id="No" Type="PushButton" X="150" Y="55" …>
+  <Publish Event="NewDialog" Value="InstallDirDlg">1</Publish>
+</Control>
+```
+
+两个 PushButton **都没有 `Property` 属性** —— Oracle 源码本身如此，属**上游缺陷**，
+不是我们后处理引入的（原包与后处理包这段逐字一致）。
+同一个 WXS 里还引用 `INSTALLDIR_VALID="0"/"1"` 做条件，
+而 `INSTALLDIR_VALID` **在 Property 表里根本没定义**。
+
+**为什么长期没人发现**：这个 Dialog 只在 `INSTALLDIR_VALID="0"`
+（目标目录**已存在**）时才弹。干净机器首次安装根本不经过它，
+于是「我这儿装得好好的」，**用户在重装/覆盖装时才炸**。
+
+**修法**（`tools/postprocess_msi.py` 的 `fix_jpackage_dir_dialog`）：
+给两个按钮补 `Property`（值只为过校验，不参与逻辑）+ 补声明
+`INSTALLDIR_VALID=1`。幂等，重复跑不会重复加。
+
+**校验**：`tools/inspect_msi.py` 的第 4.5 项专查这个
+（Button 型控件缺 Property、或用了 `JpCheckInstallDir` 却没声明
+`INSTALLDIR_VALID` → 退出码 1）。
 
 ## 打包命令
 

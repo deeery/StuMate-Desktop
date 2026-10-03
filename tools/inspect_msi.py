@@ -177,6 +177,40 @@ def main():
         elif arp not in icons:
             problems.append("ARPPRODUCTICON=%s 在 Icon 表里没有对应节点" % arp)
 
+        # ── 4.5 Dialog 控件的 Property（2819）──────────────────
+        show("4.5 Dialog 控件 Property（缺了会在重装时报 2819）")
+        props_all = set(props.keys())
+        missing_prop = []
+        for d in root.iter(NS + "Dialog"):
+            did = d.get("Id")
+            for c in d.findall(NS + "Control"):
+                # Button 类控件必须挂 Property，否则安装时 2819
+                t = (c.get("Type") or "")
+                if t.endswith("Button") and not c.get("Property"):
+                    missing_prop.append((did, c.get("Id"), t))
+        if missing_prop:
+            for did, cid, t in missing_prop:
+                print("  [问题] dialog=%s control=%s type=%s 没有 Property"
+                      % (did, cid, t))
+            problems.append(
+                "有%d 个 Button 控件缺 Property —— 重装（目录已存在）时会报"
+                "2819: Control needs a property linked to it"
+                % len(missing_prop))
+        else:
+            n_btn = sum(1 for d in root.iter(NS + "Dialog")
+                        for c in d.findall(NS + "Control")
+                        if (c.get("Type") or "").endswith("Button"))
+            print("  Button 控件 %d 个，全部带 Property ✓" % n_btn)
+        # INSTALLDIR_VALID：jpackage 的 InstallDirNotEmptyDlg 条件里用到
+        if "JpCheckInstallDir" in [ca for ca in cas] or \
+                any("JpCheckInstallDir" in (e.get("Action") or "")
+                    for e in root.iter(NS + "Custom")):
+            if "INSTALLDIR_VALID" not in props_all:
+                print("  [问题] 用了 JpCheckInstallDir 但没声明 INSTALLDIR_VALID")
+                problems.append("缺 INSTALLDIR_VALID 属性声明")
+            else:
+                print("  INSTALLDIR_VALID = %s ✓" % props.get("INSTALLDIR_VALID"))
+
         # ── 5. 目录 ─────────────────────────────────────────────
         show("5. 目录")
         for want in ("TARGETDIR", "ProgramFiles64Folder", "ProgramMenuFolder",
