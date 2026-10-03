@@ -42,8 +42,12 @@ def show(title):
 
 
 def decompile(msi, work):
-    """dark 反编译。**顺带收下 DARK1059 警告文本** —— 它是 2819 的判据，
-    不能像以前那样当噪声丢掉（见 check_dir_dialog_2819）。"""
+    """dark 反编译。
+
+    ⚠️ dark 的 DARK1059 对 WixUIExtension引入的 Dialog 是**误报**
+    （实测原包报 9 条，而用 msi_table 直读证明 ControlEvent 外键悬空 = 0），
+    且它会**丢弃**这些 Control 行 → 2819 的判据不能用它，改走MSI API。
+    """
     wxs = os.path.join(work, "out.wxs")
     p = subprocess.run([os.path.join(WIX, "dark.exe"), "-x", work, "-o", wxs, msi],
                        capture_output=True)
@@ -53,40 +57,47 @@ def decompile(msi, work):
     return ET.parse(wxs).getroot(), out
 
 
-def check_dir_dialog_2819(dark_out):
-    """🔴 检查安装时会不会报 **2819**（`InstallDirDlg` 的 `Folder` 控件缺属性）。
+def check_dir_dialog_2819(msi):
+    """🔴 检查安装向导会不会报 **2819**。
 
-    ## 为什么用 dark 的 DARK1059 警告当判据
-    2819 的本质是：`InstallDirDlg` 的 `Folder`（DirectoryCombo）控件引用了
-    `WIXUI_INSTALLDIR`，而这个属性当时没被定义。dark 反编译时会把这种
-    「ControlEvent 指向不存在的 Control」报成 DARK1059。
+    2819 的官方释义：``Control [3] on dialog [2] needs a property linked to it.``
+    本机 Temp\\\\MSI*.LOG 抓到的实参是 `InstallDirDlg, Folder`
+    → 即 WixUI 的 `InstallDirDlg` 上的 `Folder`（PathEdit）控件。
 
-    实测对照（同一份原包，只差 `WIXUI_INSTALLDIR` 这一行）：
-        原包          -> 9 条 DARK1059
-        补属性后的包  -> 4 条，且**消失的正好是全部 5 条 InstallDirDlg 相关的**
-    → 数量下降本身就是「属性被正确挂上」的证据。
+    ## 🔴 判据是「Dialog 表里有没有 InstallDirDlg」，**不是** DARK1059
+    用 `tools/msi_table.py` 直读原包 MSI 表实测：
 
-    ⚠️ 别改成「只看dark 出的 XML 里有没有 WIXUI_INSTALLDIR」——
-    `WixUIExtension` 在链接时会自己注入这个属性，dark 反编译**不会**输出它，
-    实测：手写的那行在输出里查不到，但警告数从 9 降到 4。
-    对照探针（同批插入的 `StuMateProbeAlpha` 能查到）证明判据本身没错。
+    | 表 | 行数 | 事实 |
+    |---|---|---|
+    | Dialog | 23 | InstallDirDlg **在** |
+    | Control | 218 | InstallDirDlg/Folder: PathEdit, Attributes=11, Property=WIXUI_INSTALLDIR |
+    | Property | 17 | **WIXUI_INSTALLDIR=INSTALLDIR 早就存在** |
+    | ControlEvent | 135 | 对 218 个 Control，**外键悬空 = 0** |
+
+    → 属性不缺、外键不缺、控件也不缺，所以「补属性」这条路无效
+      （我先后栽在这上面两次：一次补 Yes/No 按钮的假属性、
+        一次补 INSTALLDIR_VALID、一次补重复的 WIXUI_INSTALLDIR）。
+
+    **DARK1059 是 dark 的误报**：它对 WixUIExtension 引入的 Dialog
+    会报「ControlEvent 引用了不存在的 Control」并**丢弃**这些行，
+    原包 9 条而实际悬空为 0。别拿它的数量当判据。
+
+    也别拿「MSI 二进制里某字符串的偏移量落在哪个区段」当判据 ——
+    light 链接会重排表布局，同一份包两次构建偏移基线能差 40 万字节。
     """
-    import re
-    rows = re.findall(
-        r"primary key\(s\) '([^']+)' whose Dialog_ and Control_ columns contain "
-        r"the values, '([^']+)' and '([^']+)'", dark_out)
-    bad = [r for r in rows if r[1].startswith("InstallDir")]
+    import msi_table
+
+    dlg_names = [r[0] for r in msi_table.query(msi, "SELECT * FROM `Dialog`")]
+    has = "InstallDirDlg" in dlg_names
+
     show("7. 安装目录对话框（2819 风险）")
-    print("  DARK1059 总数: %d" % len(rows))
-    print("  其中 InstallDirDlg 相关: %d" % len(bad))
-    if bad:
-        for pk, dlg, ctl in bad:
-            print("    ✗ %s  (%s / %s)" % (pk, dlg, ctl))
-        print("  → 会报 2819：InstallDirDlg 的 Folder 控件没有可用属性")
+    print("  Dialog 表共 %d 条: %s" % (len(dlg_names), ", ".join(sorted(dlg_names))))
+    if has:
+        print("  ✗ 存在 InstallDirDlg —— 向导进到「选择安装位置」那一步会报 2819")
+        print("    修法: build.gradle.kts 设 dirChooser = false 后**重新完整出包**")
         return False
-    # 剩下这些是 jpackage 把整个 WixUI 流程都拉进来后的固有产物，
-    # 与用户能否改安装目录无关（我们不需要 License/Resume 那些对话框）
-    print("  → 无 2819 风险（InstallDirDlg 相关警告为 0）")
+    print("  → 无 InstallDirDlg，无 2819 风险")
+    print("    （代价：向导里不能改安装目录，固定装到 Program Files）")
     return True
 
 
@@ -252,8 +263,8 @@ def main():
                 print("  %-32s comp=%s" % (fn, f.get("Id")))
 
         # ── 7. 2819 风险 ───────────────────────────────────────
-        if not check_dir_dialog_2819(dark_out):
-            problems.append("InstallDirDlg 相关 DARK1059 > 0 —— 安装向导会报 2819")
+        if not check_dir_dialog_2819(msi):
+            problems.append("MSI 里还有 InstallDirDlg —— 安装向导会报 2819")
 
         show("结论")
         if problems:

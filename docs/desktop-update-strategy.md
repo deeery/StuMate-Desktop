@@ -54,17 +54,17 @@ StuMate/
 
 | 产物 | 用途 | 体积 |
 |---|---|---|
-| `StuMate-1.5.0-final.msi` | **首次安装**（进「程序和功能」/ 开始菜单 / 桌面快捷方式 / 装完自动启动） | 71,539,518 字节（68.22 MB） |
+| `StuMate-1.5.0-final.msi` | **首次安装**（进「程序和功能」/ 开始菜单 / 桌面快捷方式 / 装完自动启动） | 71,176,192 字节（67.88 MB） |
 | `StuMate-portable-1.5.0-icon.zip` | **免安装 + 后续更新**（解压即用） | 70,231,960 字节（66.97 MB） |
 
-> ⚠️ 发 MSI 时认 `-final.msi` 后缀那个：`packageMsi` 直接出的原包**没有**
+> ⚠️ 发MSI 时认 `-final.msi` 后缀那个：`packageMsi` 直接出的原包**没有**
 > 「程序和功能」图标治理、没有完成后启动、没有 AppUserModelID，
-> **而且在「选择安装位置」那一步会报 2819**（见下面 jpackage 上游缺陷那节）。
+> **而且在「选择安装位置」那一步会报 2819**（见下面那节）。
 
-**SHA-256**（品牌图标 + 快捷方式 + 完成后启动 + 2819 修复后的包）
+**SHA-256**
 
 ```
-c4c05f0346bb62fce744a376c0df2552f2197b0d51c57c6e6c17913c104b6366  StuMate-1.5.0-final.msi
+a88a1cb77a7a7286e9934169c067a30fad554215e7201c98838b275c9846dae9  StuMate-1.5.0-final.msi
 cb291ce1b0a34ff20360dcfdc3d9130ef727c57e4027515d9007ac42634327d1  StuMate-portable-1.5.0-icon.zip
 c8359df0902fcdc2b772a756c510bc2e5b6b69b083527a9d5a3563a6981f74fd  app-icon.ico
 ```
@@ -72,7 +72,7 @@ c8359df0902fcdc2b772a756c510bc2e5b6b69b083527a9d5a3563a6981f74fd  app-icon.ico
 绿色版 zip = 198 个文件、原始 136,354,746 字节、压缩后 70,231,960 字节。
 （比上一版大 20 KB，正是换上的品牌图标。）
 
-## 🔴 jpackage 上游缺陷：安装向导报 2819（后处理已修）
+## 🔴 安装向导报 2819：根因是 `dirChooser`，已从源头关掉
 
 **症状**：安装向导弹
 
@@ -83,67 +83,88 @@ The error code is 2819.  The arguments are:  InstallDirDlg, Folder,
 
 日志里对应 `Control [3] on dialog [2] needs a property linked to it.` ——
 代入实参就是「**`InstallDirDlg` 上的 `Folder` 控件**需要绑定一个 Property」。
-`Folder` 是 DirectoryCombo 控件，用户就在「选择安装位置」那一步炸。
+`Folder` 是 PathEdit 控件，用户在「选择安装位置」那一步炸。
 
-**根因**（挖三处才确认，中间判断错过一次）：
+### 根因
 
-1. `<UIRef Id="WixUI_InstallDir" />` 把 WixUI 的 `InstallDirDlg` 拉进来。
-   MSI 原始数据里该控件写的是 `Property=WIXUI_INSTALLDIR`，
-   且 `Change` 事件里 `SetTargetPath [WIXUI_INSTALLDIR]` ——
-   **这个属性必须存在**，否则 MSI 引擎抛 2819。
-2. jpackage 的 `WixUiFragmentBuilder.addUI()`（反编译
-   `$JAVA_HOME/jmods/jdk.jpackage.jmod` 里的
-   `jdk/jpackage/internal/WixUiFragmentBuilder.class` 可见）本来会写
-   `<Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />`，
-   但它写在 **Fragment** 里、位置在 `<UI>` 节点**之前**。
-3. light 链接后**这一行没进最终 MSI 的 Property 表**。
-   实测：`WIXUI_INSTALLDIR` 在 MSI 二进制里只出现在 WixUI 的原始表数据段
-   （控件属性 / ControlEvent 条件），**不在** Property 字符串池段
-   （对照基线 `JP_INSTALL_STARTMENU_SHORTCUT` 的偏移量即可分辨两段）。
+`WindowsPlatformSettings.dirChooser` **默认 true**，jpackage 据此传
+`--win-dir-chooser`，于是引入 `<UIRef Id="WixUI_InstallDir" />` 整条 WixUI 流程，
+`InstallDirDlg` 就是被它拉进来的。
 
-属Oracle 上游问题，不是我们后处理引入的（原包与后处理包这段一致）。
+### 为什么「在后处理里补属性」这条���修不通（我连栽三次）
 
-**为什么编译期发现不了**：2819 由 MSI 引擎在**显示该对话框时**才校验，
-candle / light 一路绿灯，必须真的点进安装向导才炸。
+用 `tools/msi_table.py` 直读原包 MSI 表实测：
 
-**修法**（`tools/postprocess_msi.py` 的 `fix_jpackage_dir_dialog`）：
-在 Product 的 Property 区补一行 `WIXUI_INSTALLDIR=INSTALLDIR`。幂等，
-重复跑不会插第二行（否则 LGHT0207 重名）。
-
-> 实际效果是 `WixUIExtension` 在链接时接管了这个属性 —— 手写那行不会
-> 出现在 dark 的输出里，但**属性确实挂上了**，证据见下面的校验判据。
-
-### ⚠️ 曾经做错的两处，别加回来
-
-1. ❌ **给 `InstallDirNotEmptyDlg` 的 `Yes`/`No` 按钮补 `Property`**。
-   那两个按钮走 `<Publish Event="NewDialog">`，本来就不需要 Property。
-   2819 报的是 WixUI 的 `InstallDirDlg`/`Folder`，**不是**这个自绘对话框。
-2. ❌ **补声明 `INSTALLDIR_VALID=1`**。它由 `wixhelper.dll` 的
-   `CheckInstallDir` 在**运行时**设置（从该 DLL 能直接读到
-   `INSTALLDIR_VALID` 与 `INSTALLDIR` 两个字符串）。预先声明成 `1`
-   会让「目标目录已存在」的确认分支**永远不弹** ——
-   等于把 2819 换成另一个更难查的用户困惑。
-
-`inspect_msi.py` 现在会**主动拦**第2 条（Property 表里出现
-`INSTALLDIR_VALID` 就退出码 1）。
-
-### 校验判据：`DARK1059` 警告数从 9 降到 4
-
-`tools/inspect_msi.py` 第 7 项用 dark 的 DARK1059 警告当判据：
-
-| 包 | DARK1059 总数 | 其中 InstallDirDlg 相关 |
+| 表 | 行数 | 事实 |
 |---|---|---|
-| 原包 | 9 | **4** |
-| 修复后 | 4 | **0** |
+| `Dialog` | 23 | `InstallDirDlg` **在** |
+| `Control` | 218 | `InstallDirDlg/Folder`：Type=PathEdit, Attributes=11, **Property=WIXUI_INSTALLDIR** |
+| `Property` | 17 | **`WIXUI_INSTALLDIR = INSTALLDIR` 早就存在**（jpackage 自己写的） |
+| `ControlEvent` | 135 | 对 218 个 Control 比对，**外键悬空 = 0** |
 
-消失的正好是全部 `InstallDirDlg` 相关行（`Back`、`Next`×3）。
-原理：属性没挂上时，MSI 里 `InstallDirDlg` 的 Control 行解析不出来，
-dark 就把引用它的 ControlEvent 行报成「外键悬空」。
+→ **属性不缺、外键不缺、控件不缺**。三次错误修法：
 
-> ⚠️ **别改成「查 dark 输出的 XML 里有没有 `WIXUI_INSTALLDIR`」** ——
-> 那样恒为 False，会误判成没修好。对照实验：同批插入的
-> `StuMateProbeAlpha` 查得到、`WIXUI_INSTALLDIR` 查不到，
-> 说明是 `WixUIExtension` 接管了它，不是没写进去。
+| # | 当时的判断 | 为什么错 |
+|---|---|---|
+| 1 | `InstallDirNotEmptyDlg` 的 `Yes`/`No` 按钮缺 Property | 那两个按钮走 `<Publish Event="NewDialog">`，本来就不需要 Property |
+| 2 | Property 表里缺 `INSTALLDIR_VALID` | 它由 `wixhelper.dll` 的 `CheckInstallDir` **运行时**设置。预声明成 `1` 会让「目录已存在」的确认框**永远不弹** —— 比2819 更隐蔽 |
+| 3 | light 链接时把 `WIXUI_INSTALLDIR` 丢了 | **判据本身是错的**：拿「MSI 二进制里某字符串的偏移量落在哪个区段」判断属性在不在表里。light 会重排表布局，同一份包两次构建偏移基线能差 40 万字节 |
+
+> **为什么编译期测不出来**：2819 由 MSI 引擎在**显示该对话框时**才校验，
+> candle / light 一路绿灯、ICE 全过，必须真的点进安装向导才炸。
+
+### 两个被证伪的判据（别再用）
+
+1. ❌ **dark 的 `DARK1059` 警告数**。它对 `WixUIExtension` 引入的 Dialog
+   会报「ControlEvent 引用了不存在的 Control」并**丢弃**这些行。
+   实测原包报 9 条，而 MSI API 直读证明外键悬空 = **0** —— **是误报**。
+   我前两次的全部分析都建立在这个误报上。
+2. ❌ **二进制偏移量区段法**（见上表第 3 行）。
+
+### 修法
+
+`build.gradle.kts`：
+
+```kotlin
+windows {
+    iconFile = project.layout.projectDirectory.file("app-icon.ico")
+    shortcut = true
+    menu = true
+    menuGroup = "StuMate"
+    dirChooser = false// ← 根因修复
+}
+```
+
+**代价**：向导里不能改安装目录（固定装到 Program Files）。
+对本项目可接受 —— 更新本来就走「替换文件」（绿色版 zip）。
+
+> 🔴 若将来一定要恢复「可选安装目录」，正确做法是**在 postprocess 里
+> 自己写一套完整的安装目录 UI**（不依赖 WixUI 的 `InstallDirDlg`），
+> 不要靠打开 `dirChooser`。
+
+### 守门 + 验收判据
+
+- `tools/postprocess_msi.py` 的 `check_no_installdir_dialog()` ——
+  发现 `InstallDirDlg` 还在就**直接报错退出**，不做"修复"。
+- `tools/verify_final_msi.py` —— 一条命令逐项验收最终包
+  （用 MSI API 直读，**不经过 dark**）：
+  ```bash
+  python tools/verify_final_msi.py dist/StuMate-1.5.0-final.msi
+  ```
+  验 5 组：① `UI`/`Dialog`/`Control`/`ControlEvent` 四张表**整张不存在**
+  ② Property 表各项（含两个 `INSTALLDIR_VALID` / `WIXUI_INSTALLDIR` 的**反向**断言）
+  ③ 两条快捷方式的挂载点 / 目标 exe / 图标 / 条件属性
+  ④ `LaunchStuMate` 的 Type 位解码 + `sequence=6501` + `condition='NOT REMOVE'`
+  ⑤ 文件指纹。
+- `tools/inspect_msi.py` 第 7 项 —— 同样走 MSI API 查表。
+
+> ⚠️ 单独跑 `postprocessMsi` **修不了** 2819 —— dialog 是 jpackage
+> **打包期**决定的，必须完整跑 `packageMsi`。
+
+> ⚠️ `Dialog` / `Control` / `UI` / `ControlEvent` 是 MSI SQL **保留字**，
+> 即使写成 `` SELECT * FROM `Dialog` `` 也报 1615。判断表是否存在要用虚表
+> `SELECT Name FROM `_Tables``；列名则读 `SELECT * FROM `_Columns``
+> （列名是 `Table` / `Column` / `ColNumber`）。
 
 ## 打包命令
 

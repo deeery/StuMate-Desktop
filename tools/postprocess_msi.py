@@ -19,7 +19,8 @@ MSI 后处理: dark 解包 -> 改 WXS -> light 重编。
   1. AppUserModelID 注册表项 → 任务栏右键菜单里的「固定到任务栏」的来源
   2. 安装完成后启动（deferred CustomAction + InstallExecuteSequence）
   3. 确保 `JpARPPRODUCTICON`（「程序和功能」列表图标）是品牌 ico
-  4. 🔴 修 jpackage 上游缺陷：重装时报 **2819**（见 `fix_jpackage_dir_dialog`）
+  4. 🔴 守门：安装向导报 **2819** 时拦住（见 `check_no_installdir_dialog`）
+     —— 根因在 `dirChooser`，本脚本只检查不修
   5. 快捷方式/目录的**幂等兜底**（万一某版本 jpackage 不生成）
 
 ## 「保存到任务栏」做不到
@@ -206,69 +207,64 @@ def add_shortcuts(wxs, exe_component, want_desktop=True):
 
 
 
-def fix_jpackage_dir_dialog(wxs):
+def check_no_installdir_dialog(wxs):
     """
-    🔴 修 jpackage 的**上游缺陷**，否则安装时报 **2819**。
+    🔴 守门：`InstallDirDlg` 必须**不存在**在 MSI 里，否则安装向导报 **2819**。
 
-    ## 症状
-    弹「The installer has encountered an unexpected error installing this
-    package.  The error code is 2819.  The arguments are:
-    InstallDirDlg, Folder,」，日志里是：
-        Control [3] on dialog [2] needs a property linked to it.
-    代入实参就是「InstallDirDlg 上的 Folder 控件需要绑定一个 Property」。
+    ## 症状（本机 Temp\\MSI*.LOG 抓到的原文）
+        The installer has encountered an unexpected error installing this
+        package.  The error code is 2819.  The arguments are:
+        InstallDirDlg, Folder,
+    官方释义：``Control [3] on dialog [2] needs a property linked to it.``
+    代入实参 = **`InstallDirDlg` 对话框上的 `Folder` 控件**。
 
-    ## 根因（挖到 JDK 源码 + MSI 字节流才确认；先前判断错过一次）
-    `<UIRef Id="WixUI_InstallDir" />` 把 `InstallDirDlg` 拉进来，它的
-    `Folder` 是 DirectoryCombo 控件。MSI 原始数据里写的是：
-        Folder ... Property=WIXUI_INSTALLDIR ... (&C)
-    即该控件**必须**在 Property 列有值。WixUIExtension 的对话框靠
-    `WIXUI_INSTALLDIR` 才知道该改哪个目录（`Change` 事件里
-    `SetTargetPath [WIXUI_INSTALLDIR]`）。
+    ## 来源
+    `build.gradle.kts` 里 `WindowsPlatformSettings.dirChooser` **默认 true**，
+    jpackage 据此传 `--win-dir-chooser`，于是引入
+    ``<UIRef Id="WixUI_InstallDir" />`` 整条 WixUI 流程，
+    `InstallDirDlg` 就是被它拉进来的。
 
-    jpackage 的 `WixUiFragmentBuilder.addUI()`（反编译字节码可见）本来会写
-        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
-    但它写在 **Fragment** 里、位置在 `<UI>` 节点**之前**。light 链接后
-    这一行**没进最终 MSI 的 Property 表** —— 实测：MSI 二进制里
-    `WIXUI_INSTALLDIR` 只出现在 WixUI 的原始表数据段（控件属性 /
-    ControlEvent 条件），**不在** Property 字符串池段
-    （对照基线 `JP_INSTALL_STARTMENU_SHORTCUT` 的偏移量即可分辨两段）。
-    于是控件引用了一个不存在的属性，MSI 引擎抛 2819。
+    ## 🔴 我先前两次都修错了（都栽在「后处理里补属性」这个方向上）
+    用 `tools/msi_table.py` 直读原包 MSI 表，实测数据：
 
-    Oracle 上游的问题，不是我们后处理引入的（原包与后处理包这段一致）。
+    | 表 | 行数 | 结论 |
+    |---|---|---|
+    | Dialog | 23 | `InstallDirDlg` 确实在 |
+    | Control | 218 | `InstallDirDlg/Folder`：Type=PathEdit, Attributes=11, Property=WIXUI_INSTALLDIR |
+    | Property | 17 | **`WIXUI_INSTALLDIR = INSTALLDIR` 早就存在**（jpackage 自己写的） |
+    | ControlEvent | 135 | 与 218 个 Control 比对，**外键悬空 = 0** |
 
-    ## 为什么编译期测不出来
-    2819 由 MSI 引擎在**显示该对话框时**才校验，不是编译期，
-    所以 candle / light 一路绿灯。只有真的点进安装向导才炸。
+    → 属性不缺、外键不缺、控件不缺。**"补一行Property" 这条路根本无效**：
+      1. 补的那行是**重复**的（jpackage 已经写过），只会报 LGHT0207 重名；
+      2. 就算不重复也改不了运行时报错 —— 2819 是 MSI 引擎
+         **显示该对话框时**才抛的，编译期（candle/light/ICE）全程绿灯。
 
-    ## 修法
-    在 Product 的 Property 区补一行 `WIXUI_INSTALLDIR=INSTALLDIR`。
-    注意必须**幂等**：重复后处理不能插第二行（会报 LGHT0207 重名）。
+    另外我第一次的判据也错：用 dark 抓包，它对 WixUIExtension 引入的
+    Dialog 会报 9 条 DARK1059「ControlEvent 引用了不存在的 Control」
+    并**丢弃**这些行 —— 实测悬空为 0，**DARK1059 是误报**。
+    也别用「MSI 二进制里某字符串的偏移量落在哪一段」判断属性在不在表里：
+    light 链接时会重排表布局，同一份包两次构建偏移基线就能差 40 万字节。
 
-    ## 明确**不做**的两件事（前一版做错了，别加回来）
-    1. 给 `InstallDirNotEmptyDlg` 的 `Yes`/`No` PushButton 补 Property。
-       那两个按钮走 `<Publish Event="NewDialog">`，本来就不需要 Property；
-       硬塞一个假属性只会让 MSI 多一列无意义的值。2819 报的是
-       `InstallDirDlg` 的 `Folder`，**不是**这个自绘对话框。
-    2. 补 `INSTALLDIR_VALID` Property。
-       它由 `wixhelper.dll` 的 `CheckInstallDir` 在**运行时**设置
-       （从该 DLL 能直接读到 `INSTALLDIR_VALID` 与 `INSTALLDIR` 两个串）。
-       预先声明成 `Value="1"` 会让「目标目录已存在」的确认分支
-       **永远不弹** —— 把 2819 换成另一个更难查的用户困惑。
+    ## 修法（唯一的可靠修法）
+    `build.gradle.kts` 设 `dirChooser = false` —— 从源头让
+    `InstallDirDlg` 压根不进 MSI，2819 无从触发。
+    代价是向导里不能改安装目录（固定到 Program Files），
+    对本项目可接受：更新本来就走「替换文件」。
+
+    本函数是**守门**：只检查、只报错，不去"修"。
+    修复点在打包参数里，后处理阶段发现就说明包出错了。
     """
-    if 'Id="WIXUI_INSTALLDIR"' in wxs:
-        print("  2819 修复: WIXUI_INSTALLDIR 已存在，跳过")
+    if 'InstallDirDlg' not in wxs:
+        print("  2819 守门: InstallDirDlg 不存在，OK")
         return wxs
+    raise SystemExit(
+        "MSI 里还有 InstallDirDlg -> 安装向导会在「选择安装位置」那一步报 2819。\n"
+        "  根因: build.gradle.kts 的 windows { dirChooser } 还是 true，\n"
+        "        jpackage 传了 --win-dir-chooser，把 WixUI_InstallDir 流程拉进来了。\n"
+        "  修法: 设 dirChooser = false 后**重新完整出包**（packageMsi），\n"
+        "        单独跑 postprocessMsi 不起作用 —— dialog 是打包期决定的。\n"
+        "  ⚠️ 不要试图在后处理里补 WIXUI_INSTALLDIR —— 它本来就在 Property 表里。")
 
-    anchor = '        <Property Id="'
-    idx = wxs.find(anchor)
-    if idx < 0:
-        raise SystemExit("WXS 里找不到 Property 区，无法补 WIXUI_INSTALLDIR")
-    wxs = (wxs[:idx]
-           + '        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />\n'
-           + wxs[idx:])
-    print("  2819 修复: 补声明 WIXUI_INSTALLDIR=INSTALLDIR "
-          "(InstallDirDlg 的 Folder 控件依赖它)")
-    return wxs
 
 
 def add_launch_after_install(wxs, want_launch=True):
@@ -410,7 +406,7 @@ def main():
         exe_comp = find_exe_component_id(wxs)
         print("StuMate.exe 所在组件: %s" % exe_comp)
         wxs, (need_menu, need_desk) = add_shortcuts(wxs, exe_comp, want_desktop)
-        wxs = fix_jpackage_dir_dialog(wxs)
+        wxs = check_no_installdir_dialog(wxs)
         wxs = add_launch_after_install(wxs, want_launch)
 
         # ICE64：登记开始菜单/桌面目录的卸载清理。

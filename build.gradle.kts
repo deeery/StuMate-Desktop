@@ -163,11 +163,40 @@ compose.desktop {
             // ## 安装完成后启动
             // jpackage **没有**对应的 `--win-...` 开关，所以只能自己补 deferred
             // CustomAction，见 `tools/postprocess_msi.py`。
+            // ## 🔴 dirChooser = false —— 修安装向导报 2819（根因修复）
+            //
+            // `dirChooser` 默认是 **true**，jpackage 据此传 `--win-dir-chooser`，
+            // 于是 MSI 里被引入 `<UIRef Id="WixUI_InstallDir" />` 整条 WixUI 流程，
+            // 其中 `InstallDirDlg` 上有个 `Folder`（PathEdit）控件。
+            // **该控件就是 2819 的报出对象**，实测报错原文：
+            //     error code is 2819. The arguments are: InstallDirDlg, Folder,
+            // 即「`InstallDirDlg` 的 `Folder` 控件需要绑定一个 Property」。
+            //
+            // ⚠️ 这个错误是 **MSI 引擎在显示该对话框时**才抛的，
+            //    **编译期完全测不出来** —— candle / light 一路绿灯、ICE 全过。
+            //    所以「本地构建成功」不能证明安装没问题，只有真装一次才知道。
+            //
+            // 我先前两次都修错了（都改在后处理里补属性）：
+            //   1. 以为 jpackage 自绘的 `InstallDirNotEmptyDlg` 按钮缺 Property；
+            //   2. 以为 Property 表里缺 `WIXUI_INSTALLDIR`。
+            // 实测直读 MSI 表：两者**本来就都在**（Property 表有
+            // `WIXUI_INSTALLDIR = INSTALLDIR`，Control 表有 Folder 行，
+            // 218 个 Control 对 135 条 ControlEvent，外键悬空 = **0**）。
+            // → 那些都不是问题，**只有把 `InstallDirDlg` 去掉才彻底解决**。
+            //
+            // 代价：用户不能在向导里改安装目录（固定装到 Program Files）。
+            // 对本项目可接受 —— 更新本来就走「替换文件」，
+            // 而且 Program Files 免 UAC 之外的写入问题。
+            //
+            // 🔴 若将来一定要恢复「可选安装目录」，正确做法是**在postprocess
+            //    里自己写一套完整的安装目录 UI**（不依赖 WixUI 的
+            //    `InstallDirDlg`），不要靠打开 dirChooser。
             windows {
                 iconFile = project.layout.projectDirectory.file("app-icon.ico")
                 shortcut = true
                 menu = true
                 menuGroup = "StuMate"
+                dirChooser = false
                 // jpackage 不支持 `--win-desktop-shortcut`，桌面那条走后处理脚本。
             }
 
