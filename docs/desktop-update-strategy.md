@@ -54,14 +54,16 @@ StuMate/
 
 | 产物 | 用途 | 体积 |
 |---|---|---|
-| `dist/StuMate-1.5.0.msi` | **首次安装**（需要进「程序和功能」/ 开始菜单时用它） | 66.94 MB |
-| `dist/StuMate-portable-1.5.0.zip` | **免安装 + 后续更新**（解压即用） | 65.89 MB |
+| `dist/StuMate-1.5.0.msi` | **首次安装**（需要进「程序和功能」/ 开始菜单时用它） | 71,345,187 字节（68.05 MB） |
+| `dist/StuMate-portable-1.5.0.zip` | **免安装 + 后续更新**（解压即用） | 70,211,386 字节（66.96 MB） |
 
-**SHA-256**
+**SHA-256**（含 `java.sql` 修复后的重出包）
 ```
-9a6ede163c0c5f9125c0c626e5bec68461f2ed1db6c74f5888b90a9c470e0c4d  StuMate-1.5.0.msi
-95e133477caf81ab2f4716dd4166045788455809a397bdccbdfc3f669cc185eb  StuMate-portable-1.5.0.zip
+6d9ef1192ba897bbb64f2f59567131e3eb2f60a9643eabc4786e5e5377456cee  StuMate-1.5.0.msi
+2f3ea4b6abd0c600fc6fa1c3d397248a2ce282500578e0a4c5970e85c8313351  StuMate-portable-1.5.0.zip
 ```
+
+绿色版 zip = 198 个文件、原始 135,856,054 字节、压缩后 70,211,386 字节。
 
 ## 打包命令
 
@@ -161,6 +163,14 @@ rm -rf "<buildDir>/compose/binaries/main/app" "<buildDir>/compose/binaries/main/
 
 > 补丁包实测可行：把 1.5.0 目录版复制一份，解压补丁包覆盖，
 > `app/` 仍是 38 个文件、cfg 的 33 条 classpath 完好，`StuMate.exe` 正常运行。
+
+> 🔴 **补丁包有一个前置条件：`runtime/` 里必须已经有 `java.sql`。**
+> 补丁包不含 runtime，所以给「修复前的 1.5.0 目录版」打补丁是**修不好**的 ——
+> 那样只是把一个启动即崩的程序换成另一个启动即崩的程序。
+> 判断某份安装目录能不能直接收补丁，看这个：
+> `runtime/lib/modules` 大小 **< 46,000,000 字节 = runtime 是裁剪过的，必须重装整包**；
+> ≥ 46,000,000 = runtime 是全的，只换 jar 即可。
+> （46 MB 这个阈值来自本轮：44,964,997 无 `java.sql` / 48,577,830 有。）
 
 ### 一致性检查（别跳过）
 
