@@ -54,24 +54,32 @@ StuMate/
 
 | 产物 | 用途 | 体积 |
 |---|---|---|
-| `dist/StuMate-1.5.0.msi` | **首次安装**（需要进「程序和功能」/ 开始菜单时用它） | 71,345,187 字节（68.05 MB） |
-| `dist/StuMate-portable-1.5.0.zip` | **免安装 + 后续更新**（解压即用） | 70,211,386 字节（66.96 MB） |
+| `StuMate-1.5.0-final.msi` | **首次安装**（进「程序和功能」/ 开始菜单 / 桌面快捷方式 / 装完自动启动） | 71,539,518 字节（68.22 MB） |
+| `StuMate-portable-1.5.0-icon.zip` | **免安装 + 后续更新**（解压即用） | 70,231,960 字节（66.97 MB） |
 
-**SHA-256**（含 `java.sql` 修复后的重出包）
+> ⚠️ 发 MSI 时认`-final.msi` 后缀那个：`packageMsi` 直接出的原包**没有**
+> 「程序和功能」图标治理、没有完成后启动、没有 AppUserModelID。
+> 后处理包由 `./gradlew postprocessMsi` 产出。
+
+**SHA-256**（品牌图标 + 快捷方式 + 完成后启动后的重出包）
+
 ```
-6d9ef1192ba897bbb64f2f59567131e3eb2f60a9643eabc4786e5e5377456cee  StuMate-1.5.0.msi
-2f3ea4b6abd0c600fc6fa1c3d397248a2ce282500578e0a4c5970e85c8313351  StuMate-portable-1.5.0.zip
+025a64c2fd1a66e614f9747870c805b8d5bed813fdfd211dcb14c497e4fa2adb  StuMate-1.5.0-final.msi
+cb291ce1b0a34ff20360dcfdc3d9130ef727c57e4027515d9007ac42634327d1  StuMate-portable-1.5.0-icon.zip
+c8359df0902fcdc2b772a756c510bc2e5b6b69b083527a9d5a3563a6981f74fd  app-icon.ico
 ```
 
-绿色版 zip = 198 个文件、原始 135,856,054 字节、压缩后 70,211,386 字节。
+绿色版 zip = 198 个文件、原始 136,354,746 字节、压缩后 70,231,960 字节。
+（比上一版大 20 KB，正是换上的品牌图标。）
 
 ## 打包命令
 
 ```bash
-# MSI（首次安装用）—— WIX_PATH 是环境变量，必须和 gradlew 在同一条命令里
 export JAVA_HOME="E:/DevTools/Java/jdk-17.0.12+7"
 export WIX_PATH="C:\Program Files (x86)\WiX Toolset v3.14"
-./gradlew --offline --no-build-cache packageMsi -PwithMsi=true
+
+# MSI（首次安装用）+ 后处理 —— WIX_PATH 是环境变量，必须和 gradlew 在同一条命令里
+./gradlew --offline --no-build-cache postprocessMsi -PwithMsi=true
 
 # 目录版（绿色版，更新用）
 ./gradlew --offline --no-build-cache createDistributable
@@ -84,7 +92,104 @@ Could not evaluate onlyIf predicate for task ':downloadWix'.
 这是 Gradle daemon 拿不到环境变量的典型表现 —— daemon 是长驻进程，
 只在**启动时**读一次环境变量。同理 `JAVA_HOME` 也必须每次带上。
 
-产物落在 `build/compose/binaries/main/{msi,app}/`，要手动拷到 `dist/`。
+产物：
+- 原包 → `build/compose/binaries/main/msi/StuMate-<版本>.msi`
+- **后处理包（要发的是这个）** → `build/msi/StuMate-<版本>-final.msi`
+
+## 图标 / 快捷方式 / 完成后启动
+
+### 一行配置解决的三件事
+
+```kotlin
+windows {
+    iconFile = project.layout.projectDirectory.file("app-icon.ico")
+    shortcut = true
+    menu = true
+    menuGroup = "StuMate"
+}
+```
+
+`app-icon.ico` 由 `./gradlew renderAppIcon` 从 `src/main/kotlin/…/ui/fluent/StuMateMark.kt`
+的几何常量渲染，7 档尺寸（16/24/32/48/64/128/256），361,102 字节。
+
+**必须配在 `windows { }` 里**，配在 `nativeDistributions` 直接层会报
+`Unresolved reference: icon` —— `AbstractPlatformSettings` 只有 `getIconFile()`，
+而 `AbstractDistributions` 根本没有这个成员。
+
+### ⚠️ `shortcut` / `menu` 默认是 false（这就是 1.5.0 没快捷方式的原因）
+
+反编译 `compose-gradle-plugin-1.5.10.jar` 确认链路完整：
+```
+WindowsPlatformSettings.shortcut / menu / menuGroup
+  → ConfigureJvmApplicationKt
+    → AbstractJPackageTask.winShortcut / winMenu / winMenuGroup
+      → cliArg("--win-shortcut" / "--win-menu" / "--win-menu-group")
+```
+而 `WindowsPlatformSettings` 构造时**只**把 `dirChooser` 默认成 true，
+`shortcut` 与 `menu` 默认都是 `false` —— 不显式打开，打出来的 MSI 里
+`Shortcut` 表是**空的**。
+
+配好之后 jpackage **桌面和开始菜单两条都做**（不需要额外开关），
+且快捷方式图标指向我们给的 ico（`Icon\icon_<hash>` 与 `app-icon.ico` SHA-256 一致）。
+
+### 「保存到任务栏」技术上做不到
+
+Windows Installer **没有**「pin to taskbar」这个动作，任务栏固定是 Explorer 的
+用户态行为，任何安装包都做不到自动固定。
+
+能做到的最好程度是：给快捷方式注册一个显式 AppUserModelID
+（`HKLM\Software\Classes\AppUserModelId\StuMate.Desktop.1`），
+这样用户右键任务栏图标时菜单里会出现「固定到任务栏」，点一下即可。
+顺带「跳转到」列表里也会按这个 ID 分组。
+
+### 后处理脚本补的两件事
+
+`tools/postprocess_msi.py` 走 `dark 解包 → 改 WXS → candle → light`：
+
+| 补什么 | 为什么 jpackage 没有 |
+|---|---|
+| 安装完成后启动 | jpackage 没有任何「装完启动」开关 |
+| AppUserModelID 注册表项 | 同上，MSI 层面要手写 |
+| `JpARPPRODUCTICON` → 品牌 ico | 「程序和功能」列表图标与快捷方式图标是两条 |
+
+`Shortcut` 表与目录结构由 jpackage 原生产出，脚本里的 `add_shortcuts()`
+已改成**幂等兜底**（判据看**目录节点**是否存在，不看 `Id="scStartMenu"` ——
+jpackage 生成的 Id 是 `shortcut<hash>` 这种哈希名，按名字判会重复插
+`ProgramMenuFolder`，light 直接报 `LGHT0091 Duplicate symbol`）。
+
+验证：`python tools/inspect_msi.py <msi>`（dark + XML 解析，
+顺带把图标流解出来算 SHA 比对；任何一项不过退出码为 1）。
+
+### 🔴 Gradle 脚本里两个坑
+
+1. **不能写 `tasks.named("packageMsi") { … }`**。CMP 的打包任务在脚本执行完之后
+   才注册，配置期这么写直接抛 `Task with name 'packageMsi' not found in root project`，
+   而且是**编译/配置阶段**抛的，连 `./gradlew tasks --all` 都跑不起来。
+   用字符串 `dependsOn("packageMsi")`（任务图解析时才找）或 `tasks.configureEach`。
+2. **找带 PIL 的解释器不能用 `file().exists()` 或 `File().isFile()` 探测**。
+   `C:/Users/…/WindowsApps/python3.exe` 是 App Execution Alias（0 字节 reparse point），
+   两种判断**都**返回 false，于是静默回退到裸 `python3`，而 daemon PATH 里那个
+   **没有 PIL** → `ModuleNotFoundError: No module named 'PIL'`。
+   看起来像「PIL 没装」，实际是选错了解释器。**直接硬编码那个路径。**
+
+## 🔴 校验 MSI 内容：`msiexec /a` 在本机用不了
+
+`msiexec /a <msi> /qn TARGETDIR=…`（管理安装，免管理员）本来是最直接的验证手段，
+但本机返 `rc=1619`，`/l*v` 日志里是：
+```
+Note: 1: 2203 C:\WINDOWS\Installer\inprogressinstallinfo.ipi -2147287038
+```
+即 Windows Installer **服务**被上一次没收尾的安装占着。那是服务级状态，
+杀 `msiexec` 进程解不开，要重启 `msiserver` 服务或机器。
+
+替代方案：`tools/unpack_msi.py <msi> <目标目录>` ——
+用 `dark -x` 解出全部 File 流，再按 WXS 的 Directory 树还原成安装后的目录结构，
+内容本来就是同一批流，与安装后逐文件一致。跑还原出来的 `StuMate.exe` 即可验收。
+
+> 🔴 还原时 **Component 在 WXS 里没有 `@Directory` 属性**，它是 Directory 的子孙节点：
+> `<Directory …><Directory …><Component …><File …/></Component></Directory></Directory>`。
+> 按属性查 → 一个都查不到 → 197 个文件全被平铺到根目录，
+> `runtime/lib/modules` 根本不存在，一眼看着像「MSI 里没 runtime」。必须递归下降真实树。
 
 ## 🔴 runtime 必须显式声明 modules（否则装完一定起不来）
 
@@ -183,6 +288,22 @@ rm -rf "<buildDir>/compose/binaries/main/app" "<buildDir>/compose/binaries/main/
 - **不支持跨安装形态升级**：MSI 装的程序在 `%ProgramFiles%\StuMate\app\`，
   绿色版在自己的目录里，两者不能原地互换。
   建议：**新用户直接用绿色版 zip**，从一开始就避开 MSI，后续更新永远走替换文件。
+- **MSI 的真·安装态仍未验成**：`msiexec /i /qn` 在当前 shell 返 **1625**
+  （`IsUserAnAdmin()==0`，UAC 未提升）；`msiexec /a` 又因 Windows Installer
+  服务被占返 **1619**（日志 Note 1: `2203 inprogressinstallinfo.ipi`）。
+  两个都是环境限制，不是包的问题。已用「dark 解包还原文件树 → 跑还原出的 exe」
+  等价验证了包内容。**有提权环境时补一次真安装即可确认快捷方式与注册表落地。**
+
+## 品牌图标 + 快捷方式 + 完成后启动的验证记录
+
+| 检查项 | 方法 | 结果 |
+|---|---|---|
+| MSI 表结构 | `tools/inspect_msi.py`（dark + XML，顺带解图标流算 SHA） | `Shortcut` 2 条（`DesktopFolder` / `ProgramMenuFolder/StuMate`）、`LaunchStuMate` @6501 + `NOT REMOVE`、`ARPPRODUCTICON` 有效、`AppUserModelId` 已注册 → **全部通过，退出码 0** |
+| 图标一致性 | MSI 内 `StuMate.ico` 与 `app-icon.ico` 比 SHA-256 | 361,102 字节，`c8359df0902fcdc2…` **完全一致** |
+| 包内文件树 | `tools/unpack_msi.py` 还原 | 197 个文件全部还原、0 跳过；`StuMate/{exe,ico,app,runtime}` 结构正确 |
+| runtime 完整性 | 看 `runtime/lib/modules` 大小 | **48,577,830 字节**，与目录版逐字节一致（含 `java.sql`） |
+| 启动 | 跑还原出的 `StuMate.exe` + `EnumWindows` 查可见主窗口 | 主窗口 `StuMate` 可见，稳定 15s+ |
+| 绿色版 zip | 重新打包 | 198 文件 / 136,354,746 → 70,231,960 字节，含品牌 `StuMate.ico` |
 
 ## 1.5.1 启动修复的验证记录
 

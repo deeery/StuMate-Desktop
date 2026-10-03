@@ -126,6 +126,52 @@ compose.desktop {
             description = "StuMate 桌面课表提醒"
             vendor = "StuMate"
 
+            // ── 品牌图标 + 快捷方式 ──
+            //
+            // 这些**全部**配在 `windows { }` 里，不在 `nativeDistributions` 直接层。
+            //
+            // ## 图标（实测踩过）
+            // 不配时jpackage 会拿插件自带的 `default-icon-windows.ico` 顶上，
+            // 于是资源管理器 / 桌面快捷方式 /「程序和功能」列表里全是别人家的默认图标
+            //（1.5.0 就是这样）。配法是 `windows.iconFile`：
+            //   - 写在 `nativeDistributions` 直接层 → 脚本编译期报
+            //     `Unresolved reference: icon`（那一层没有这个成员）
+            //   - 写成 `icon = ...` 属性赋值 → 同样 `Unresolved reference: icon`
+            //     （`AbstractPlatformSettings` 只有 `getIconFile()`，是 Gradle 属性不是 Kotlin 属性）
+            //   - 正确写法就是下面这种 `iconFile = <RegularFile>`
+            //
+            // `app-icon.ico` 由 `tools/render_icon.py` 从 `StuMateMark.kt` 的
+            // 几何常量渲染，含 16/24/32/48/64/128/256 七档。
+            // 🔴 改图标要**两边一起改**：Kotlin 那边 + render_icon.py。
+            //    重新生成：`./gradlew renderAppIcon`
+            //
+            // ## 快捷方式（实测踩过，结论与直觉相反）
+            // 我一度断定「CMP 没暴露 jpackage 的 `--win-shortcut`」——**是错的**，
+            // 反编译 `compose-gradle-plugin-1.5.10.jar` 后确认链路完整存在：
+            //   WindowsPlatformSettings.shortcut / menu / menuGroup
+            //     → ConfigureJvmApplicationKt
+            //       → AbstractJPackageTask.winShortcut / winMenu / winMenuGroup
+            //         → cliArg("--win-shortcut" / "--win-menu" / "--win-menu-group")
+            // 而 `WindowsPlatformSettings` 构造时**只**把 `dirChooser` 默认成 true，
+            // `shortcut` 和 `menu` 的默认值都是 **false** —— 所以不显式打开，
+            // 打出来的 MSI 里 `Shortcut` 表是**空的**，装完一个快捷方式都没有。
+            //
+            // `shortcut = true` 只保证**开始菜单**有；桌面快捷方式 jpackage 不管
+            //（没有 `--win-desktop-shortcut`），要桌面快捷方式走
+            // `tools/postprocess_msi.py` 里补的 `scDesktop`。
+            //
+            // ## 安装完成后启动
+            // jpackage **没有**对应的 `--win-...` 开关，所以只能自己补 deferred
+            // CustomAction，见 `tools/postprocess_msi.py`。
+            windows {
+                iconFile = project.layout.projectDirectory.file("app-icon.ico")
+                shortcut = true
+                menu = true
+                menuGroup = "StuMate"
+                // jpackage 不支持 `--win-desktop-shortcut`，桌面那条走后处理脚本。
+            }
+
+
             // ── runtime 必须显式带上 java.sql，否则安装后一定起不来 ──
             //
             // ## 症状
@@ -178,6 +224,108 @@ compose.desktop {
 tasks.withType<Test> {
     testLogging {
         events("passed", "failed", "skipped")
+    }
+}
+
+// ── 品牌图标渲染 ──────────────────────────────────────────────────
+//
+// 为什么用 Python 而不是 Kotlin 渲染：Compose 的 ImageVector 渲染链要起 Skiko
+// 表面，在无头环境里不稳定（沙箱会给 GUI 进程注入 sbx.dll 导致失真）。
+// 纯几何 + PIL 无 GUI 依赖、输出确定、能进 CI。
+//
+// 🔴 图标的**唯一真相**在 `ui/fluent/StuMateMark.kt` 的几何常量里。
+//    改那个文件必须回来重跑本任务，否则 .ico 与界面里的标识会不一致。
+//    本任务同时是 `packageMsi` / `createDistributable` 的前置依赖，
+//    所以正常打包时不会用到过期的 .ico。
+tasks.register<Exec>("renderAppIcon") {
+    group = "build"
+    description = "从 StuMateMark.kt 的几何常量渲染 app-icon.ico（多尺寸）"
+    workingDir = projectDir
+
+    // 🔴 解释器路径**硬编码，不要探测**。
+    //
+    // 这个 WindowsApps/python3.exe 是 App Execution Alias（0 字节 reparse point），
+    // 于是两种存在性判断**都**返回 false：
+    //     Gradle 的 file(it).exists()  → false
+    //     Kotlin 的 File(it).isFile()  → false
+    // 于是「探测 + 回退到裸 python3」的写法会静默选中 daemon PATH 里那个
+    // **没有 PIL** 的 python3，报`ModuleNotFoundError: No module named 'PIL'`，
+    // 看起来像 PIL 没装，其实是选错了解释器。
+    //
+    // 所以：直接用它。真不存在时命令会报「系统找不到文件」，
+    // 那比静默换一个错的解释器好得多。已验证它带 PIL 12.2.0。
+    // （`.workbuddy-ai/binaries/python/` 下的解释器都**没有** PIL。）
+    val py = "C:/Users/Administrator/AppData/Local/Microsoft/WindowsApps/python3.exe"
+    logger.lifecycle("renderAppIcon: 用解释器 $py")
+
+    commandLine(py, "tools/render_icon.py", "app-icon.ico")
+    inputs.file("src/main/kotlin/com/example/classreminder/ui/fluent/StuMateMark.kt")
+    inputs.file("tools/render_icon.py")
+    outputs.file("app-icon.ico")
+}
+
+// ⚠️ 这里**不能**写 `tasks.named("packageMsi") { … }`。
+// CMP 的打包任务是在**脚本执行完之后**才注册的（targetFormats 在
+// `compose.desktop.application { }` 里被读到之后才建任务），
+// 配置期 `tasks.named("packageMsi")` 会直接抛
+//    Task with name 'packageMsi' not found in root project
+// 而且它是在**脚本编译/配置阶段**抛的，连 `tasks --all` 都跑不起来。
+// → 用字符串 dependsOn（任务图解析时才去找）或 configureEach 代替。
+
+// 让打包前一定重渲图标，避免拿过期 .ico 出包。
+// 字符串依赖 = 懒解析；CMP 还没注册的任务不会在配置期炸。
+tasks.configureEach {
+    if (name == "packageMsi" || name == "createDistributable"
+        || name == "createReleaseBundle") {
+        dependsOn("renderAppIcon")
+    }
+}
+
+// ── MSI 后处理（桌面快捷方式 + 完成后启动）────────────────────────────
+//
+// Compose 的 `packageMsi` 直接调 jpackage，而 jpackage **没有**这两个开关：
+//  - 桌面快捷方式：没有 `--win-desktop-shortcut`
+//    （`makeArgs` 里只有 `--win-shortcut` / `--win-menu` / `--win-menu-group`）
+//  - 安装完成后启动：完全没有对应选项
+// 所以走 WiX 后处理：`tools/postprocess_msi.py`
+//   dark 解包 → 改 WXS → candle 编译 → light 链接
+//
+// 开始菜单快捷方式**不再**由脚本插：`windows { shortcut = true }` 已经让
+// jpackage 自己生成，脚本里的 `add_shortcuts()` 是幂等的，只补缺的那条。
+//
+// 产物写到 `<buildDirectory>/msi/StuMate-<version>-final.msi`（原包保留，方便对照）。
+val msiOutDir = layout.buildDirectory.dir("msi")
+
+tasks.register<Exec>("postprocessMsi") {
+    group = "build"
+    description = "后处理 MSI：补桌面快捷方式与安装完成后启动"
+
+    // 字符串形式 → 任务图解析时才去找，不会因为注册时机把脚本搞崩
+    dependsOn("packageMsi")
+
+    val srcMsi = layout.buildDirectory
+        .file("compose/binaries/main/msi/StuMate-${project.version}.msi")
+    val dstMsi = msiOutDir.map { it.file("StuMate-${project.version}-final.msi") }
+
+    // 同 renderAppIcon：硬编码已验证的带 PIL 的解释器，理由见那里的注释。
+    val py = "C:/Users/Administrator/AppData/Local/Microsoft/WindowsApps/python3.exe"
+
+    inputs.file(srcMsi)
+    inputs.file("tools/postprocess_msi.py")
+    inputs.file("app-icon.ico")
+    outputs.file(dstMsi)
+
+    doFirst {
+        val src = srcMsi.get().asFile
+        if (!src.exists()) {
+            throw GradleException("找不到 jpackage 产物: $src\n" +
+                "先跑 packageMsi（要 -PwithMsi=true 且已设 WIX_PATH）。")
+        }
+        dstMsi.get().asFile.parentFile.mkdirs()
+        // ⚠️ 命令行放 doFirst 里：输出路径要在 dependsOn 的 packageMsi 跑完后才有效。
+        //    跑完才知道对不对（在配置期解析会是过期的路径）。
+        commandLine(py, "tools/postprocess_msi.py", src.absolutePath,
+            dstMsi.get().asFile.absolutePath)
     }
 }
 
