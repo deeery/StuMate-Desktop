@@ -125,6 +125,52 @@ compose.desktop {
             packageVersion = project.version.toString()
             description = "StuMate 桌面课表提醒"
             vendor = "StuMate"
+
+            // ── runtime 必须显式带上 java.sql，否则安装后一定起不来 ──
+            //
+            // ## 症状
+            // 安装后双击，窗口**闪一下就没了**，随后弹「Failed to launch JVM」。
+            // 开发时用 `./gradlew run` 或 `java -cp ... MainKt` 却完全正常。
+            //
+            // ## 真实原因（费了很大周折才定位，过程别再走一遍）
+            // jpackage 打出来的 runtime 是 jlink **裁剪**过的，只含默认那几个模块，
+            // **里面没有 `java.sql`**。于是：
+            //   1. AWT frame 先创建出来 —— 所以你看得见「窗口闪过」
+            //   2. 界面第一帧要落库，sqlite-jdbc 去 `Class.forName("java.sql.Driver")`
+            //   3. `NoClassDefFoundError: java/sql/Driver` 从协程里抛出
+            //   4. `main` 抛异常退出 → launcher 拿到非零返回码 → 弹「Failed to launch JVM」
+            // 所以那句报错是**结果不是原因**，别顺着它去查 jvm.dll / jli.dll / JAVA_HOME
+            // （那些全都正常，`jvm.dll` 与系统 JDK 逐字节同体积）。
+            //
+            // ## 为什么本地跑不出来
+            // `./gradlew run` 和 `java -cp` 用的都是**系统 JDK 的完整模块集**，
+            // java.sql 自然在。只有打包产物走裁剪过的 runtime 才会炸——
+            // 于是「本地好好的、打包就坏」，看起来像打包 bug，其实是缺模块。
+            //
+            // ## 怎么确认的
+            // 用 jpackage 额外打一个 `--win-console` 的 app-image（GUI 子系统的 exe
+            // 拿不到 stderr），stderr 一落盘就看到上面那行NoClassDefFoundError。
+            // 之后手工 jlink 一个带 java.sql 的 runtime 换进去，窗口就正常了。
+            //
+            // ## 下面这些模块分别给谁用
+            //  - java.sql            sqlite-jdbc（课表/便签落库）—— **缺它就起不来**
+            //  - java.logging        slf4j
+            //  - java.naming         云同步请求头（部分 HTTP 栈要用）
+            //  - java.prefs          java.util.prefs，JNA 存托盘状态
+            //  - java.management     桌面端没直接用，留着给 jmx/诊断
+            //  - java.xml            桌面平台配置
+            //  - java.net.http       云同步用的 JDK HttpClient
+            //  - jdk.unsupported     Skiko/JNA 要用的 sun.misc.Unsafe 等内部类
+            modules(
+                "java.sql",
+                "java.logging",
+                "java.naming",
+                "java.prefs",
+                "java.management",
+                "java.xml",
+                "java.net.http",
+                "jdk.unsupported",
+            )
         }
     }
 }

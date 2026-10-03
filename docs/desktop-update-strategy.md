@@ -38,10 +38,17 @@ StuMate/
 | 把主 jar 里的 `BuildConfig.VERSION` 从 `1.5.0` 改写成 `9.9.9` | class 常量池里 `1.5.0` 计数 0、`9.9.9` 计数 1 |
 | jar 改名为 `StuMate-Desktop-1.6.0-<hash>.jar` | — |
 | 改 `StuMate.cfg` 的 `app.classpath` 指到新名 | cfg 首行已变成 1.6.0 |
-| 启动 `StuMate.exe` | **正常运行 14 秒不退出**（即跑的是新代码，不是缓存的旧 class） |
+| 启动 `StuMate.exe`，用 `EnumWindows` 查**可见主窗口** | 窗口 `StuMate` 可见并持续存活 |
 
 也就是说：只要换掉 jar 和 cfg 两处，一个 1.5.0 的安装目录就能原地升到新版本，
 不需要卸载、不需要管理员权限、不进「程序和功能」列表。
+
+> ⚠️ **验收必须查窗口，不能只看进程存活。**
+> 这一节早期版本写的是「运行 14 秒不退出」，那是**错的** —— 只看 `poll()` 会得出
+> 完全相反的结论。当时那份产物其实启动即崩（见下面「runtime 缺 java.sql」），
+> 但进程在崩溃后仍短暂存活，掩盖了问题。正确判据是
+> `EnumWindows` + `GetWindowThreadProcessId` + `IsWindowVisible` 确认
+> 主窗口 `StuMate` 可见且持续存活。
 
 ## 两种分发形态
 
@@ -77,6 +84,72 @@ Could not evaluate onlyIf predicate for task ':downloadWix'.
 
 产物落在 `build/compose/binaries/main/{msi,app}/`，要手动拷到 `dist/`。
 
+## 🔴 runtime 必须显式声明 modules（否则装完一定起不来）
+
+`nativeDistributions` 里必须写：
+
+```kotlin
+modules(
+    "java.sql",        // sqlite-jdbc —— 缺它 100% 起不来
+    "java.logging",    // slf4j
+    "java.naming", "java.prefs", "java.management", "java.xml",
+    "java.net.http",   // 云同步的 JDK HttpClient
+    "jdk.unsupported", // Skiko/JNA 要用 sun.misc.Unsafe
+)
+```
+
+### 症状
+
+安装后双击：**窗口闪一下就没了**，随后弹「Failed to launch JVM」。
+但开发时 `./gradlew run` 或 `java -cp ... MainKt` 完全正常。
+
+### 真实原因
+
+jpackage 打出来的 runtime 是 jlink **裁剪**过的，**不含 `java.sql`**。于是：
+
+1. AWT frame 先创建出来 —— 这就是你看到的「窗口闪过」
+2. 界面首帧要落库，sqlite-jdbc 去 `Class.forName("java.sql.Driver")`
+3. `NoClassDefFoundError: java/sql/Driver` 从协程里抛出（`Db.kt:43`）
+4. `main` 抛异常退出 → launcher 拿到非零返回码 → 弹「Failed to launch JVM」
+
+**那句报错是结果不是原因。** 别顺着它去查 `jvm.dll` / `jli.dll` / `JAVA_HOME`
+（那些全都正常，`jvm.dll` 与系统 JDK 逐字节同体积）。
+
+### 为什么本地跑不出来
+
+`./gradlew run` 和 `java -cp` 用的是**系统 JDK 的完整模块集**，`java.sql` 自然在。
+只有打包产物走裁剪过的 runtime 才会炸 —— 于是「本地好好的、打包就坏」，
+看起来像打包 bug，其实是缺模块。
+
+### 怎么确认的
+
+用 jpackage 额外打一个 `--win-console` 的 app-image（GUI 子系统的 exe 拿不到 stderr），
+stderr 一落盘就看到那行 `NoClassDefFoundError`。
+
+### 判据
+
+`runtime/lib/modules` 的大小会随模块集变化，可以当快速自检：
+
+| | 字节 |
+|---|---|
+| 未声明 modules（坏的） | 44,964,997 |
+| 声明 modules（好的） | 48,577,830 |
+
+### ⚠️ 换 buildDirectory 打包时可能踩到
+
+产物目录里的 `StuMate.exe` 会被 jpackage 设成**只读**（`-r-xr-xr-x`）。
+如果上一次构建中途失败，`createDistributable` 下次会卡在
+`java.io.IOException: Unable to delete directory`，且因为是只读位，
+Gradle 删不掉。先处理掉只读位：
+
+```bash
+attrib -R "<buildDir>/compose/binaries/main/app/StuMate/StuMate.exe"
+rm -rf "<buildDir>/compose/binaries/main/app" "<buildDir>/compose/binaries/main/msi"
+```
+
+删掉 `msi/` 目录是必须的 —— 否则 `packageMsi` 会报 `UP-TO-DATE`，
+磁盘上留着上一版的**坏包**。
+
 ## 后续版本该怎么做
 
 1. 改 `build.gradle.kts` 的 `version = "1.6.0"`
@@ -100,5 +173,21 @@ Could not evaluate onlyIf predicate for task ':downloadWix'.
 - **不支持跨安装形态升级**：MSI 装的程序在 `%ProgramFiles%\StuMate\app\`，
   绿色版在自己的目录里，两者不能原地互换。
   建议：**新用户直接用绿色版 zip**，从一开始就避开 MSI，后续更新永远走替换文件。
-- MSI 的静默安装（`msiexec /i /qn`）在沙箱环境里起不来，需要本机提权验证 ——
-  本轮没做（`msiexec` 被沙箱拦），但也**不再需要**：既然走替换文件，MSI 只是首次安装手段。
+
+## 1.5.1 启动修复的验证记录
+
+本轮修掉「安装后窗口闪过 + Failed to launch JVM」后，验收做在两处：
+
+| 验证对象 | 方法 | 结果 |
+|---|---|---|
+| `createDistributable` 目录版 | `ShellExecuteW` 启动 + `EnumWindows` 查可见窗口 | 主窗口 `StuMate` 可见，稳定 25s+，内存 ~300 MB，无弹框 |
+| MSI 内的文件树 | `msiexec /a` 解包（管理安装，免管理员）→ 跑解出来的 exe | `modules` = 48,577,830 字节（含 `java.sql`），主窗口可见稳定 |
+
+`runtime/lib/modules` 大小与目录版**逐字节一致**（48,577,830），
+证明 MSI 嵌的就是修复后那份 runtime，不是旧包。
+
+⚠️ **MSI 的真·安装态（`msiexec /i`）本轮没验成** —— 当前 shell 虽名为 Administrator
+但 `IsUserAnAdmin()==0`（UAC 未提升），`msiexec /i /qn` 返回 **1625**
+（系统策略拒绝）。这是环境限制，不是包的问题；
+`/a` 管理安装已能证明 MSI 内容正确，剩下的只是注册表/快捷方式那一层。
+有提权环境时补一次 `msiexec /i StuMate-1.5.0.msi` 即可。
