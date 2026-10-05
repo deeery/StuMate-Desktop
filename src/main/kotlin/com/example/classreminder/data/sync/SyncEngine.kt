@@ -1,6 +1,7 @@
 package com.example.classreminder.data.sync
 
 import com.example.classreminder.AppPaths
+import com.example.classreminder.data.ClassEntity
 import com.example.classreminder.data.SyncDao
 import com.example.classreminder.data.backup.BackupCodec
 import com.example.classreminder.data.backup.BackupDocument
@@ -28,14 +29,23 @@ import java.util.Locale
 /**
  * 云同步引擎（客户端侧，设计 v1.3 §5）。
  *
- * ## 一轮同步的四步，顺序不能换
+ * ## 一轮同步的五步，顺序不能换
  *
  * ```
- * 1. push  本地变更推上去
- * 2. pull  服务端变更拉下来
- * 3. apply 落到本地库
- * 4. 记游标
+ * 1. 收敛  本地同 uid 重复行（历史脏数据）
+ * 2. push  本地变更推上去
+ * 3. pull  服务端变更拉下来
+ * 4. apply 落到本地库
+ * 5. 记游标
  * ```
+ *
+ * ## 为什么「收敛」必须在 push 之前
+ *
+ * 旧版 `applyRemote` 的活索引缺陷在本地留下过「同一 uid 多行」的脏数据
+ * （见 [SyncMergeIndex]）。它们若原样进入 `collectLocalChanges()`，
+ * 同一 uid 会被推两遍：服务端按 uid 去重，不会真存两条，
+ * 但第二轮会被判成冲突 → `push.conflicts` 非空 → UI 上冒出
+ * 「服务端更新覆盖了 N 条」的**假警告**。先收敛，推上去的就是干净的一份。
  *
  * ## 为什么先 push 再 pull
  *
@@ -191,7 +201,14 @@ class SyncEngine(
         var pushedAny = false
         var alignedToServer = false
         try {
-            // ── 0. 先决定「本地这份分歧能不能推上去」（§5.8 首端权威）──
+            // ── 1. 收敛本地脏数据（同一 uid 多行）────────────────
+            //
+            // 必须在 push 之前：否则那几行重复会被原样推上去，
+            // 服务端按 uid 去重不会存两条，但 `conflicts` 会被撑起来，
+            // UI 上冒出「服务端更新覆盖了 N 条」的假警告。见类注释。
+            val collapsed = collapseSameUidDuplicates()
+
+            // ── 2. 先决定「本地这份分歧能不能推上去」（§5.8 首端权威）──
             //
             // 两种情况必须先问服务端，不能上来就 push：
             //   · [syncAfterLogin]：用户主动登录，要求「让我这台显示首端那台的配置」；
@@ -226,7 +243,7 @@ class SyncEngine(
                 }
             }
 
-            // ── 1. push ────────────────────────────────────────
+            // ── 3. push ────────────────────────────────────────
             var push: PushResult? = null
             if (!replaceNow) {
                 val outgoing = collectLocalChanges()
@@ -256,7 +273,7 @@ class SyncEngine(
                 }
             }
 
-            // ── 2. pull（循环到拉干净） ─────────────────────────
+            // ── 4. pull（循环到拉干净） ─────────────────────────
             var cursor = prefs.lastCursor
             val incoming = ArrayList<RemoteChange>()
             var serverCursor = push?.cursor ?: cursor
@@ -277,14 +294,15 @@ class SyncEngine(
                 hasMore = page.hasMore
             }
 
-            // ── 3. apply ──────────────────────────────────────
+            // ── 5. apply ──────────────────────────────────────
             val applied = applyRemote(incoming)
 
             // 有东西落库就通知界面刷新 —— 否则数据进了库、界面还停在旧内容，
             // 用户看到「已同步」却发现课表纹丝不动。
-            if (applied > 0) onApplied(applied)
+            // 收敛掉的重复行也要算进去：那同样是用户能看见的变化。
+            if (applied > 0 || collapsed > 0) onApplied(applied + collapsed)
 
-            // ── 4. 记游标 ─────────────────────────────────────
+            // ── 6. 记游标 ─────────────────────────────────────
             // 只在成功收尾后推进。中途失败保持原值，下次重来 —— 宁可多拉一次，不可漏数据。
             prefs.lastCursor = serverCursor
             // 记下「本地这份数据现在属于哪个账号」。下一轮起就不必再问服务端
@@ -302,7 +320,7 @@ class SyncEngine(
                 message = if (alignedToServer) {
                     "已对齐首端配置 · 拉取 $applied 条"
                 } else {
-                    describe(pushedAny, applied, overridden, purged)
+                    describe(pushedAny, applied, overridden, purged, collapsed)
                 },
                 overriddenCount = overridden,
                 // ⚠️ 必须把备份路径**带过来**。`SyncState(...)` 是新建对象，
@@ -384,51 +402,153 @@ class SyncEngine(
      *
      * 判定逻辑全在 [SyncMerge] 里（纯函数，有单测穷举边界），
      * 这里只负责「查库 → 调判定 → 落库」这三步胶水。
+     *
+     * ## 索引必须随写随更新（[SyncMergeIndex]）
+     *
+     * 服务端的 `pull` 给的是**原始变更流水**，同一个 uid 改过几次就有几条。
+     * 循环里若还用循环外那份快照查 uid，批内第二次遇到同一个 uid 时查不到
+     * 刚写进去的那一行 → 当成新记录 → 又 INSERT 一行。
+     * 全量重拉时每条记录都会被写成 2~4 份，这就是「课表里一堆一模一样的课」。
+     *
+     * ## 跨 uid 的同一门课
+     *
+     * 两台设备各自新建同一门课会各生成一个 uid，服务端只认 uid，
+     * 于是同一门课在服务端是两条记录，谁拉下来都看到两份。
+     * 这里按 [SyncMerge.courseKey] 的内容指纹认领，并用
+     * [SyncMerge.electSurvivor]（uid 字典序小者胜）决定留哪条 ——
+     * 关键是**确定性**：两台设备必须算出同一个存活者，
+     * 否则会变成「你删我、我删你」把课删没。
+     *
+     * ⚠️ `internal` 而不是 `private`：`dev/SyncMergeSmoke.kt` 要拿构造好的
+     * 变更流水**离线**喂进来验证收敛结果（见 Gradle 的 `syncMergeSmoke`）。
+     * 这条路径不走网络，所以能在没有任何账号的情况下把「同 uid 多份 / 跨 uid 双胞胎」
+     * 这两个场景钉死。改回 `private` 会让那个冒烟任务编译不过。
      */
-    private suspend fun applyRemote(changes: List<RemoteChange>): Int {
+    internal suspend fun applyRemote(changes: List<RemoteChange>): Int {
         if (changes.isEmpty()) return 0
 
         var applied = 0
 
-        val localClasses = syncDao.allClasses().associateBy { it.uid }
-        val localNotes = syncDao.allNotes().associateBy { it.uid }
+        // ── 课程：活索引 + 内容指纹表 ──────────────────────────
+        val classIndex = SyncMergeIndex()
+        // 内容指纹 → 该内容目前「活着」的那一行的 uid。
+        // 墓碑**不**进这张表：删除本来就该原样传播，拿墓碑去参与去重会把删除也去重掉。
+        val classAliveUidByContent = HashMap<String, String>()
+        val classAliveRow = HashMap<String, ClassEntity>()
+        syncDao.allClasses().forEach { e ->
+            classIndex.seed(e.uid, e.id, e.updatedAt)
+            if (e.deletedAt == 0L && e.uid.isNotBlank()) {
+                classAliveUidByContent[SyncMerge.courseKey(e)] = e.uid
+                classAliveRow[e.uid] = e
+            }
+        }
         var cursorClass = syncDao.nextFreeClassId()
+
+        // ── 便签：只做活索引 ───────────────────────────────────
+        // 便签不做内容去重：它的「内容一致」比课程含糊得多（position 是各机各自的布局，
+        // createdAt 又天然不同），合并错了代价大于收益。同 uid 多行的问题照样被修掉。
+        val noteIndex = SyncMergeIndex()
+        syncDao.allNotes().forEach { noteIndex.seed(it.uid, it.id, it.updatedAt) }
         var cursorNote = syncDao.nextFreeNoteId()
-        val usedClassIds = localClasses.values.map { it.id }.toMutableSet()
-        val usedNoteIds = localNotes.values.map { it.id }.toMutableSet()
 
         for (change in changes) {
-            val remoteUpdatedAt = change.data.syncUpdatedAt()
-            val remoteDeletedAt = change.data.syncDeletedAt()
-
             if (change.entity == "class") {
                 val decoded = BackupCodec.decodeCourses(
                     jsonObject("items" to jsonArray(listOf(change.data)))
                 ).firstOrNull() ?: continue
 
-                val local = localClasses[change.uid]
+                val remoteUpdatedAt = change.data.syncUpdatedAt()
+                val remoteDeletedAt = change.data.syncDeletedAt()
+
+                // ① 先看是不是「另一台设备建的同一门课」
+                if (classIndex.row(change.uid) == null) {
+                    val aliveUid = classAliveUidByContent[SyncMerge.courseKey(decoded)]
+                    when (val plan = SyncMerge.planTwin(
+                        remoteUid = change.uid,
+                        remoteAlive = remoteDeletedAt == 0L,
+                        localAliveUid = aliveUid
+                    )) {
+                        is SyncMerge.TwinPlan.TombstoneRemote -> {
+                            // 本地这条留下，给远端那个 uid 写一条墓碑 ——
+                            // 这样删除会同步到服务端和其他设备，本机课表也不再重复。
+                            // 墓碑用**新 id**：不能覆盖掉要留下的那一行。
+                            val now = System.currentTimeMillis()
+                            val id = SyncMerge.pickId(0, cursorClass, classIndex.ids())
+                            cursorClass = maxOf(cursorClass, id + 1)
+                            syncDao.upsertClass(
+                                decoded.copy(
+                                    id = id,
+                                    uid = change.uid,
+                                    updatedAt = now,
+                                    deletedAt = now
+                                )
+                            )
+                            classIndex.record(change.uid, id, now)
+                            applied++
+                            continue
+                        }
+
+                        is SyncMerge.TwinPlan.AdoptRemote -> {
+                            val local = classAliveRow[plan.localUid]
+                            if (local != null) {
+                                val now = System.currentTimeMillis()
+                                val key = SyncMerge.courseKey(local)
+                                // 旧 uid 的墓碑：换个新 id，别覆盖掉要留下的那一行
+                                val tombId = SyncMerge.pickId(0, cursorClass, classIndex.ids())
+                                cursorClass = maxOf(cursorClass, tombId + 1)
+                                syncDao.upsertClass(
+                                    local.copy(
+                                        id = tombId,
+                                        uid = plan.localUid,
+                                        updatedAt = now,
+                                        deletedAt = now
+                                    )
+                                )
+                                classIndex.record(plan.localUid, tombId, now)
+                                // 留下来的那一行改挂远端 uid（id 不变，界面里的位置不跳）
+                                syncDao.upsertClass(local.copy(uid = change.uid))
+                                classIndex.record(change.uid, local.id, local.updatedAt)
+                                classAliveRow.remove(plan.localUid)
+                                classAliveRow[change.uid] = local
+                                classAliveUidByContent[key] = change.uid
+                                applied++
+                            }
+                            // 落到下面按正常 LWW 处理远端内容：本地那份更新的就保留本地
+                        }
+
+                        SyncMerge.TwinPlan.None -> Unit
+                    }
+                }
+
+                // ② 正常 LWW
+                val known = classIndex.row(change.uid)
                 val decision = SyncMerge.resolve(
-                    localIdOfUid = local?.id,
-                    localUpdatedAt = local?.updatedAt ?: 0L,
+                    localIdOfUid = known?.id,
+                    localUpdatedAt = known?.updatedAt ?: 0L,
                     remoteUpdatedAt = remoteUpdatedAt,
                     remotePreferredId = decoded.id,
                     cursor = cursorClass,
-                    used = usedClassIds
+                    used = classIndex.ids()
                 )
                 if (decision is SyncMerge.Decision.Skip) continue
 
                 val id = (decision as SyncMerge.Decision.Write).id
                 cursorClass = decision.nextCursor
-                usedClassIds += id
 
-                syncDao.upsertClass(
-                    decoded.copy(
-                        id = id,
-                        uid = change.uid,
-                        updatedAt = remoteUpdatedAt,
-                        deletedAt = remoteDeletedAt
-                    )
+                val written = decoded.copy(
+                    id = id,
+                    uid = change.uid,
+                    updatedAt = remoteUpdatedAt,
+                    deletedAt = remoteDeletedAt
                 )
+                syncDao.upsertClass(written)
+                classIndex.record(change.uid, id, remoteUpdatedAt)
+                if (remoteDeletedAt == 0L) {
+                    classAliveUidByContent[SyncMerge.courseKey(written)] = change.uid
+                    classAliveRow[change.uid] = written
+                } else {
+                    classAliveRow.remove(change.uid)
+                }
                 applied++
                 continue
             }
@@ -438,20 +558,22 @@ class SyncEngine(
                     jsonObject("items" to jsonArray(listOf(change.data)))
                 ).firstOrNull() ?: continue
 
-                val local = localNotes[change.uid]
+                val remoteUpdatedAt = change.data.syncUpdatedAt()
+                val remoteDeletedAt = change.data.syncDeletedAt()
+
+                val known = noteIndex.row(change.uid)
                 val decision = SyncMerge.resolve(
-                    localIdOfUid = local?.id,
-                    localUpdatedAt = local?.updatedAt ?: 0L,
+                    localIdOfUid = known?.id,
+                    localUpdatedAt = known?.updatedAt ?: 0L,
                     remoteUpdatedAt = remoteUpdatedAt,
                     remotePreferredId = decoded.id,
                     cursor = cursorNote,
-                    used = usedNoteIds
+                    used = noteIndex.ids()
                 )
                 if (decision is SyncMerge.Decision.Skip) continue
 
                 val id = (decision as SyncMerge.Decision.Write).id
                 cursorNote = decision.nextCursor
-                usedNoteIds += id
 
                 syncDao.upsertNote(
                     decoded.copy(
@@ -461,11 +583,82 @@ class SyncEngine(
                         deletedAt = remoteDeletedAt
                     )
                 )
+                noteIndex.record(change.uid, id, remoteUpdatedAt)
                 applied++
             }
         }
 
         return applied
+    }
+
+    // ── 同 uid 重复行收敛 ───────────────────────────────────────
+
+    /**
+     * 同一个 uid 出现多行时，只保留最新的一行，其余物理删除。
+     *
+     * ## 为什么这是安全的
+     *
+     * `uid` 是跨设备唯一标识，**同一个 uid 的多行必然是同一条记录被重复写进去的**
+     * （旧版 `applyRemote` 的活索引缺陷，见 [SyncMergeIndex]）。
+     * 留哪一行的语义都一样，所以这不是「猜」，是确定性清理。
+     *
+     * ## 为什么必须清
+     *
+     * 这些重复行会被 `collectLocalChanges()` 原样推上去，
+     * 也会在 `associateBy { it.uid }` 里被折叠成一条 —— 后者恰好掩盖了问题，
+     * 让人以为库里是干净的。它们还会让 `purgeOldTombstones` 之外的统计口径全部失真。
+     *
+     * 保留规则：`updatedAt` 大者胜；相等时取 `id` 小者（确定性 ——
+     * 否则每次跑都可能删掉不同的行，行为不可复现）。
+     *
+     * @return 删掉了几行
+     *
+     * ⚠️ `internal` 的原因同 [applyRemote]：`dev/SyncMergeSmoke.kt` 要直接验它。
+     */
+    internal suspend fun collapseSameUidDuplicates(): Int {
+        val classKeep = HashMap<String, Keeper>()
+        val classDrop = ArrayList<Int>()
+        syncDao.allClasses().forEach {
+            keepNewest(classKeep, classDrop, it.uid, it.id, it.updatedAt)
+        }
+
+        val noteKeep = HashMap<String, Keeper>()
+        val noteDrop = ArrayList<Int>()
+        syncDao.allNotes().forEach {
+            keepNewest(noteKeep, noteDrop, it.uid, it.id, it.updatedAt)
+        }
+
+        var removed = 0
+        if (classDrop.isNotEmpty()) removed += syncDao.deleteClassesByIds(classDrop)
+        if (noteDrop.isNotEmpty()) removed += syncDao.deleteNotesByIds(noteDrop)
+        return removed
+    }
+
+    /** 当前保留者的定位信息，只用于比较，不回表 */
+    private data class Keeper(val id: Int, val updatedAt: Long)
+
+    private fun keepNewest(
+        keep: HashMap<String, Keeper>,
+        drop: MutableList<Int>,
+        uid: String,
+        id: Int,
+        updatedAt: Long
+    ) {
+        // uid 为空的行不该存在（v7 迁移会补），真出现了也不动它 —— 没有身份就没有判据
+        if (uid.isBlank()) return
+        val current = keep[uid]
+        if (current == null) {
+            keep[uid] = Keeper(id, updatedAt)
+            return
+        }
+        val candidateWins = updatedAt > current.updatedAt ||
+            (updatedAt == current.updatedAt && id < current.id)
+        if (candidateWins) {
+            drop += current.id
+            keep[uid] = Keeper(id, updatedAt)
+        } else {
+            drop += id
+        }
     }
 
     // ── 首端切换 ────────────────────────────────────────────────
@@ -513,7 +706,8 @@ class SyncEngine(
         pushed: Boolean,
         applied: Int,
         overridden: Int,
-        purged: Int
+        purged: Int,
+        collapsed: Int
     ): String = buildString {
         if (overridden > 0) {
             append("已同步 · 服务端更新覆盖了 $overridden 条")
@@ -523,6 +717,7 @@ class SyncEngine(
             if (applied > 0) append(" · 拉取 $applied 条")
             else if (!pushed) append(" · 已是最新")
         }
+        if (collapsed > 0) append(" · 清理了 $collapsed 条重复记录")
         if (purged > 0) append(" · 清理了 $purged 条删除记录")
     }
 }

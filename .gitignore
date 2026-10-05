@@ -43,3 +43,9 @@ design-preview/assets/
 
 # render_icon.py 的 PNG 预览（.ico 本身要入库）
 app-icon_png/
+
+### Python 字节码缓存 ###
+# `python -m py_compile tools/xxx.py` 会在 tools/ 下建这个目录；
+# 它只是编译检查的副产物，不该出现在 git status 里。
+__pycache__/
+*.py[cod]

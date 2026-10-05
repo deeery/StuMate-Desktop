@@ -487,6 +487,77 @@ tasks.register<JavaExec>("updateSmoke") {
 }
 
 /**
+ * 「云同步把同一门课存成好几份」的**离线端到端冒烟**。见 dev/SyncMergeSmoke.kt
+ *
+ * ```
+ * ./gradlew syncMergeSmoke
+ * ```
+ *
+ * 它构造出一批变更（含「同一 uid 多个修订」与「跨 uid 的同内容双胞胎」）
+ * 直接喂给 `SyncEngine.applyRemote`，再逐条断言落库结果。
+ * 全程不联网，所以能反复重跑。
+ *
+ * 🔴 **APPDATA 必须指到临时目录**：`AppPaths.dataDir` 就是
+ * `%APPDATA%\StuMate\`，不改的话这个脚本会往**用户正在用的那份库**里
+ * 塞测试数据、还会删掉里面的重复行。改 APPDATA 只能在**进程启动前**
+ * 完成（`AppPaths.dataDir` 是 `by lazy`），所以走 `environment(...)`
+ * 而不是程序里设 —— 这也是它必须是独立 JavaExec 任务的原因。
+ */
+tasks.register<JavaExec>("syncMergeSmoke") {
+    group = "verification"
+    description = "离线验证同步不再写重复课程（APPDATA 指向临时目录，不碰用户数据）"
+    mainClass.set("com.example.classreminder.dev.SyncMergeSmokeKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    jvmArgs("-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+
+    val smokeHome = layout.buildDirectory.dir("sync-merge-smoke-home")
+    doFirst {
+        val dir = smokeHome.get().asFile
+        dir.deleteRecursively()
+        dir.mkdirs()
+        environment("APPDATA", dir.absolutePath)
+        logger.lifecycle("syncMergeSmoke: APPDATA → ${dir.absolutePath}")
+    }
+}
+
+/**
+ * 托盘气泡（右下角 Windows 通知）探针。见 dev/TrayProbe.kt
+ *
+ * ```
+ * ./gradlew trayProbe                          # 默认：设 AUMID + 写 DisplayName
+ * ./gradlew trayProbe -PnoAumid=1              # 对照组：不设 AUMID（气泡完全不弹）
+ * ./gradlew trayProbe -Ptag=X -Phold=40        # 换文案避免被 Toast 历史抑制 + 多停留
+ * ```
+ *
+ * ## 为什么需要它
+ *
+ * 托盘气泡**不是本进程的窗口**（由 Explorer 托管），所以 `tools/capture_app.py`
+ * 那套「按窗口标题找 → 截该进程所有窗口」抓不到它，只能全屏抓
+ * （`tools/grab_screen.py`）。
+ *
+ * ## 为什么要在 Gradle 里跑而不是直接 java
+ *
+ * 打包产物用的是 **jlink 裁剪过的 runtime**，它和完整 JDK 的差别（模块集）
+ * 正是这类问题的嫌疑所在。所以要能换运行时跑同一份 class：
+ * ```
+ * CP=$(./gradlew printRuntimeClasspath -q | sed 's/^RUNTIME_CLASSPATH=//')
+ * <jlink 出来的运行时>/bin/java.exe -cp "$CP" com.example.classreminder.dev.TrayProbeKt
+ * ```
+ */
+tasks.register<JavaExec>("trayProbe") {
+    group = "verification"
+    description = "弹一条托盘气泡，用来肉眼验收中文与应用名（配合 tools/grab_screen.py 截图）"
+    mainClass.set("com.example.classreminder.dev.TrayProbeKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    // 刻意**不**注入 -Dfile.encoding：打包产物也没有，要跟它保持一致
+    jvmArgs("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+    listOf("tag" to "", "hold" to "25", "noAumid" to "").forEach { (key, default) ->
+        val v = project.findProperty(key)?.toString()
+        if (!v.isNullOrBlank()) systemProperty("stumate.probe.$key", v) else if (default.isNotEmpty()) systemProperty("stumate.probe.$key", default)
+    }
+}
+
+/**
  * 只渲染账号相关 UI 的预览窗口，用于截图验收。见 dev/UiPreview.kt
  *
  * ⚠️ 场景通过 `-P` 传，**不能**靠环境变量：Gradle 守护进程是长驻进程，

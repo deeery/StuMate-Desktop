@@ -48,6 +48,7 @@ import com.example.classreminder.data.sync.AccountSession
 import com.example.classreminder.data.sync.SyncEngine
 import com.example.classreminder.platform.DesktopFileDialogs
 import com.example.classreminder.platform.ReminderEngine
+import com.example.classreminder.platform.AppIdentity
 import com.example.classreminder.platform.ToastBus
 import com.example.classreminder.platform.ToastHost
 import com.example.classreminder.ui.fluent.AccountAuthDialog
@@ -74,6 +75,11 @@ import kotlinx.coroutines.launch
 import java.awt.Dimension
 
 fun main() = application {
+    // ⚠️ 必须是第一件事：Shell 在**创建第一个窗口/托盘图标**时就把进程身份定下来了，
+    // 之后再设 AUMID 对已登记的窗口无效。不设的话 Windows 11 会直接吞掉托盘气泡
+    // （调用不报错，但屏幕上什么都不出现）—— 详见 [AppIdentity]。
+    AppIdentity.install()
+
     val viewModel = remember { MainViewModel() }
     val scope = rememberCoroutineScope()
 

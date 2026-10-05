@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
+r"""
 MSI 后处理: dark 解包 -> 改 WXS -> light 重编。
 
 ## 原生已经对了的三件事（我先前两次判断都反了，别再改回去）
@@ -47,6 +47,12 @@ WIX = r"C:\Program Files (x86)\WiX Toolset v3.14\bin"
 # WXS 里要用到的稳定 GUID。固定写死，重复后处理不会让每次的 ProductId 变化
 # （否则同一个包反复处理会被当成不同的包）。
 AUMID = "StuMate.Desktop.1"          # 显式 AppUserModelID，跳转列表/任务栏识别用
+# 应用显示名。必须与 Kotlin 侧 `platform/AppIdentity.kt` 的 `DISPLAY_NAME` 逐字一致。
+# 🔴 它写进注册表的**值名必须是 `DisplayName`** —— Shell 只认这个名字。
+#    早先这里写成了 `Name="StuMate"`（值名 = 应用名），等于没注册：
+#    Windows 找不到 `DisplayName` 就退回显示**原始 AUMID 字符串**，
+#    于是右下角通知气泡的标题变成 `StuMate.Desktop.1`，用户看到的就是「乱码」。
+DISPLAY_NAME = "StuMate"
 MENU_KEY = "StuMateIsInstalled"
 
 
@@ -170,13 +176,24 @@ def add_shortcuts(wxs, exe_component, want_desktop=True):
         wxs = wxs.replace(anchor, dirs_block + '\n' + anchor, 1)
 
     sc = []
-    # AppUserModelID: 让任务栏右键菜单出现「固定到任务栏」
+    # AppUserModelID: 让任务栏右键菜单出现「固定到任务栏」，
+    # 并且**给通知气泡/任务栏/跳转列表一个能显示的名字**。
+    #
+    # 🔴 值名必须是 `DisplayName`。写成别的（比如应用名本身）不会报错，
+    #    但 Shell 找不到这个名字就退回显示原始 AUMID，气泡标题会变成
+    #    `StuMate.Desktop.1` —— 用户会当成乱码。见文件头 DISPLAY_NAME 的注释。
+    #
+    # `IconUri` 指向安装目录里的图标：MSI 把 `StuMate.ico` 放在 INSTALLDIR 下。
     if 'regAumidMenu' not in wxs:
         sc.append('<RegistryValue '
                   'Id="regAumidMenu" Root="HKLM" '
                   'Key="Software\\Classes\\AppUserModelId\\%s" '
-                  'Name="StuMate" Type="string" Value="StuMate" />' % AUMID)
-        print("  AppUserModelID: 已补注册表项 (%s)" % AUMID)
+                  'Name="DisplayName" Type="string" Value="%s" />' % (AUMID, DISPLAY_NAME))
+        sc.append('<RegistryValue '
+                  'Id="regAumidIcon" Root="HKLM" '
+                  'Key="Software\\Classes\\AppUserModelId\\%s" '
+                  'Name="IconUri" Type="string" Value="[INSTALLDIR]StuMate.ico" />' % AUMID)
+        print("  AppUserModelID: 已补注册表项 (%s, DisplayName=%s)" % (AUMID, DISPLAY_NAME))
     if need_menu:
         sc.append('<Shortcut Id="scStartMenu" '
                   'Name="StuMate" '

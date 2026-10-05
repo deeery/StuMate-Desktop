@@ -105,6 +105,32 @@ class SyncDao {
         }
     }
 
+    // ── 写：物理删除指定 id（同 uid 收敛时用） ───────────────────
+
+    /**
+     * 按主键物理删除若干行。
+     *
+     * ⚠️ 只给「同一个 uid 出现了多行」这种**铁定是脏数据**的场景用：
+     * uid 是跨设备唯一标识，同一 uid 的多行必然是同一条记录被重复写进去的，
+     * 留哪一行都不影响语义（见 `SyncEngine.collapseSameUidDuplicates`）。
+     * 正常删除一律走软删（`deletedAt`），否则删除传播不出去。
+     *
+     * `id IN (?,?,…)` 的参数个数是动态的，所以这里手工拼占位符 ——
+     * JDBC 没有「传一个集合」的写法。值本身仍走 `?` 绑定，没有注入面。
+     */
+    private suspend fun deleteByIds(table: String, ids: Collection<Int>): Int {
+        if (ids.isEmpty()) return 0
+        val list = ids.toList()
+        val holders = list.joinToString(",") { "?" }
+        return Db.write { c ->
+            c.exec("DELETE FROM `$table` WHERE `id` IN ($holders)", *list.toTypedArray())
+        }
+    }
+
+    suspend fun deleteClassesByIds(ids: Collection<Int>): Int = deleteByIds("classes", ids)
+
+    suspend fun deleteNotesByIds(ids: Collection<Int>): Int = deleteByIds("notes", ids)
+
     // ── 维护 ────────────────────────────────────────────────────
 
     /**
