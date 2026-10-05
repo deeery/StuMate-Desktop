@@ -63,6 +63,15 @@ object UpdateCenter {
     /** 主 jar 文件名前缀。jpackage 打出来的名字是 `StuMate-Desktop-<版本>-<hash>.jar` */
     private const val MAIN_JAR_PREFIX = "StuMate-Desktop-"
 
+    /**
+     * jpackage 文件名末尾那段内容 hash（实测 31~32 位十六进制）。
+     *
+     * ⚠️ 长度阈值取 16 而不是精确值：jpackage 各版本截断长度不同，
+     * 但**版本号不会是 16 位以上的纯十六进制**，所以这个阈值够安全。
+     * 详见 [dependencyLines] 里那段「为什么必须抹掉 hash」。
+     */
+    private val HASH_SUFFIX = Regex("-[0-9a-fA-F]{16,}\\.jar$")
+
     val currentVersion: String get() = VERSION_OVERRIDE ?: BuildConfig.VERSION
 
     /**
@@ -577,9 +586,36 @@ object UpdateCenter {
      * 取 cfg 里**除主 jar 之外**的 classpath 行，用来判断依赖有没有变。
      *
      * 这是「能不能走补丁」的唯一判据 —— 比人去核对 38 个文件名可靠。
+     *
+     * ## 🔴 为什么必须先把文件名末尾的 hash 抹掉再比
+     *
+     * jpackage 给每个 jar 起的名字是 `<名字>-<版本>-<内容hash>.jar`，而**这个 hash 并不稳定**。
+     * 实测：`skiko-awt-runtime-windows-x64-0.7.85` 那个包只有 **293 字节**（一个空壳 +
+     * 一个 25 字节的 MANIFEST），Compose 插件每次构建都重新压一遍，zip 里**条目的时间戳
+     * 跟着构建时间走**，于是字节不同 → hash 不同：
+     *
+     * ```
+     * 1.6.0  …-0.7.85-bfa84136b65ded4ecdfbe715e20e91a.jar
+     * 1.6.1  …-0.7.85-841d382d82e6fdf9897ae89b773e4c9.jar   ← 同名同版本，只是构建时间不同
+     * ```
+     *
+     * 逐字比较的后果是**跨版本的真补丁永远被拒**，用户看到
+     * 「这个版本更新了依赖，需要重新安装整包」—— 而实际一个依赖都没动。
+     *
+     * 之前的冒烟测试**发现不了**这个问题：它把**同一次构建**的产物复制一份当「老安装」，
+     * 两边 cfg 天然一致。必须拿一个**真的旧版本安装**（如 `dist/StuMate-portable-1.6.0.zip`
+     * 解出来的那份）去跑，才会撞上。
+     *
+     * 抹掉 hash 之后，比的是「依赖的**名字 + 版本**集合」：
+     * 加依赖、删依赖、升版本照样能认出来，纯粹的内容/时间戳差异不再误报。
+     *
+     * 抹 hash 是**安全**的：改写 cfg 时以**本地** cfg 为基底（见 [applyPatch] 第 ④ 步），
+     * 本地依赖行原样保留，所以本地那些 jar 的名字怎么变都不影响升级后的启动。
      */
     internal fun dependencyLines(cfg: String): List<String> =
-        cfg.lines().filter { it.startsWith("app.classpath=") && !it.contains(MAIN_JAR_PREFIX) }
+        cfg.lines()
+            .filter { it.startsWith("app.classpath=") && !it.contains(MAIN_JAR_PREFIX) }
+            .map { HASH_SUFFIX.replace(it, ".jar") }
 
     private fun hasMainClass(jar: File): Boolean {
         var found = false

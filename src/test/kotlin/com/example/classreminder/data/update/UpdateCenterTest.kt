@@ -2,6 +2,7 @@ package com.example.classreminder.data.update
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -131,6 +132,57 @@ class UpdateCenterTest {
         assertTrue(
             UpdateCenter.dependencyLines(localCfg) != UpdateCenter.dependencyLines(added)
         )
+    }
+
+    // ── 依赖行的 hash 归一化（真实踩过：跨版本补丁被一律拒掉）────────────
+    //
+    // jpackage 的文件名是 `<名字>-<版本>-<内容hash>.jar`，而**这个 hash 不稳定**：
+    // 空壳包（如 skiko-awt-runtime-windows-x64，只有 293 字节）每次构建重新压一遍，
+    // zip 条目时间戳跟着构建时间走 → 字节不同 → hash 不同。
+    // 逐字比较的后果是「1.6.0 用户永远吃不到 1.6.1 的补丁」。
+
+    @Test
+    fun `真实两版 cfg：主 jar 版本与依赖 hash 都不同，仍必须能走补丁`() {
+        // 下面两组是 1.6.0 / 1.6.1 两次构建**实际产出的** cfg 内容。
+        // 差异只有：主 jar 的版本号 + skiko 那个空壳包的构建 hash。
+        val old = """
+            app.classpath=${'$'}APPDIR\StuMate-Desktop-1.6.0-3c185cf5c6bbbea450cfbec6faf85f1e.jar
+            app.classpath=${'$'}APPDIR\skiko-awt-runtime-windows-x64-0.7.85-bfa84136b65ded4ecdfbe715e20e91a.jar
+            app.classpath=${'$'}APPDIR\kotlin-stdlib-1.9.20-405681a02b165f82fc68133482b21c.jar
+        """.trimIndent()
+        val new = """
+            app.classpath=${'$'}APPDIR\StuMate-Desktop-1.6.1-b12e621724a229e3f72b274c1ab8248.jar
+            app.classpath=${'$'}APPDIR\skiko-awt-runtime-windows-x64-0.7.85-841d382d82e6fdf9897ae89b773e4c9.jar
+            app.classpath=${'$'}APPDIR\kotlin-stdlib-1.9.20-405681a02b165f82fc68133482b21c.jar
+        """.trimIndent()
+        // 先确认这两段原文确实不同 —— 否则这个测试是空转的
+        assertNotEquals(old, new)
+        assertEquals(UpdateCenter.dependencyLines(old), UpdateCenter.dependencyLines(new))
+    }
+
+    @Test
+    fun `抹掉 hash 之后版本号仍参与比较`() {
+        val a = "app.classpath=${'$'}APPDIR\\kotlin-stdlib-1.9.20-405681a02b165f82fc68133482b21c.jar"
+        val b = "app.classpath=${'$'}APPDIR\\kotlin-stdlib-1.9.21-405681a02b165f82fc68133482b21c.jar"
+        assertEquals(
+            listOf("app.classpath=${'$'}APPDIR\\kotlin-stdlib-1.9.20.jar"),
+            UpdateCenter.dependencyLines(a)
+        )
+        assertNotEquals(UpdateCenter.dependencyLines(a), UpdateCenter.dependencyLines(b))
+    }
+
+    @Test
+    fun `短后缀不当成 hash 抹掉`() {
+        // 阈值 16 位十六进制：`-abc` / `-1.0.0` 这种不是 hash，必须原样保留，
+        // 否则版本号会被误抹 → 依赖升级检测整个失效。
+        val line = "app.classpath=${'$'}APPDIR\\foo-1.0.0-abc.jar"
+        assertEquals(listOf(line), UpdateCenter.dependencyLines(line))
+    }
+
+    @Test
+    fun `主 jar 那一行不参与依赖比较（哪怕它带着 hash）`() {
+        val onlyMain = "app.classpath=${'$'}APPDIR\\StuMate-Desktop-1.6.1-b12e621724a229e3f72b274c1ab8248.jar"
+        assertTrue(UpdateCenter.dependencyLines(onlyMain).isEmpty())
     }
 
     // ── 改写 cfg ────────────────────────────────────────────────────
