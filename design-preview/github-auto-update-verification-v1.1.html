@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StuMate · GitHub 自动更新 · 验收报告 v1.1</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --panel2:#1c222b; --line:#2a323d;
+    --fg:#e8ecf2; --fg2:#9aa6b6; --fg3:#6b7684;
+    --accent:#60CDFF; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:0 0 80px;
+    background:var(--bg); color:var(--fg);
+    font:14px/1.75 "Microsoft YaHei UI","PingFang SC",system-ui,-apple-system,sans-serif;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+  header{
+    padding:56px 0 32px; border-bottom:1px solid var(--line); margin-bottom:36px;
+  }
+  h1{font-size:30px;margin:0 0 10px;letter-spacing:.5px}
+  h1 small{font-size:14px;color:var(--fg3);font-weight:400;margin-left:12px;letter-spacing:0}
+  .lede{color:var(--fg2);font-size:15px;margin:0}
+  h2{
+    font-size:19px;margin:52px 0 16px;padding-left:12px;
+    border-left:3px solid var(--accent); line-height:1.3;
+  }
+  h3{font-size:15px;margin:30px 0 10px;color:var(--fg)}
+  p{margin:10px 0}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--panel2);
+       padding:1.5px 6px;border-radius:4px;color:#cfe4f5}
+  pre{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:16px 18px; overflow-x:auto; font-family:var(--mono);
+    font-size:12px; line-height:1.7; color:#c8d4e0; margin:14px 0;
+  }
+  pre .ok{color:var(--ok)}
+  pre .dim{color:var(--fg3)}
+  pre .bad{color:var(--bad)}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  @media(max-width:760px){.cards{grid-template-columns:1fr}}
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px;
+  }
+  .card h4{margin:0 0 8px;font-size:14px;color:var(--accent)}
+  .card p{margin:6px 0;color:var(--fg2);font-size:13px}
+  figure{margin:20px 0}
+  figure img{
+    width:100%; display:block; border-radius:10px; border:1px solid var(--line);
+    background:#000;
+  }
+  figcaption{color:var(--fg3);font-size:12.5px;margin-top:9px;line-height:1.6}
+  .phone{max-width:340px}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .row figure{flex:1 1 300px;margin:12px 0}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--fg3);font-weight:600;font-size:12px;text-transform:none}
+  td code{background:transparent;padding:0}
+  .tag{
+    display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;
+    border:1px solid var(--line);color:var(--fg2);margin-right:6px;
+  }
+  .tag.ok{color:var(--ok);border-color:#2c4a37;background:#16241c}
+  .tag.bad{color:var(--bad);border-color:#4a2c2c;background:#241616}
+  .tag.warn{color:var(--warn);border-color:#4a402c;background:#241f16}
+  .note{
+    background:#151d26;border:1px solid #24404f;border-left:3px solid var(--accent);
+    border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13.5px;color:#c6d6e2;
+  }
+  .warnbox{
+    background:#221c12;border:1px solid #4a3c22;border-left:3px solid var(--warn);
+    border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13.5px;color:#e2d6bd;
+  }
+  .badbox{
+    background:#221414;border:1px solid #4a2a2a;border-left:3px solid var(--bad);
+    border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13.5px;color:#e8cccc;
+  }
+  ul{padding-left:22px}
+  li{margin:6px 0;color:var(--fg2)}
+  li b{color:var(--fg)}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin:20px 0}
+  .kpi div{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 20px;min-width:150px;
+  }
+  .kpi b{display:block;font-size:22px;color:var(--accent);line-height:1.3}
+  .kpi span{font-size:12px;color:var(--fg3)}
+  hr{border:0;border-top:1px solid var(--line);margin:44px 0}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid #2c4a5a}
+  a:hover{border-bottom-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>GitHub 自动更新 · 验收报告<small>v1.1 · 2026-10-05 · 桌面端 + 安卓端</small></h1>
+  <p class="lede">
+    v1.0 之后追加的一轮：<b>发布 1.6.1</b> 把「装了 GitHub 加速工具就连不上」的修复送出去 ——
+    过程中发现并修掉一个<b>更深的问题</b>：<br>
+    桌面端的「下载补丁并就地替换」这条路，<b>跨版本根本走不通</b>，
+    而原有的冒烟测试<b>结构性地发现不了</b>它。
+  </p>
+</header>
+
+<div class="kpi">
+  <div><b>182 / 167</b><span>两端单测全过（桌面 +4）</span></div>
+  <div><b>9 / 9</b><span>用真实 1.6.0 安装跑的替换冒烟</span></div>
+  <div><b>3 个</b><span>已发布的 Release</span></div>
+  <div><b>5 个</b><span>本轮踩到的坑</span></div>
+</div>
+
+<h2>一、v1.0 之后改了什么</h2>
+
+<div class="cards">
+  <div class="card">
+    <h4>① 发布 1.6.1 —— 让修复真正到达用户</h4>
+    <p>v1.6.0 发布于本地 13:23，而 SSL 修复提交在 14:44，<b>晚了 1 小时 21 分</b>。
+       线上那个 1.6.0 自带的更新器仍会 PKIX 失败。</p>
+    <p>1.6.1 把修复带出去。因为老版本更新器<b>自己更新不了自己</b>，
+       老用户需要手动装一次整包 —— Release 说明里写明了。</p>
+  </div>
+  <div class="card">
+    <h4>② 修掉「跨版本补丁被一律拒绝」</h4>
+    <p>依赖比对原先<b>逐字</b>比较 cfg 的 classpath 行，而 jpackage 文件名里的
+       hash <b>每次构建都不一样</b> → 老用户一律被判定「这个版本更新了依赖」。</p>
+    <p>改成先抹掉文件名末尾的内容 hash，再比「依赖的<b>名字 + 版本</b>集合」。</p>
+  </div>
+</div>
+
+<h2>二、桌面端验收（1.6.1）</h2>
+
+<figure>
+  <img src="update-desktop-161-01-uptodate.png" alt="桌面端 1.6.1：已是最新">
+  <figcaption>
+    <b>已是最新（1.6.1）</b> —— 真实读取线上 Release <code>v1.6.1</code>，与本地版本号相等。<br>
+    <span class="tag ok">这一张同时证明了「坑 1」的修复生效</span>
+    预览进程跑在开发模式、没有系统安装目录，能走到这一步说明
+    <b>它真的连上了 <code>api.github.com</code></b> —— 在装了 SteamTools 的本机上，
+    改之前这里是 <code>PKIX path building failed</code>。<br>
+    侧栏「设置」与子导航「关于」上<b>没有</b>圆点。
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="update-desktop-161-02-available.png" alt="桌面端 1.6.1：有新版本 1.6.1">
+  <figcaption>
+    <b>有新版本 1.6.1（当前 1.6.0）</b> —— 用 <code>-PcurrentVersion=1.6.0</code>
+    把当前版本压低一档，走的是<b>真实</b>的比较分支。<br>
+    更新说明是刚从 Release body 拉下来的 1.6.1 原文（连 <code>##</code> 这类
+    Markdown 标记都原样显示，说明确实是从网络来的，不是本地文案）；
+    「开发模式下不适用（当前不是从安装目录启动）」是生产代码在开发模式下该说的话。<br>
+    注意侧栏「设置」和子导航「关于」上都出现了 <b>7dp 小圆点</b>，两张图一对比即可确认圆点的开关逻辑。
+  </figcaption>
+</figure>
+
+<h3>「替换」这一步：这次用<b>真的 1.6.0 安装</b>当输入</h3>
+
+<p>v1.0 的冒烟把<b>同一次构建</b>的产物复制一份当「老安装」，两边 cfg 天然一致 ——
+所以它<b>结构性地</b>测不出「坑 4」。这次先把
+<code>dist/StuMate-portable-1.6.0.zip</code> 解成一份<b>货真价实的 1.6.0 安装</b>，
+再让它去拉线上真实的 <code>v1.6.1</code> 补丁。</p>
+
+<pre><span class="dim">$ ./gradlew updateSmoke -Pdist=F:/DownloadQQ/stumate-160-install/StuMate</span>
+════════════════════════════════════════════════════════════════════════
+ StuMate 桌面端自动更新冒烟（真实 GitHub Release）
+ 源安装目录：F:\DownloadQQ\stumate-160-install\StuMate
+ 当前版本  ：1.6.1
+════════════════════════════════════════════════════════════════════════
+
+① 复制安装目录到临时区（绝不碰用户正在用的那份）
+   把主 jar 改名为旧版本：StuMate-Desktop-1.6.0-3c185cf5c6bbbea450cfbec6faf85f1e.jar
+                        → StuMate-Desktop-1.5.0-3c185cf5c6bbbea450cfbec6faf85f1e.jar
+   cfg  : 42 行，classpath 行 = app.classpath=$APPDIR\StuMate-Desktop-1.5.0-3c185cf5…jar
+
+② 走真实代码：查 Release → 下载补丁 → 校验 → 就地替换
+   完成，用时 24894 ms
+
+③ 断言磁盘状态
+<span class="ok">   ✅ 1. app/ 下出现新的主 jar：StuMate-Desktop-1.6.1-31a7e498475027dd5a8740587a6ae7f2.jar</span>
+<span class="ok">   ✅ 2. 新旧 jar 不是同一个文件</span>
+<span class="ok">   ✅ 3. cfg 的 classpath 指向新 jar</span>
+<span class="ok">   ✅ 4. cfg 行数不变（42 → 42）</span>
+<span class="ok">   ✅ 5. 其余依赖行原样保留</span>
+<span class="ok">   ✅ 6. 旧 cfg 备份成 StuMate.cfg.bak</span>
+<span class="ok">   ✅ 7. 没留下 StuMate.cfg.new 中间文件</span>
+<span class="ok">   ✅ 8. 新 jar 大小合理（&gt; 1 MB）</span>
+<span class="ok">   ✅ 9. 新 jar 里能读到主类</span>
+
+④ 产物指纹
+   替换前 jar：StuMate-Desktop-1.5.0-3c185cf5c6bbbea450cfbec6faf85f1e.jar
+   替换后 jar：StuMate-Desktop-1.5.0-…jar, StuMate-Desktop-1.6.1-…jar
+   新 jar sha256：28280deb4046270a5379c910e972fb59810278f21f3d12745cc03e32806dac45
+
+════════════════════════════════════════════════════════════════════════
+ 9/9 断言通过
+════════════════════════════════════════════════════════════════════════
+BUILD SUCCESSFUL in 1m 13s</pre>
+
+<div class="badbox">
+  <b>坑 4 · 跨版本补丁根本走不通 —— jpackage 文件名里的 hash 不稳定</b><br><br>
+  jpackage 给每个 jar 起的名字是 <code>&lt;名字&gt;-&lt;版本&gt;-&lt;内容hash&gt;.jar</code>，
+  而<b>这个 hash 每次构建都不一样</b>。元凶是
+  <code>skiko-awt-runtime-windows-x64-0.7.85</code> 这个包：它只有
+  <b>293 字节</b>（一个空壳 + 25 字节的 MANIFEST），Compose 插件每次构建都重新压一遍，
+  <b>zip 里条目的时间戳跟着构建时间走</b> → 字节不同 → hash 不同。
+  实测同一个版本号 0.7.85，三次构建拿到<b>三个不同的 hash</b>：<br><br>
+  <code>bfa84136b65ded4ecdfbe715e20e91a</code> （1.6.0）<br>
+  <code>841d382d82e6fdf9897ae89b773e4c9</code> （第一次 1.6.1）<br>
+  <code>9bd9ae59e7a15e553c56eec0e260fadb</code> （修完代码再构建）<br><br>
+  <code>dependencyLines</code> 原先<b>逐字比对</b>，于是 1.6.0 的用户装 1.6.1 时被判
+  <b>「这个版本更新了依赖，需要重新安装整包」</b> —— 而实际一个依赖都没动。
+  换句话说，<b>「应用内下载补丁并自动替换」这条路跨版本从来没成功过</b>。<br><br>
+  <b>为什么之前的冒烟发现不了</b>：它把<b>同一次构建</b>的产物复制一份当「老安装」，
+  两边 cfg 天然一致，永远撞不上。这正是「验收要用<b>真的</b>旧版本当输入」的价值。<br><br>
+  <b>修法</b>：比对前先把文件名末尾那段 hash 抹掉（正则
+  <code>-[0-9a-fA-F]{16,}\.jar$</code>），比的是「依赖的<b>名字 + 版本</b>集合」——
+  加依赖、删依赖、升版本照样能认出来，纯粹的内容/时间戳差异不再误报。<br>
+  抹 hash 是<b>安全</b>的：改写 cfg 时以<b>本地</b> cfg 为基底，本地依赖行原样保留，
+  本地那些 jar 叫什么名字都不影响升级后的启动。
+</div>
+
+<div class="warnbox">
+  <b>坑 5 · 重建目录版报「文件被占用」，其实是 launcher exe 只读</b><br><br>
+  <code>createDistributable</code> 重建时报：<br>
+  <code>Unable to delete directory … app\StuMate\StuMate.exe</code><br>
+  <code>This might happen because a process has files open or has its working directory set in the target directory.</code><br><br>
+  这句提示会把人往「有进程占着」上带（我就这么误判了一次，还去查了进程路径）。
+  真实原因：<b>jpackage 打出来的 launcher exe 带只读属性</b>（<code>-r-xr-xr-x</code>），
+  而 Kotlin 的 <code>deleteRecursively()</code> <b>不会清只读位</b>，
+  删到那个 exe 就失败。旁证：同一批删除里，<b>所有 jar 都被删掉了</b> ——
+  如果有进程真的在跑，classpath 上的 jar 是<b>会被 JVM 持有</b>的，删不掉。<br><br>
+  <b>修法</b>：构建前先手动删掉 <code>app/</code>（Git Bash 的 <code>rm -rf</code> 会清只读位），
+  或者干脆换一个全新的构建目录。<br>
+  <span class="tag warn">顺带纠正</span>
+  用 Win32 <code>QueryFullProcessImageName</code> 实测：本机跑着的实例在
+  <code>F:\DownloadQQ\unpacked\StuMate\</code>，<b>跟几个构建目录都没关系</b>。
+</div>
+
+<h2>三、安卓端验收（沿用 v1.0 的 5 张，本轮零改动）</h2>
+
+<p>安卓端这一轮<b>没有改动</b>，验收证据与 v1.0 相同：
+起点是模拟器上真实装着的 <code>1.4</code>，装一个<b>也走 release 签名</b>、
+自称 <code>1.5</code> 的包，让它去对真实的 <code>v1.6</code> Release 走完整链路。</p>
+
+<div class="row">
+  <figure class="phone">
+    <img src="update-android-01-available.png" alt="安卓：有新版本 v1.6">
+    <figcaption>
+      <b>① 有新版本 v1.6（当前 v1.5）</b><br>
+      「关于」折叠块默认展开 —— 其余分组是配置项，不动就不用看；
+      「关于」是新版本来了唯一要去的地方。底部「设置」上出现小圆点。
+    </figcaption>
+  </figure>
+  <figure class="phone">
+    <img src="update-android-02-downloading.png" alt="安卓：下载中 43%">
+    <figcaption>
+      <b>② 正在下载安装包… 43%（748 / 1701 KB）</b><br>
+      1701 KB = <code>1,742,642</code> 字节，与 Release 上那个资产的
+      <code>size</code> 完全一致。落点是<b>应用私有</b>外部目录
+      <code>getExternalFilesDir(DOWNLOADS)</code>。
+    </figcaption>
+  </figure>
+</div>
+
+<div class="row">
+  <figure class="phone">
+    <img src="update-android-03-installer.png" alt="安卓：系统安装器">
+    <figcaption>
+      <b>③ 系统安装器「Update this app?」</b><br>
+      应用把 APK 通过 <code>FileProvider</code> 授出 uri，用
+      <code>ACTION_VIEW</code> 交给系统。安卓<b>不允许应用自己静默安装</b>，终点就在这里。
+    </figcaption>
+  </figure>
+  <figure class="phone">
+    <img src="update-android-04-appupdated.png" alt="安卓：App updated">
+    <figcaption>
+      <b>④ App updated</b><br>
+      点「Update」后系统完成覆盖安装。<code>dumpsys package</code> 实测：
+      <b>versionCode 7 / versionName 1.6</b>（安装前是 6 / 1.5）。
+    </figcaption>
+  </figure>
+</div>
+
+<figure class="phone" style="margin-left:auto;margin-right:auto">
+  <img src="update-android-05-uptodate.png" alt="安卓：已是最新 v1.6">
+  <figcaption>
+    <b>⑤ 重启后：已是最新版本（v1.6）</b><br>
+    版本号变成 v1.6，圆点消失，按钮从「下载并安装」变回「重新检查」。
+  </figcaption>
+</figure>
+
+<div class="note">
+  <b>为什么验收包也必须用 release 签名</b>：debug 签名和正式签名不同，
+  系统安装器会直接 <code>INSTALL_FAILED_UPDATE_INCOMPATIBLE</code> ——
+  那样测的就不是更新链路，而是「签名不匹配」。
+</div>
+
+<h2>四、发布侧</h2>
+
+<table>
+  <tr><th>仓库</th><th>Release</th><th>资产</th><th>sha256</th></tr>
+  <tr>
+    <td><code>deeery/StuMate-Desktop</code></td>
+    <td><a href="https://github.com/deeery/StuMate-Desktop/releases/tag/v1.6.1">v1.6.1</a><br>
+        <span class="tag ok">本轮新增</span></td>
+    <td><code>StuMate-patch-1.6.1.zip</code> 1,905,496 B<br>
+        <code>StuMate-portable-1.6.1.zip</code> 70,358,544 B</td>
+    <td><code>28e909eb…a1a88121</code><br><code>d91a7492…9696eaf7</code></td>
+  </tr>
+  <tr>
+    <td><code>deeery/StuMate-Desktop</code></td>
+    <td><a href="https://github.com/deeery/StuMate-Desktop/releases/tag/v1.6.0">v1.6.0</a></td>
+    <td><code>StuMate-patch-1.6.0.zip</code> 1,879,279 B<br>
+        <code>StuMate-portable-1.6.0.zip</code> 70,332,325 B</td>
+    <td><code>ecd6b1dd…9d9d37</code><br><code>d5992ac7…a16006</code></td>
+  </tr>
+  <tr>
+    <td><code>deeery/ClassReminder</code></td>
+    <td><a href="https://github.com/deeery/ClassReminder/releases/tag/v1.6">v1.6</a></td>
+    <td><code>StuMate-1.6-release.apk</code> 1,742,642 B</td>
+    <td><code>0f25448f…af6775</code></td>
+  </tr>
+</table>
+
+<p>三个 Release 都用<b>匿名</b>请求 <code>/releases/latest</code> 复核过：
+桌面端现在回 <code>tag_name: v1.6.1</code>，资产的
+<code>digest=sha256:…</code> 与本地算出来的一致 —— 客户端读到的就是这些真数据。</p>
+
+<p>发布工具：两端各一份 <code>tools/release.py</code>（<b>不共用</b>，因为资产形态不同），
+提供 <code>pack</code> / <code>notes</code> / <code>publish</code> 三个子命令。
+归档名 <code>StuMate-&lt;版本&gt;-release.apk</code> <b>必须</b>与
+<code>UpdateCenter.apkAssetName()</code> 一致 —— 客户端是按名字找资产的。</p>
+
+<h2>五、本轮踩到的五个坑</h2>
+
+<div class="badbox">
+  <b>坑 1 · 装了「GitHub 加速」工具的用户，自动更新是静默失效的</b><br><br>
+  本机装了 SteamTools / Watt Toolkit（<code>Steamcommunity302</code>），它对
+  <code>api.github.com</code> 做<b>透明 TLS 中间人</b>，根证书只装进
+  <b>Windows 证书库</b>，<b>没进 JDK 的 <code>cacerts</code></b>。症状：<br>
+  浏览器、Python、curl <b>全部正常</b>，只有 Java 应用报
+  <code>PKIX path building failed</code>。<br><br>
+  这类工具在中文用户里装机量很大，而且<b>恰好就是为了访问 GitHub</b>。<br><br>
+  <b>修法</b>：把 <b>JDK cacerts ∪ <code>Windows-ROOT</code></b> 倒进
+  <b>同一个 KeyStore</b>，再建唯一一个 TrustManagerFactory。
+  <br><br>
+  <span class="tag bad">踩过的错误修法</span>
+  <code>SSLContext.init(null, arrayOf(tmA, tmB), r)</code> <b>不是「两个都试」</b>：
+  JDK 内部 <code>SSLContextImpl.chooseTrustManager()</code> <b>只取数组里第一个</b>
+  <code>X509TrustManager</code>，后面的静默丢弃。拼完照样 PKIX 失败，
+  现象和没改一模一样。
+</div>
+
+<div class="warnbox">
+  <b>坑 2 · 截图假阴性：<code>.preview-classpath</code> 指着旧 class 目录</b><br><br>
+  项目里同时有 <code>build/</code> 和隔离目录 <code>F:/DownloadQQ/stumate-altbuild/</code>，
+  而 <code>.preview-classpath</code> 里存的是前者（旧的），最后一次真正编译却发生在后者。
+  结果截图看起来一切正常，<b>只是新加的东西一个都不在</b>。白跑两轮。<br><br>
+  <b>修法</b>：<code>shoot_scenarios.py</code> 加 <code>check_fresh()</code> ——
+  classpath 里最新 <code>.class</code> 必须比源码里最新 <code>.kt</code> 还新，
+  不满足<b>直接报错</b>，不截一张假的图。
+</div>
+
+<div class="warnbox">
+  <b>坑 3 · 网络抖动是真的会发生的</b><br><br>
+  实测四次下载坏了两回：一次 HTTP 502、一次 HTTP/2 连接被重置。
+  国内直连 <code>objects.githubusercontent.com</code> 本来就不稳。<br><br>
+  <b>修法</b>：给查 Release 与补丁下载加 <code>retrying(times = 3)</code>
+  （间隔 800 / 1600 ms），重试前把半截文件删掉再写。
+</div>
+
+<p style="color:var(--fg3);font-size:13px">
+  坑 4（jpackage 文件名 hash 不稳定）与坑 5（launcher exe 只读）
+  见上面第二节的方框 —— 它们直接决定了「补丁这条路能不能走通」。
+</p>
+
+<h2>六、已知限制 / 待办</h2>
+
+<ul>
+  <li><b>桌面 1.6.0 的用户需要手动装一次 1.6.1</b>（自举死结）：
+      老版本自带的更新器带着 PKIX 缺陷，检查不出新版本。
+      1.6.1 的 Release 说明里写明了这一步。之后再发新版本就能自动走了。</li>
+  <li><b>1.5 及更早的桌面端 / 安卓端没有更新器</b>，用户必须手动装一次新版本。</li>
+  <li><b>桌面端装在 <code>%ProgramFiles%</code> 下需要管理员权限</b>（写 <code>app/</code> 会被拒）。
+      代码里已经识别 <code>AccessDeniedException</code> 并降级为「打开下载页」。</li>
+  <li><b>新版本真的改了依赖</b>（加 / 删 / 升版本）时补丁覆盖不了，会降级为
+      「需要重新安装整包」。这条由依赖行比对把关，<b>不靠人记得</b>；
+      比对前会抹掉文件名里的内容 hash（见坑 4）。</li>
+  <li>更新说明（Release body）目前直接渲染纯文本，没做 Markdown 排版。</li>
+  <li>桌面端<b>没有做过一次「从 UI 上真的点一下『立即更新』」的验收</b>：
+      验收环境鼠标注入不可用，替换链路是靠 <code>updateSmoke</code> 断言覆盖的。</li>
+</ul>
+
+<hr>
+<p style="color:var(--fg3);font-size:12.5px">
+  StuMate · 桌面端 1.6.1（单测 182/182）· 安卓端 1.6 / versionCode 7（单测 167/167）<br>
+  本轮验收截图 7 张（桌面 2 张为 1.6.1 重截）· 桌面替换冒烟 9/9 · 已发布 Release 3 个<br>
+  上一版报告：<code>github-auto-update-verification-v1.0.html</code>
+</p>
+
+</div>
+</body>
+</html>
