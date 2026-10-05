@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,6 +46,8 @@ import com.example.classreminder.data.backup.BackupCodec
 import com.example.classreminder.data.backup.BackupDocument
 import com.example.classreminder.data.backup.BackupFormat
 import com.example.classreminder.data.backup.BackupModule
+import com.example.classreminder.data.update.UpdateCenter
+import com.example.classreminder.data.update.UpdateState
 import com.example.classreminder.platform.AutoStart
 import com.example.classreminder.platform.DesktopFileDialogs
 import com.example.classreminder.platform.ReminderEngine
@@ -56,8 +59,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** internal 而非 private：`dev/UiPreview` 要按它渲染左侧分类导航做截图验收 */
-internal enum class SettingsSection(val label: String) {
+/**
+ * 设置页的左侧分类。
+ *
+ * `internal` 改成了 `public`：`AppShell` 的 `previewSettingsSection` 参数要用它，
+ * 而 public 函数不能暴露 internal 类型。这个枚举本来也没打算隐藏。
+ */
+enum class SettingsSection(val label: String) {
     /** 登录是可选的，但入口要显眼 —— 放第一个，也是默认落点（见下方 `section` 初值） */
     ACCOUNT("账号"),
     REMINDER("提醒"),
@@ -82,12 +90,22 @@ fun FluentSettingsPage(
     onThemeModeChanged: (Int) -> Unit,
     onTestNotification: () -> Unit,
     onOpenDataFolder: () -> Unit,
-    onImportTimetable: () -> Unit
+    onImportTimetable: () -> Unit,
+    /**
+     * 起始分类。生产调用点永远不传（固定落在 [SettingsSection.ACCOUNT]）；
+     * 只有 `dev/UiPreview` 会指定 —— 验收环境点不动鼠标，走不到「关于」去。
+     */
+    initialSection: SettingsSection? = null
 ) {
     // 默认落在「账号」：与列表第一项一致，也让「首次启动不弹登录、
     // 账号分组显示『未登录 · 点此登录』」这条设计要求有个自然的落点。
     // 想改回「提醒」就改这一个字面量。
-    var section by remember { mutableStateOf(SettingsSection.ACCOUNT) }
+    var section by remember(initialSection) { mutableStateOf(initialSection ?: SettingsSection.ACCOUNT) }
+
+    // 「关于」里那张更新卡片有东西可看时，分类导航上点个红点 ——
+    // 否则用户不知道要去哪儿找。
+    val updateState by UpdateCenter.state.collectAsState()
+    val updateDot = updateState is UpdateState.Available && Prefs.getNotifyUpdate()
 
     Column(Modifier.fillMaxSize()) {
         PageTopBar(
@@ -106,6 +124,7 @@ fun FluentSettingsPage(
                     SubNavItem(
                         label = item.label,
                         selected = item == section,
+                        dot = updateDot && item == SettingsSection.ABOUT,
                         onClick = { section = item }
                     )
                 }
@@ -132,7 +151,12 @@ fun FluentSettingsPage(
 }
 
 @Composable
-internal fun SubNavItem(label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun SubNavItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    dot: Boolean = false
+) {
     val c = FluentTheme.colors
     val d = FluentTheme.dimens
     Box(
@@ -153,7 +177,7 @@ internal fun SubNavItem(label: String, selected: Boolean, onClick: () -> Unit) {
             )
         }
         Box(
-            modifier = Modifier.fillMaxSize().padding(start = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
@@ -161,6 +185,16 @@ internal fun SubNavItem(label: String, selected: Boolean, onClick: () -> Unit) {
                 fontSize = 13.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (selected) c.onSurface else c.onSurfaceVariant
+            )
+        }
+        if (dot) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp)
+                    .size(7.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(c.accent)
             )
         }
     }
@@ -541,12 +575,198 @@ private fun AboutSection() {
                 InfoRow("备份格式", "${BackupFormat.FORMAT} (schema ${BackupFormat.SCHEMA})")
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "数据全部保存在本机，不联网。备份文件与手机版互通，可以互相导入。",
+                    "数据全部保存在本机。备份文件与手机版互通，可以互相导入。",
                     fontSize = 12.sp,
                     color = c.onSurfaceVariant
                 )
             }
         }
+    }
+    UpdateSection()
+}
+
+/**
+ * 「软件更新」。
+ *
+ * 检查走的是 **GitHub 公开接口**（`/releases/latest`），不需要账号、不上传任何东西。
+ * 所以这里的开关不是「要不要联网」，而是「要不要让它打扰你」——
+ * 关掉提醒后检查照做，结果安静地躺在这张卡片里。
+ */
+@Composable
+private fun UpdateSection() {
+    val c = FluentTheme.colors
+    val scope = rememberCoroutineScope()
+    val state by UpdateCenter.state.collectAsState()
+    var autoCheck by remember { mutableStateOf(Prefs.getAutoCheckUpdate()) }
+    var notify by remember { mutableStateOf(Prefs.getNotifyUpdate()) }
+    val busy = state is UpdateState.Checking || state is UpdateState.Downloading
+
+    SectionBlock(
+        title = "软件更新",
+        description = "从 GitHub Releases 检查新版本。只在点击或启动时访问一次公开接口，" +
+            "不登录、不上传任何数据。"
+    ) {
+        FlCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                UpdateStatusBlock(state, scope)
+                Spacer(Modifier.height(12.dp))
+                FlDivider()
+                FlSettingRow(
+                    label = "启动时自动检查",
+                    detail = "关掉后只在下面手动点「检查更新」"
+                ) {
+                    FlSwitch(autoCheck) { autoCheck = it; Prefs.setAutoCheckUpdate(it) }
+                }
+                FlSettingRow(
+                    label = "有新版本时提醒我",
+                    detail = "关掉后仍然会检查，只是不弹提示、侧栏也不点红点"
+                ) {
+                    FlSwitch(notify) { notify = it; Prefs.setNotifyUpdate(it) }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlButton(
+                        "检查更新",
+                        onClick = { scope.launch { UpdateCenter.check(manual = true) } },
+                        variant = FlButtonVariant.GHOST,
+                        icon = Icons.Default.Refresh,
+                        enabled = !busy,
+                        compact = true
+                    )
+                    val pageUrl = when (val s = state) {
+                        is UpdateState.Available -> s.pageUrl
+                        is UpdateState.NeedsFullPackage -> s.pageUrl
+                        else -> null
+                    }
+                    if (pageUrl != null) {
+                        FlButton(
+                            "打开下载页",
+                            onClick = { UpdateCenter.openReleasePage(pageUrl) },
+                            variant = FlButtonVariant.TEXT_MUTED,
+                            compact = true
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateStatusBlock(state: UpdateState, scope: kotlinx.coroutines.CoroutineScope) {
+    val c = FluentTheme.colors
+    when (state) {
+        UpdateState.Idle -> StatusLine(c.onSurfaceVariant, "尚未检查")
+        UpdateState.Checking -> StatusLine(c.onSurfaceVariant, "正在检查…")
+
+        is UpdateState.UpToDate ->
+            StatusLine(c.success, "已是最新（${state.current}）")
+
+        is UpdateState.Available -> {
+            StatusLine(c.accent, "有新版本 ${state.version}（当前 ${UpdateCenter.currentVersion}）")
+            if (state.notes.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                ReleaseNotes(state.notes)
+            }
+            Spacer(Modifier.height(12.dp))
+            when {
+                state.canSelfInstall -> FlButton(
+                    "立即更新",
+                    onClick = { scope.launch { UpdateCenter.downloadAndApply() } },
+                    compact = true
+                )
+                state.selfInstallBlocked != null -> Text(
+                    state.selfInstallBlocked,
+                    fontSize = 11.5.sp,
+                    color = c.warning
+                )
+                else -> Text(
+                    "这个版本没有提供补丁包，请下载整包。",
+                    fontSize = 11.5.sp,
+                    color = c.warning
+                )
+            }
+        }
+
+        is UpdateState.Downloading -> {
+            StatusLine(
+                c.accent,
+                if (state.percent >= 0) "正在下载补丁… ${state.percent}%"
+                else "正在下载补丁…"
+            )
+            Spacer(Modifier.height(8.dp))
+            UpdateProgressBar(if (state.percent < 0) 0f else state.percent / 100f)
+        }
+
+        is UpdateState.RestartPending -> {
+            StatusLine(c.success, "${state.version} 已就绪，重启后生效")
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "文件已经换好了，当前窗口跑的仍是旧版本 —— 重启一下就是新版。",
+                fontSize = 11.5.sp,
+                color = c.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+            FlButton("立即重启", onClick = { UpdateCenter.restartNow() }, compact = true)
+        }
+
+        is UpdateState.NeedsFullPackage -> {
+            StatusLine(c.warning, "${state.version} 需要重新安装整包")
+            Spacer(Modifier.height(4.dp))
+            Text(state.reason, fontSize = 11.5.sp, color = c.onSurfaceVariant)
+        }
+
+        is UpdateState.Failed -> {
+            StatusLine(c.error, "检查失败")
+            Spacer(Modifier.height(4.dp))
+            Text(state.message, fontSize = 11.5.sp, color = c.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun StatusLine(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(7.dp).clip(RoundedCornerShape(4.dp)).background(color))
+        Spacer(Modifier.width(8.dp))
+        Text(text, fontSize = 13.sp, color = FluentTheme.colors.onSurface)
+    }
+}
+
+/** 更新说明。限高 + 可滚 —— release notes 可能很长，不能让它把整页撑开 */
+@Composable
+private fun ReleaseNotes(notes: String) {
+    val c = FluentTheme.colors
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 150.dp)
+            .clip(RoundedCornerShape(FluentTheme.dimens.radiusControl))
+            .background(c.surface2)
+            .border(1.dp, c.outline, RoundedCornerShape(FluentTheme.dimens.radiusControl))
+            .verticalScroll(rememberScrollState())
+            .padding(10.dp)
+    ) {
+        Text(notes, fontSize = 12.sp, lineHeight = 18.sp, color = c.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun UpdateProgressBar(fraction: Float) {
+    val c = FluentTheme.colors
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(4.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(c.surface3)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .background(c.accent)
+        )
     }
 }
 

@@ -30,6 +30,8 @@ import com.example.classreminder.data.sync.AccountSession
 import com.example.classreminder.data.sync.OAuthTicket
 import com.example.classreminder.data.sync.SyncPhase
 import com.example.classreminder.data.sync.SyncState
+import com.example.classreminder.data.update.UpdateCenter
+import com.example.classreminder.data.update.UpdateState
 import com.example.classreminder.FirstRunDialog
 import com.example.classreminder.platform.ReminderEngine
 import com.example.classreminder.platform.ToastHost
@@ -45,6 +47,7 @@ import com.example.classreminder.ui.fluent.MODE_REGISTER
 import com.example.classreminder.ui.fluent.ModifyPasswordDialog
 import com.example.classreminder.ui.fluent.OverlayWindow
 import com.example.classreminder.ui.fluent.SetPasswordDialog
+import com.example.classreminder.ui.fluent.SettingsSection
 import com.example.classreminder.ui.fluent.ThemeMode
 import com.example.classreminder.ui.fluent.WindowChrome
 import com.example.classreminder.ui.fluent.primaryWorkArea
@@ -85,6 +88,8 @@ import java.time.ZoneId
  * | `week` | 课表页（表格 / 列表取决于 `Prefs.isWeekGrid()`） |
  * | `notes` | 便签页 |
  * | `sync` | 设置页 + 同步卡，用 `-Psync=<状态>` 选状态（见下） |
+ * | `update` | 设置页「关于」+ 更新卡。**真的去查 GitHub Releases**，
+ *   配合 `-Dstumate.currentVersion=<旧版本>` 才能走到「有新版本」那一态 |
  *
  * `sync` 场景的状态（`-Psync=`）：
  * | 值 | 状态 |
@@ -188,6 +193,16 @@ fun main() = application {
                         window.title = "$WINDOW_TITLE ready"
                     }
                 }
+                // update 场景要等**真的**查完 GitHub 才有东西可看。
+                // 不打这个信号的话脚本会在「正在检查…」那一刻截图。
+                val updateState by UpdateCenter.state.collectAsState()
+                LaunchedEffect(updateState, scenario) {
+                    if (scenario == "update" &&
+                        updateState !is UpdateState.Idle && updateState !is UpdateState.Checking
+                    ) {
+                        window.title = "$WINDOW_TITLE ready"
+                    }
+                }
                 Box(Modifier.fillMaxSize()) {
                     if (scenario == "overlay") {
                         // 替身「用户正在看的画面」。
@@ -229,6 +244,12 @@ fun main() = application {
                             previewNotesEditor = when (scenario) {
                                 "notescreate" -> "create"
                                 "notesedit" -> "edit"
+                                else -> null
+                            },
+                            // 更新卡在「设置 → 关于」里。验收环境点不动鼠标，
+                            // 所以由预览进程直接把分类定位过去。
+                            previewSettingsSection = when (scenario) {
+                                "update" -> SettingsSection.ABOUT
                                 else -> null
                             }
                         )

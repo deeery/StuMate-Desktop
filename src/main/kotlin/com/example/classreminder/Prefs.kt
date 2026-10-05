@@ -166,4 +166,27 @@ object Prefs {
     fun getNotifyEnabled(): Boolean = obj().bool("notifyEnabled", true)
 
     fun setNotifyEnabled(enabled: Boolean) = put("notifyEnabled", enabled.toJson())
+
+    // ── 更新检查 ────────────────────────────────────────────────────
+
+    /**
+     * 启动时自动去 GitHub 查有没有新版本。默认开。
+     *
+     * 关掉后只在设置页「关于」里手动点「检查更新」。
+     * **不做成「必须联网才能用」** —— 这个应用的核心功能完全离线，
+     * 检查更新只是锦上添花，所以它必须能被彻底关掉。
+     */
+    fun getAutoCheckUpdate(): Boolean = obj().bool("autoCheckUpdate", true)
+
+    fun setAutoCheckUpdate(enabled: Boolean) = put("autoCheckUpdate", enabled.toJson())
+
+    /**
+     * 查到新版本时**主动提醒**（关于页出现醒目卡片 + 启动时提示一次）。默认开。
+     *
+     * 关掉 ≠ 不检查：检查照旧，只是结果安静地躺在设置页里，不主动打扰。
+     * 这是「提示可选」那条需求的落点。
+     */
+    fun getNotifyUpdate(): Boolean = obj().bool("notifyUpdate", true)
+
+    fun setNotifyUpdate(enabled: Boolean) = put("notifyUpdate", enabled.toJson())
 }

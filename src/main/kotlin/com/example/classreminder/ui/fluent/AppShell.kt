@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,10 +41,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.classreminder.BuildConfig
 import com.example.classreminder.Prefs
 import com.example.classreminder.data.ClassEntity
 import com.example.classreminder.data.MainViewModel
+import com.example.classreminder.data.update.UpdateCenter
+import com.example.classreminder.data.update.UpdateState
 import com.example.classreminder.platform.ReminderEngine
+import com.example.classreminder.platform.ToastBus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** 四个主页面。顺序即侧栏自上而下的排列顺序 */
 enum class AppPage(val label: String, val icon: ImageVector) {
@@ -77,7 +84,9 @@ fun AppShell(
      * 同样是因为验收环境点不动鼠标 —— 「新建便签」按钮和表格行都点不到，
      * 只能由预览进程把目标状态直接摆出来。生产调用点不传。
      */
-    previewNotesEditor: String? = null
+    previewNotesEditor: String? = null,
+    /** 预览专用：设置页直接落在哪个分类（验收环境点不动鼠标，走不到「关于」） */
+    previewSettingsSection: SettingsSection? = null
 ) {
     val c = FluentTheme.colors
     // 启动一律落在「今日」。
@@ -85,6 +94,27 @@ fun AppShell(
     // 下次打开还是便签」，与「打开就看今天」的预期不符，故改为固定开今日。
     var page by remember(initialPage) { mutableStateOf(initialPage ?: AppPage.TODAY) }
     val notes by viewModel.notes.collectAsState()
+
+    // ── 更新检查 ────────────────────────────────────────────────────
+    // 启动时静默查一次（网络不通不打扰用户）；查到新版且用户没关「提醒我」，
+    // 就在侧栏「设置」上点一个小圆点 + 弹一次提示。
+    // 检查本身永远不阻塞启动：它在 IO 线程上跑，UI 该渲染就渲染。
+    val updateState by UpdateCenter.state.collectAsState()
+    val updateAvailable = updateState as? UpdateState.Available
+    val notifyUpdate = remember { Prefs.getNotifyUpdate() }
+    val showUpdateDot = updateAvailable != null && notifyUpdate
+
+    LaunchedEffect(Unit) {
+        // 上次更新留下的旧 jar 现在删得掉了（当时那个正被进程占着）
+        withContext(Dispatchers.IO) { UpdateCenter.cleanupStaleJars() }
+        if (Prefs.getAutoCheckUpdate()) {
+            UpdateCenter.check(manual = false)
+        }
+    }
+    LaunchedEffect(updateAvailable?.version) {
+        val v = updateAvailable?.version ?: return@LaunchedEffect
+        if (notifyUpdate) ToastBus.show("发现新版本 $v，可在「设置 → 关于」更新")
+    }
 
     // 课程编辑对话框的状态提到这里：「今天」页和「课表」页都要用，
     // 而且从任意一页点「新建提醒」都要能弹出来
@@ -99,6 +129,7 @@ fun AppShell(
                 page = page,
                 noteCount = notes.size,
                 collapsed = collapsed,
+                updateDot = showUpdateDot,
                 onSelect = { page = it }
             )
             Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -126,7 +157,8 @@ fun AppShell(
                         onThemeModeChanged = onThemeModeChanged,
                         onTestNotification = onTestNotification,
                         onOpenDataFolder = onOpenDataFolder,
-                        onImportTimetable = onImportTimetable
+                        onImportTimetable = onImportTimetable,
+                        initialSection = previewSettingsSection
                     )
                 }
             }
@@ -166,6 +198,7 @@ private fun AppSidebar(
     page: AppPage,
     noteCount: Int,
     collapsed: Boolean,
+    updateDot: Boolean,
     onSelect: (AppPage) -> Unit
 ) {
     val c = FluentTheme.colors
@@ -205,7 +238,7 @@ private fun AppSidebar(
                 Spacer(Modifier.width(10.dp))
                 Text("StuMate", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.onSurface)
                 Spacer(Modifier.weight(1f))
-                Text("1.0", fontSize = 11.sp, color = c.onSurfaceFaint)
+                Text(BuildConfig.VERSION, fontSize = 11.sp, color = c.onSurfaceFaint)
             }
         }
 
@@ -215,6 +248,8 @@ private fun AppSidebar(
                 selected = item == page,
                 collapsed = collapsed,
                 badge = if (item == AppPage.NOTES && noteCount > 0) noteCount.toString() else null,
+                // 新版本只跟「设置」有关 —— 点它就对了，不需要再多一个页面
+                dot = updateDot && item == AppPage.SETTINGS,
                 onClick = { onSelect(item) }
             )
         }
@@ -272,6 +307,7 @@ private fun SidebarItem(
     selected: Boolean,
     collapsed: Boolean,
     badge: String?,
+    dot: Boolean,
     onClick: () -> Unit
 ) {
     val c = FluentTheme.colors
@@ -328,10 +364,27 @@ private fun SidebarItem(
                     ) {
                         Text(badge, fontSize = 11.sp, color = c.onSurfaceVariant)
                     }
+                } else if (dot) {
+                    Spacer(Modifier.weight(1f))
+                    UpdateDot(color = c.accent)
                 }
             }
         }
+        // 收成图标栏时没有文字行，圆点挪到右上角浮着。
+        // ⚠️ 必须挂在**外层 Box** 上：`Modifier.align` 在 Row 内容里是
+        // `RowScope.align`（只吃 `Alignment.Vertical`），传 `TopEnd` 编译不过。
+        if (collapsed && dot) {
+            Box(Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 10.dp)) {
+                UpdateDot(color = c.accent)
+            }
+        }
     }
+}
+
+/** 「有新版本」的小圆点。7dp 是侧栏里状态点一直用的尺寸，保持一致 */
+@Composable
+private fun UpdateDot(color: androidx.compose.ui.graphics.Color) {
+    Box(modifier = Modifier.size(7.dp).clip(RoundedCornerShape(4.dp)).background(color))
 }
 
 // ── 页头 ────────────────────────────────────────────────────────
