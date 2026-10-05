@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StuMate · 便签「标题 + 内容」多端验收页 v1.0</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 28px 56px;
+    font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    background:#0f0f10; color:#e8e8e8;
+  }
+  h1{font-size:24px;font-weight:600;margin:0 0 6px}
+  .lead{font-size:13px;line-height:20px;color:#a0a0a0;margin:0 0 26px;max-width:1040px}
+  h2.sec{font-size:15px;font-weight:600;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid #2e2e2e}
+  h3.sub{font-size:13px;font-weight:600;margin:20px 0 8px;color:#c5c5c5}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:0 0 8px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #2a2a2a;vertical-align:top}
+  th{font-weight:600;color:#c5c5c5;background:#1a1a1a}
+  code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:#242424;padding:1px 5px;border-radius:3px}
+  pre{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:18px;
+      background:#1a1a1a;border:1px solid #2e2e2e;border-radius:6px;padding:12px 14px;overflow-x:auto;color:#d0d0d0}
+  .ok{color:#6CCB5F;font-weight:600}
+  .bad{color:#FF99A4;font-weight:600}
+  .warn{color:#e0b341;font-weight:600}
+  .note{margin:12px 0 0;font-size:12px;line-height:18px;color:#a0a0a0;border-left:2px solid #404040;padding-left:10px}
+  figure{margin:0;border-radius:8px;border:1px solid #2e2e2e;overflow:hidden;background:#1a1a1a}
+  figure img{display:block;width:100%;height:auto}
+  figcaption{padding:10px 14px 12px;font-size:12px;line-height:17px;color:#a0a0a0}
+  figcaption b{color:#e8e8e8;font-weight:600}
+  ul{font-size:13px;line-height:21px;padding-left:20px;margin:6px 0}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .narrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;background:#1f3a22;color:#6CCB5F;margin-right:6px}
+  .pill.d{background:#2a2a2a;color:#a0a0a0}
+</style>
+</head>
+<body>
+
+<h1>便签「标题 + 内容」· 多端验收页 v1.0</h1>
+<p class="lead">
+  需求：<b>多端同步，让便签添加标题和内容功能，原先的内容直接加入标题。</b><br>
+  也就是给便签加一个 <code>content</code> 字段，把已有的 <code>text</code> <b>整段搬进 <code>title</code></b>，
+  两端（桌面 + 安卓）的数据模型、迁移、备份 / 同步编解码、UI 全部对齐。<br>
+  本页是这条改动的验收：<b>数据迁移</b>（老数据不丢）+ <b>界面</b>（三处列表 + 两处编辑器）+ <b>兼容</b>（老客户端不掉便签）。
+</p>
+
+<h2 class="sec">一、三条兼容决策</h2>
+<table>
+  <tr><th>问题</th><th>决策</th><th>理由</th></tr>
+  <tr>
+    <td>同步协议里 <code>text</code> 字段怎么办</td>
+    <td><b>保留 <code>text</code> 作镜像</b> —— 新端写 <code>title</code> + <code>content</code> + <code>text</code>(=<code>title</code>)</td>
+    <td>服务端把 <code>data</code> 当不透明 JSON 存（<code>JSON.stringify(input.data)</code>，只校验是对象且 &lt;1MB），
+        所以<b>服务端零改动</b>；但老客户端只认 <code>text</code>，不写镜像的话老端拉下来会<b>整条便签消失</b>。</td>
+  </tr>
+  <tr>
+    <td>列表怎么呈现</td>
+    <td><b>两行：标题 + 内容摘要</b>（内容为空时只渲染一行）</td>
+    <td>只显示标题会让「标题短、内容才是信息量」的便签退化成一行关键词。</td>
+  </tr>
+  <tr>
+    <td>校验规则</td>
+    <td><b>标题必填，内容可空</b></td>
+    <td>标题是列表里唯一的识别物。内容留空是有意义的（纯待办）。</td>
+  </tr>
+</table>
+<p class="note">
+  镜像字段是<b>过渡措施</b>，不是设计。等没有老客户端在跑之后，可以删掉 <code>text</code> 的写入，
+  只保留读取回退（<code>title.ifBlank { text }</code>）。这一步<b>这次没做</b>，见第七节。
+</p>
+
+<h2 class="sec">二、字段顺序是契约，不是随手排的</h2>
+<pre>id, <b>title</b>, <b>content</b>, position, createdAt, colorIndex, typeIndex,
+customLabel, deadlineAt, uid, updatedAt, deletedAt</pre>
+<p class="note">
+  <code>title</code> / <code>content</code> 插在 <code>position</code> <b>之前</b>，且两端字段顺序完全一致 ——
+  安卓端 Room 生成的建表 DDL 与桌面端手写 DDL 必须逐列对齐，否则同一份 <code>.db</code>
+  在两端之间搬运（备份 / 同步 / 手拷）会出现「列对不上但 SQLite 不报错」的静默错位。
+</p>
+
+<h2 class="sec">三、迁移：为什么两端都得「重建表」</h2>
+<p class="lead" style="margin-bottom:10px">
+  <code>notes</code> 表要 <b>改名一列（text→title）+ 新增一列（content）</b>。
+  Android <code>minSdk 21</code> 自带的 SQLite 是 <b>3.8.6</b>：
+  <code>ALTER TABLE … RENAME COLUMN</code> 要 3.25+、<code>DROP COLUMN</code> 要 3.35+ —— <b>两个都用不了</b>。
+  所以两端统一走<b>重建表</b>：
+</p>
+<pre>CREATE TABLE notes_new( … id, title, content, position, … );
+INSERT INTO notes_new(…) SELECT id, <b>text</b>, <b>''</b>, position, … FROM notes;   -- 老正文整段进 title
+DROP TABLE notes;
+ALTER TABLE notes_new RENAME TO notes;</pre>
+<ul>
+  <li>桌面端：<code>Db.kt</code> 的 <code>migrateToV9()</code>，<code>SCHEMA_VERSION = 8 → 9</code>，整段包在事务里。</li>
+  <li>安卓端：<code>AppDatabase</code> 的 <code>MIGRATION_8_9</code>，<code>@Database(version = 8 → 9)</code>。</li>
+  <li>两端都带 <code>if (!hasColumn("notes","text")) return</code> 的幂等守卫 —— 重跑不会把 <code>title</code> 再清一次。</li>
+  <li>建表语句<b>不写 <code>DEFAULT</code></b>，与 Room 生成的 DDL 保持一致（否则 <code>exportSchema=false</code> 下没法比对）。</li>
+</ul>
+
+<h2 class="sec">四、迁移实证 ①：桌面端（真 <code>Db.migrate()</code>，不是模拟）</h2>
+<p class="lead" style="margin-bottom:10px">
+  <code>tools/verify_v9_migration.py</code> 在沙箱目录 <code>F:/DownloadQQ/stumate-v9-migration</code> 里
+  造一个<b>真的 v8 库</b>（含一条带引号 + 换行的正文，专门试转义），
+  然后<b>启动真的 <code>UiPreview</code></b> 让生产代码的 <code>Db.migrate()</code> 自己跑，
+  最后断言列名、列序、行数、逐行内容。
+</p>
+<pre>user_version:  8 → <b>9</b>
+columns:       <b>text 消失</b>，title / content 出现，列序与两端契约完全一致
+rows:          5 / 5 保留
+per-row:       title == 老 text ；content == '' ；colorIndex / typeIndex / customLabel 原样
+特殊样本:      「引号」+ 内嵌换行 的正文完整落到 title，未截断、未转义出错
+<b>34 / 34 assertions OK</b></pre>
+
+<h2 class="sec">五、迁移实证 ②：安卓端（真机 v8 用户数据）</h2>
+<p class="lead" style="margin-bottom:10px">
+  模拟器上装的是<b>上一版 debug 包</b>（<code>versionCode=4 / 1.3-test</code>），
+  库里留着两条真实便签 —— 这是最理想的样本：不是造的，是<b>用出来的</b>。
+  装上新包、启动、停掉，再把库拉回 PC 对比：
+</p>
+<div class="pair">
+<pre style="margin:0">【迁移前】user_version 8
+cols = id, <b>text</b>, position, createdAt, colorIndex,
+       typeIndex, customLabel, deadlineAt, uid, updatedAt, deletedAt
+(171718367,  'vf',        …, deletedAt=0)
+(2099271165, 'Buy-milk',  …, deletedAt=1791006028927)</pre>
+<pre style="margin:0">【迁移后】user_version <b>9</b>
+cols = id, <b>title</b>, <b>content</b>, position, createdAt, colorIndex,
+       typeIndex, customLabel, deadlineAt, uid, updatedAt, deletedAt
+(171718367,  title='vf',       content='', …, deletedAt=0)
+(2099271165, title='Buy-milk', content='', …, deletedAt=1791006028927)</pre>
+</div>
+<p class="note">
+  逐列核对：<code>createdAt</code> / <code>uid</code> / <code>updatedAt</code> / <code>deletedAt</code> <b>全部原样</b>。
+  尤其是 <code>Buy-milk</code> 的 <code>deletedAt</code> 非 0 —— 它是<b>软删除</b>的便签，
+  迁移后依然保持软删除（所以在 UI 里看不到它，只看到 <code>vf</code>）。
+  <span class="ok">软删除状态没被迁移冲掉。</span>
+</p>
+
+<h2 class="sec">六、界面验收</h2>
+
+<h3 class="sub">6.1 桌面端（皮肤 B · Fluent）</h3>
+<div class="pair">
+  <figure>
+    <img src="notes-v14-desktop-migrated-light.png" alt="桌面端 · 迁移后（浅色）">
+    <figcaption><b>迁移后 · 浅色。</b>老数据整段进了标题列，表头已改为
+      <code>标题 / 内容</code>。<b>「买牛奶和面包」「预约图书馆研时间」只有一行</b> ——
+      因为它们没有内容，<code>content</code> 为空时第二行<b>整行不渲染</b>（不是渲染一个空行）。</figcaption>
+  </figure>
+  <figure>
+    <img src="notes-v14-desktop-list-dark.png" alt="桌面端 · 两行列表（深色）">
+    <figcaption><b>两行列表 · 深色。</b>标题 13sp <code>onSurface</code>，
+      内容 11.5sp <code>onSurfaceVariant</code>（复用 <code>HighlightSpec.titleColor</code> +
+      <code>alpha = 0.62f</code>，<b>没有新增 token</b>）。</figcaption>
+  </figure>
+</div>
+<div class="pair" style="margin-top:20px">
+  <figure>
+    <img src="notes-v14-desktop-editor-dark.png" alt="桌面端 · 编辑面板（深色）">
+    <figcaption><b>编辑面板 · 深色。</b>「标题」单行输入 +「内容」多行输入。
+      表单整体包在 <code>Column(Modifier.weight(1f).verticalScroll(…))</code> 里，
+      <b>「删除 / 取消 / 保存」钉在面板底部</b> —— 窗口压到最小 600dp 高时按钮不会跑出可视区。</figcaption>
+  </figure>
+  <figure>
+    <img src="notes-v14-desktop-editor-light.png" alt="桌面端 · 新建面板（浅色）">
+    <figcaption><b>新建面板 · 浅色。</b>标题为空时保存按钮不可用（截图里是新建态）。</figcaption>
+  </figure>
+</div>
+
+<h3 class="sub">6.2 安卓端 · 手机竖屏</h3>
+<div class="narrow">
+  <figure>
+    <img src="notes-v14-android-phone-migrated.png" alt="安卓 · 迁移后列表">
+    <figcaption><b>迁移后。</b>真机 v8 库里那条 <code>vf</code> 现在是<b>标题</b>，内容为空 → 单行。</figcaption>
+  </figure>
+  <figure>
+    <img src="notes-v14-android-dialog-empty.png" alt="安卓 · 新建弹窗（空）">
+    <figcaption><b>新建弹窗 · 空。</b>「标题」自动获焦（蓝框），
+      <b>「保存」是灰的</b> —— 标题必填。</figcaption>
+  </figure>
+  <figure>
+    <img src="notes-v14-android-dialog-filled.png" alt="安卓 · 新建弹窗（已填）">
+    <figcaption><b>填完。</b>标题 + 内容都填上，<b>「保存」变蓝可用</b>。</figcaption>
+  </figure>
+  <figure>
+    <img src="notes-v14-android-list-twoline.png" alt="安卓 · 两行列表">
+    <figcaption><b>保存后。</b>新便签两行；老便签 <code>vf</code> 单行。
+      <b>同一列表里两种形态共存</b>，正是「内容可空」该有的样子。</figcaption>
+  </figure>
+</div>
+<p class="note">
+  安卓端标题 15sp / 内容 12sp（<code>alpha 0.62f</code>，与桌面端同一个比值），都限 <code>maxLines = 1</code>。
+  弹窗里「内容」<code>maxLines = 6</code>、最小高 72dp。
+  <br>⚠️ 截图里的文字是 ASCII：<code>adb shell input text</code> 不吃非 ASCII，中文只能靠 IME。
+  要截中文效果图得直接写库（本页不做）。
+</p>
+
+<h3 class="sub">6.3 安卓端 · 平板</h3>
+<div class="pair">
+  <figure>
+    <img src="notes-v14-android-tablet-landscape-detail.png" alt="安卓 · 平板横屏双栏详情">
+    <figcaption><b>平板横屏 1280dp（侧栏 + 双栏）。</b>左栏列表两行；
+      右栏详情：<b>「便签详情」小标 + 标题 20sp SemiBold（最多 2 行）+
+      一条 <code>outlineVariant</code> 分隔线 + 正文</b>。正文为空时显示
+      「这条便签没有正文」而不是留白。</figcaption>
+  </figure>
+  <figure>
+    <img src="notes-v14-android-tablet-portrait.png" alt="安卓 · 平板竖屏">
+    <figcaption><b>平板竖屏 800dp。</b>只换侧栏、<b>不开双栏</b>（便签断点是 900dp）。
+      两行列表在宽屏下不换行、不溢出。</figcaption>
+  </figure>
+</div>
+
+<h3 class="sub">6.4 安卓端 · 浅色主题 + 今天页</h3>
+<div class="pair">
+  <figure>
+    <img src="notes-v14-android-light-today.png" alt="安卓 · 今天页便签摘要（浅色）">
+    <figcaption><b>今天页 · 浅色。</b>「便签 · 2 条」下面每一条也是
+      <b>标题 + 内容摘要两行</b> —— 今天页的 <code>NoteSummaryRow</code> 与便签页
+      走的是同一套排版，两处不能只改一处。</figcaption>
+  </figure>
+  <figure style="display:flex;align-items:center;justify-content:center;background:#141414">
+    <div style="padding:24px;font-size:12px;line-height:20px;color:#a0a0a0">
+      <b style="color:#e8e8e8;font-size:13px">浅色主题是同一套代码</b><br><br>
+      安卓端跟随系统深色模式（<code>cmd uimode night</code>），
+      标题用 <code>onSurface</code>、内容用 <code>onSurfaceVariant</code>，
+      两行在浅底上同样分得开。<br><br>
+      桌面端皮肤 B 的浅 / 深两套 token 已在 6.1 各给了一张。
+    </div>
+  </figure>
+</div>
+
+<h2 class="sec">七、测试与构建</h2>
+<table>
+  <tr><th>项</th><th>命令 / 环境</th><th>结果</th></tr>
+  <tr>
+    <td>桌面端单测</td>
+    <td><code>./gradlew --offline test</code></td>
+    <td class="ok">163 / 163（原 160，+3）</td>
+  </tr>
+  <tr>
+    <td>桌面端 v8→v9 迁移</td>
+    <td><code>tools/verify_v9_migration.py</code></td>
+    <td class="ok">34 / 34 断言通过</td>
+  </tr>
+  <tr>
+    <td>安卓端单测</td>
+    <td><code>gradle --offline testDebugUnitTest</code></td>
+    <td class="ok">156 / 156（原 153，+3）</td>
+  </tr>
+  <tr>
+    <td>安卓端编译</td>
+    <td><code>gradle --offline assembleDebug</code></td>
+    <td class="ok">BUILD SUCCESSFUL（38s）</td>
+  </tr>
+  <tr>
+    <td>安卓端真机迁移</td>
+    <td>装新包 → 启动 → 停 → 拉库比对</td>
+    <td class="ok">user_version 8→9，2 条便签标题迁移，软删除保留</td>
+  </tr>
+  <tr>
+    <td>服务端</td>
+    <td>—</td>
+    <td class="ok">零改动（<code>data</code> 是不透明 JSON）</td>
+  </tr>
+</table>
+
+<h3 class="sub">新增的 3 条兼容性单测（两端各一份，逻辑一致）</h3>
+<ul>
+  <li><code>legacyBackupWithoutTitleFallsBackToText</code> —— 老备份（只有 <code>text</code>）能被新端读出，进 <code>title</code>。</li>
+  <li><code>titleWinsOverLegacyTextField</code> —— 两个字段都在时<b>以 <code>title</code> 为准</b>（镜像字段不能反过来覆盖真值）。</li>
+  <li><code>encodedNotesKeepLegacyTextFieldAsTitleMirror</code> —— 断言<b>原始 JSON 里确实有</b> <code>"text":"交作业"</code>，
+      不是只断言反序列化结果（否则镜像写没写根本测不出来）。</li>
+</ul>
+<p class="note">
+  <code>encodeNotes</code> / <code>decodeNotes</code> 是<b>备份与同步共用的同一份编解码</b>
+  （<code>entity = "note"</code>，<code>data</code> 存整条记录）。所以这 3 条测试
+  同时覆盖了「备份文件能不能被新端打开」和「云同步拉下来会不会丢便签」两件事。
+</p>
+
+<h2 class="sec">八、这次没做 / 已知遗留</h2>
+<table>
+  <tr><th>项</th><th>状态</th></tr>
+  <tr>
+    <td>删掉 <code>text</code> 镜像写入</td>
+    <td><span class="warn">故意留着</span> —— 老客户端还在跑。等确认无老端后再做，见第一节。</td>
+  </tr>
+  <tr>
+    <td>便签「拖动排序 / 大力拖动移除」</td>
+    <td><span class="pill d">不在本次范围</span> 用户明确暂缓。</td>
+  </tr>
+  <tr>
+    <td>内容支持富文本 / 换行预览</td>
+    <td><span class="pill d">不在本次范围</span> 列表里内容固定 1 行 + 省略号；详情页可看全文。</td>
+  </tr>
+  <tr>
+    <td>桌面端 <code>syncSmoke</code> 端到端</td>
+    <td><span class="warn">本次未跑</span> —— 协议层没动，镜像字段只影响 <code>data</code> 内部结构。</td>
+  </tr>
+</table>
+
+<h2 class="sec">九、改了哪些文件</h2>
+<table>
+  <tr><th>层</th><th>桌面端</th><th>安卓端</th></tr>
+  <tr>
+    <td>实体 / 表</td>
+    <td><code>data/NoteEntity.kt</code>、<code>data/Db.kt</code>（+<code>migrateToV9</code>）</td>
+    <td><code>data/NoteEntity.kt</code>、<code>data/AppDatabase.kt</code>（+<code>MIGRATION_8_9</code>）</td>
+  </tr>
+  <tr>
+    <td>DAO</td>
+    <td><code>data/NoteDao.kt</code>、<code>data/SyncDao.kt</code></td>
+    <td>Room DAO（随实体自动）</td>
+  </tr>
+  <tr>
+    <td>编解码</td>
+    <td><code>data/backup/Backup.kt</code>（<code>SCHEMA 2 → 3</code>）</td>
+    <td><code>data/backup/Backup.kt</code>（<code>SCHEMA 2 → 3</code>）</td>
+  </tr>
+  <tr>
+    <td>ViewModel</td>
+    <td><code>data/MainViewModel.kt</code>（<code>addNote</code> / <code>updateNote</code>）</td>
+    <td><code>data/MainViewModel.kt</code>（同签名）</td>
+  </tr>
+  <tr>
+    <td>UI</td>
+    <td><code>ui/fluent/NotesPage.kt</code>、<code>ui/fluent/TodayPage.kt</code>、<code>ui/fluent/AppShell.kt</code></td>
+    <td><code>ui/MainScreen.kt</code>、<code>ui/TodayScreen.kt</code></td>
+  </tr>
+  <tr>
+    <td>工具 / 测试</td>
+    <td><code>tools/seed_demo.py</code>、<code>tools/verify_v9_migration.py</code>（新）、3 个测试文件</td>
+    <td><code>tools/shoot_notes_v14.py</code>（新）、3 个测试文件</td>
+  </tr>
+</table>
+<p class="note">
+  两端代码<b>一行都不共享</b>（包名相同但是两个独立工程），所以上面每一行都是<b>各写了一遍</b>。
+  这是本项目的既定约束，不是遗漏。
+</p>
+
+</body>
+</html>

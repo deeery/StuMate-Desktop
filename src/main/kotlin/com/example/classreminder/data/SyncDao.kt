@@ -76,12 +76,12 @@ class SyncDao {
         c.exec(
             """
             INSERT OR REPLACE INTO notes
-                (id, text, position, createdAt, colorIndex, typeIndex, customLabel, deadlineAt,
-                 uid, updatedAt, deletedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, title, content, position, createdAt, colorIndex, typeIndex, customLabel,
+                 deadlineAt, uid, updatedAt, deletedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
-            entity.id, entity.text, entity.position, entity.createdAt, entity.colorIndex,
-            entity.typeIndex, entity.customLabel, entity.deadlineAt,
+            entity.id, entity.title, entity.content, entity.position, entity.createdAt,
+            entity.colorIndex, entity.typeIndex, entity.customLabel, entity.deadlineAt,
             entity.uid, entity.updatedAt, entity.deletedAt
         )
     }

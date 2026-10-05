@@ -57,12 +57,13 @@ private fun java.sql.Connection.insertNote(note: NoteEntity) {
     exec(
         """
         INSERT OR REPLACE INTO notes
-            (id, text, position, createdAt, colorIndex, typeIndex, customLabel, deadlineAt,
-         uid, updatedAt, deletedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, title, content, position, createdAt, colorIndex, typeIndex, customLabel,
+         deadlineAt, uid, updatedAt, deletedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent(),
         note.id,
-        note.text,
+        note.title,
+        note.content,
         note.position,
         note.createdAt,
         note.colorIndex,
@@ -80,7 +81,8 @@ internal fun ResultSet.readNotes(): List<NoteEntity> {
     while (next()) {
         out += NoteEntity(
             id = getInt("id"),
-            text = getString("text").orEmpty(),
+            title = getString("title").orEmpty(),
+            content = getString("content").orEmpty(),
             position = getInt("position"),
             createdAt = getLong("createdAt"),
             colorIndex = getInt("colorIndex"),

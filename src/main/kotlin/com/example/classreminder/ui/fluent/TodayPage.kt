@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.classreminder.Prefs
@@ -395,16 +396,36 @@ private fun NoteSummaryRow(note: NoteEntity, now: Long, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(40.dp)
+            // 标题 + 正文摘要两行时高度自适应；只有标题的便签仍保持 40dp 的紧凑行高
+            .heightIn(min = 40.dp)
             .background(if (hovered) c.hover else Color.Transparent)
             .hoverable(interaction)
             .clickable(interaction, indication = null) { onClick() }
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(width = 3.dp, height = 18.dp).clip(RoundedCornerShape(2.dp)).background(fluentNoteColor(note.colorIndex)))
         Spacer(Modifier.width(10.dp))
-        FlOneLine(note.text, 13.sp, c.onSurface, Modifier.weight(1f))
+        // 标题为主、正文为辅。正文为空时第二行整个不占位 ——
+        // 与便签页表格同一条规则，行高才不会忽高忽低
+        Column(Modifier.weight(1f)) {
+            Text(
+                note.title,
+                fontSize = 13.sp,
+                color = c.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (note.content.isNotBlank()) {
+                Text(
+                    note.content,
+                    fontSize = 11.5.sp,
+                    color = c.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
         Spacer(Modifier.width(8.dp))
         val label = note.typeLabel()
         if (label.isNotEmpty()) {

@@ -32,8 +32,14 @@ object BackupFormat {
      *
      * v1 → v2：同步元数据（uid / updatedAt / deletedAt）。**三个字段全部可选**，
      * 导入 v1 旧备份时缺什么就取默认值（uid 空串 → 由 DAO 落库时补一个），旧文件继续可读。
+     *
+     * v2 → v3：便签的 `text` 拆成 `title` + `content`。
+     * 读旧文件时 `title` 缺失 → 回退读 `text`（老便签整条文本就是标题），`content` 取空串。
+     * 写新文件时**同时输出 `title` 与 `text`**（`text` 是 `title` 的镜像）——
+     * 这是给「还没升级的旧客户端」留的兼容口：它们的解码器只认 `text`，
+     * 且有个「`text` 为空就跳过这条」的守卫，镜像缺了它们会把便签整批丢掉。
      */
-    const val SCHEMA = 2
+    const val SCHEMA = 3
 
     /** 导出文件的默认名（不含扩展名），后面接日期 */
     const val FILE_PREFIX = "StuMate-backup"
@@ -189,7 +195,12 @@ object BackupCodec {
             list.map { n ->
                 jsonObject(
                     "id" to n.id.toJson(),
-                    "text" to n.text.toJson(),
+                    "title" to n.title.toJson(),
+                    "content" to n.content.toJson(),
+                    // ⚠️ 兼容字段，**不是**笔误：`text` 是 `title` 的镜像，
+                    // 专供还没升级的旧客户端读取（详见 [BackupFormat.SCHEMA]）。
+                    // 新代码永远不读它 —— 解码侧只在 `title` 缺失时才回退到它。
+                    "text" to n.title.toJson(),
                     "position" to n.position.toJson(),
                     "createdAt" to n.createdAt.toJson(),
                     "colorIndex" to n.colorIndex.toJson(),
@@ -208,12 +219,15 @@ object BackupCodec {
         val items = (value as? JsonValue.Obj)?.array("items") ?: return emptyList()
         return items.mapNotNull { item ->
             val o = item as? JsonValue.Obj ?: return@mapNotNull null
-            val text = o.str("text")
-            // 空内容的便签没有意义（UI 上也是拒绝保存的）
-            if (text.isBlank()) return@mapNotNull null
+            // v3 起读 `title`；v2 及更早的备份里没有这一列，回退到 `text`
+            // （那时 `text` 存的就是便签全文，按约定整条进标题）。
+            val title = o.str("title").ifBlank { o.str("text") }
+            // 空标题的便签没有意义（UI 上也是拒绝保存的）
+            if (title.isBlank()) return@mapNotNull null
             NoteEntity(
                 id = o.int("id"),
-                text = text,
+                title = title,
+                content = o.str("content"),
                 position = o.int("position"),
                 createdAt = o.long("createdAt"),
                 colorIndex = o.int("colorIndex"),

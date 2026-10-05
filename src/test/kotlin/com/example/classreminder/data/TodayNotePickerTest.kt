@@ -23,7 +23,7 @@ class TodayNotePickerTest {
         customLabel: String = ""
     ) = NoteEntity(
         id = id,
-        text = "便签 $id",
+        title = "便签 $id",
         position = position,
         colorIndex = 0,
         typeIndex = typeIndex,

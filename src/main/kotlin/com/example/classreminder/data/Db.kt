@@ -22,8 +22,12 @@ import java.sql.Statement
  */
 object Db {
 
-    /** 与安卓端 Room 的 version 对齐（v7：classes 10 列 + notes 8 列；v8 各再加 3 列同步元数据） */
-    const val SCHEMA_VERSION = 8
+    /**
+     * 与安卓端 Room 的 version 对齐。
+     * v7：classes 10 列 + notes 8 列；v8：各再加 3 列同步元数据；
+     * v9：notes 的 `text` 拆成 `title` + `content`。
+     */
+    const val SCHEMA_VERSION = 9
 
     private val gate = Mutex()
 
@@ -63,8 +67,9 @@ object Db {
         // 全新库直接建到最新版；桌面端是新库，不存在安卓端那 2→3…6→7 的历史迁移
         if (current < 1) {
             createTables(c)
-        } else if (current < 8) {
-            migrateToV8(c)
+        } else {
+            if (current < 8) migrateToV8(c)
+            if (current < 9) migrateToV9(c)
         }
         c.createStatement().use { it.execute("PRAGMA user_version = $SCHEMA_VERSION") }
     }
@@ -84,13 +89,73 @@ object Db {
         }
     }
 
-    private fun addColumnIfMissing(c: Connection, table: String, column: String, declaration: String) {
-        val exists = c.query("PRAGMA table_info(`$table`)") { rs ->
+    /**
+     * v8 → v9：把便签的单字段 `text` 拆成 `title` + `content`。
+     *
+     * **只能重建表，不能只 `ADD COLUMN`** —— 这次要的不是「多两列」而是「少一列」。
+     * SQLite 到 3.25 才有 `RENAME COLUMN`、3.35 才有 `DROP COLUMN`，
+     * 而安卓端 minSdk 21 自带的是 3.8.6；两端要维持「`.db` 可互开」，
+     * 迁移写法就必须一致 —— 所以两边都走标准的
+     * 「建新表 → 搬数据 → 删旧表 → 改名」。
+     *
+     * 搬运规则：`title = text`、`content = ''`。
+     * 用户的原话是「原先的内容直接加入标题」，所以老便签整条文本落进标题，
+     * 正文从空串起步 —— 不会有「迁移后标题为空」的存量数据。
+     *
+     * ⚠️ 整段包在一个事务里。中途失败必须整体回滚：
+     * 否则会留下「`user_version` 已写成 9、但列还是旧结构」的库，
+     * 下次启动直接跳过迁移，之后每次查询都报 no such column。
+     */
+    private fun migrateToV9(c: Connection) {
+        // 全新库走的是 createTables（已是新结构），或本函数被重复调用
+        if (!c.hasColumn("notes", "text")) return
+        c.transaction {
+            c.ddl(
+                """
+                CREATE TABLE `notes_new`(
+                    `id` INTEGER NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `content` TEXT NOT NULL,
+                    `position` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `colorIndex` INTEGER NOT NULL,
+                    `typeIndex` INTEGER NOT NULL,
+                    `customLabel` TEXT NOT NULL,
+                    `deadlineAt` INTEGER NOT NULL,
+                    `uid` TEXT NOT NULL DEFAULT '',
+                    `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                    `deletedAt` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+            c.ddl(
+                """
+                INSERT INTO `notes_new`
+                    (`id`, `title`, `content`, `position`, `createdAt`, `colorIndex`,
+                     `typeIndex`, `customLabel`, `deadlineAt`, `uid`, `updatedAt`, `deletedAt`)
+                SELECT `id`, `text`, '', `position`, `createdAt`, `colorIndex`,
+                       `typeIndex`, `customLabel`, `deadlineAt`, `uid`, `updatedAt`, `deletedAt`
+                FROM `notes`
+                """.trimIndent()
+            )
+            c.ddl("DROP TABLE `notes`")
+            c.ddl("ALTER TABLE `notes_new` RENAME TO `notes`")
+        }
+    }
+
+    /** 表里有没有这一列。`PRAGMA table_info` 是 SQLite 唯一可靠的「列存在性」查询 */
+    private fun Connection.hasColumn(table: String, column: String): Boolean =
+        query("PRAGMA table_info(`$table`)") { rs ->
             var found = false
             while (rs.next()) if (rs.getString("name") == column) found = true
             found
         }
-        if (!exists) c.ddl("ALTER TABLE `$table` ADD COLUMN `$column` $declaration")
+
+    private fun addColumnIfMissing(c: Connection, table: String, column: String, declaration: String) {
+        if (!c.hasColumn(table, column)) {
+            c.ddl("ALTER TABLE `$table` ADD COLUMN `$column` $declaration")
+        }
     }
 
     private fun backfillUids(c: Connection, table: String) {
@@ -133,7 +198,8 @@ object Db {
                 """
                 CREATE TABLE IF NOT EXISTS `notes`(
                     `id` INTEGER NOT NULL,
-                    `text` TEXT NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `content` TEXT NOT NULL,
                     `position` INTEGER NOT NULL,
                     `createdAt` INTEGER NOT NULL,
                     `colorIndex` INTEGER NOT NULL,

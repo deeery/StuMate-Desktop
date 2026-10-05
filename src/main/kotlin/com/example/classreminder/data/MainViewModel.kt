@@ -214,6 +214,10 @@ class MainViewModel {
     /**
      * 新增便签。
      *
+     * [title] **必填**，空标题直接返回不落库 —— 便签的列表行、今天页摘要、
+     * 右栏详情都以标题为锚点，允许空标题会让这些位置出现一条「没有名字」的条目。
+     * [content] 可为空：只有标题的便签是合法的。
+     *
      * [aboveNoteId] 能在库里找到时，新便签插到这条便签的**上方**（首页选中某条便签后新建就走这条路）；
      * 传 null 或找不到就置顶。
      *
@@ -224,15 +228,16 @@ class MainViewModel {
      * 统一用 [sanitizeType] 归一，避免 UI 传进来越界下标或「非 Deadline 却带着时刻」这类脏组合。
      */
     fun addNote(
-        text: String,
+        title: String,
+        content: String = "",
         aboveNoteId: Int? = null,
         colorIndex: Int = DEFAULT_NOTE_COLOR,
         typeIndex: Int = NOTE_TYPE_NONE,
         customLabel: String = "",
         deadlineAt: Long = 0L
     ) {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return
+        val trimmedTitle = title.trim()
+        if (trimmedTitle.isEmpty()) return
         val type = sanitizeType(typeIndex, customLabel, deadlineAt)
         mutateNotes {
             val current = noteDao.getAll()
@@ -240,7 +245,8 @@ class MainViewModel {
             val insertIndex = if (anchor >= 0) anchor else 0
             val fresh = NoteEntity(
                 id = newNoteId(),
-                text = trimmed,
+                title = trimmedTitle,
+                content = content.trim(),
                 position = insertIndex,
                 createdAt = System.currentTimeMillis(),
                 colorIndex = colorIndex.coerceIn(0, NOTE_COLOR_COUNT - 1),
@@ -256,26 +262,31 @@ class MainViewModel {
     }
 
     /**
-     * 改便签的文字、颜色与分类，顺序不动。
+     * 改便签的标题 / 正文、颜色与分类，顺序不动。
      *
-     * 文字为空时**只改颜色 / 分类**、保留原文 —— 用户可能只想换个色号或挂个标签，
-     * 不该因为输入框被清空就丢掉内容（保存按钮的 enabled 也按这个语义来）。
+     * **标题与正文的空值语义刻意不同**：
+     *  - 标题为空 → 保留原标题。标题是必填项，输入框被清空多半只是用户改到一半，
+     *    不该因此把标题丢掉（保存按钮的 enabled 也按这个语义来）。
+     *  - 正文为空 → **真的清空**。删掉正文是一个用户主动表达的合法意图，
+     *    沿用「空就保留旧值」会让用户永远删不掉正文。
      */
     fun updateNote(
         id: Int,
-        text: String,
+        title: String,
+        content: String,
         colorIndex: Int,
         typeIndex: Int = NOTE_TYPE_NONE,
         customLabel: String = "",
         deadlineAt: Long = 0L
     ) {
-        val trimmed = text.trim()
+        val trimmedTitle = title.trim()
+        val nextContent = content.trim()
         val color = colorIndex.coerceIn(0, NOTE_COLOR_COUNT - 1)
         val type = sanitizeType(typeIndex, customLabel, deadlineAt)
         val before = _notes.value.firstOrNull { it.id == id } ?: return
-        // 内容和颜色/分类都没变就别占一格回撤
-        val nextText = trimmed.ifEmpty { before.text }
-        if (before.text == nextText && before.colorIndex == color &&
+        // 什么都没变就别占一格回撤
+        val nextTitle = trimmedTitle.ifEmpty { before.title }
+        if (before.title == nextTitle && before.content == nextContent && before.colorIndex == color &&
             before.typeIndex == type.first && before.customLabel == type.second &&
             before.deadlineAt == type.third
         ) return
@@ -283,7 +294,8 @@ class MainViewModel {
             val current = noteDao.getById(id) ?: return@mutateNotes
             noteDao.insert(
                 current.copy(
-                    text = nextText,
+                    title = nextTitle,
+                    content = nextContent,
                     colorIndex = color,
                     typeIndex = type.first,
                     customLabel = type.second,

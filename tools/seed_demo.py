@@ -30,15 +30,18 @@ COURSES = [
     ("编译原理", "Friday", "14:20", "15:55", "计算机楼 405", "郑楠", "1-16周"),
 ]
 
-# (text, colorIndex, typeIndex, customLabel, deadlineOffsetDays)
+# (title, content, colorIndex, typeIndex, customLabel, deadlineOffsetDays)
+#
+# 刻意留两条 content 为空 —— 用来验证「只有标题的便签，第二行整个不占位」，
+# 否则截图里看不出行高有没有忽高忽低。
 NOTES = [
-    ("周五前交实验报告", 5, 4, "", 2),        # Deadline
-    ("复习高数第三章：多元函数微分", 0, 3, "", None),
-    ("买牛奶和面包", 2, 2, "", None),
-    ("读完《人类简史》第 4 章", 6, 5, "读书", None),
-    ("预约图书馆研讨间", 1, 1, "", None),
-    ("准备下周的英语演讲", 3, 4, "", 5),       # Deadline
-    ("交社团报名表", 4, 6, "社团", 1),         # Deadline 自定义
+    ("交实验报告", "周五前交到教二 305，记得带上第三、四章的实验数据", 5, 4, "", 2),   # Deadline
+    ("复习高数第三章", "多元函数微分：偏导、全微分、极值判定", 0, 3, "", None),
+    ("买牛奶和面包", "", 2, 2, "", None),
+    ("读完《人类简史》第 4 章", "重点看认知革命那一节，做两页笔记", 6, 5, "读书", None),
+    ("预约图书馆研讨间", "", 1, 1, "", None),
+    ("准备英语演讲", "题目：AI 与教育。先写 5 分钟提纲，再录一遍听节奏", 3, 4, "", 5),  # Deadline
+    ("交社团报名表", "交给宣传部李学姐，报名费 30 元", 4, 6, "社团", 1),               # Deadline 自定义
 ]
 
 
@@ -82,16 +85,16 @@ def seed():
         )
 
     now = dt.datetime.now()
-    for i, (text, color, type_index, custom, deadline_days) in enumerate(NOTES):
+    for i, (title, content, color, type_index, custom, deadline_days) in enumerate(NOTES):
         deadline = 0
         if deadline_days is not None:
             target = now + dt.timedelta(days=deadline_days)
             deadline = int(target.timestamp() * 1000)
         cur.execute(
             "INSERT OR REPLACE INTO notes"
-            "(id,text,position,createdAt,colorIndex,typeIndex,customLabel,deadlineAt)"
-            " VALUES(?,?,?,?,?,?,?,?)",
-            (base + 1000 + i, text, i, int(now.timestamp() * 1000), color, type_index, custom, deadline),
+            "(id,title,content,position,createdAt,colorIndex,typeIndex,customLabel,deadlineAt)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (base + 1000 + i, title, content, i, int(now.timestamp() * 1000), color, type_index, custom, deadline),
         )
 
     conn.commit()

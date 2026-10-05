@@ -69,7 +69,15 @@ fun AppShell(
      * 起始页面。生产调用点永远不传（固定落在 [AppPage.TODAY]）；只有 `dev/UiPreview`
      * 截图工具会指定它 —— 验收环境里鼠标注入不可用，没法「点」到设置页去。
      */
-    initialPage: AppPage? = null
+    initialPage: AppPage? = null,
+    /**
+     * 预览专用：进便签页时直接摆出右侧编辑面板。
+     * `"create"` = 新建（两个输入框都是空的）；`"edit"` = 选中第一条便签。
+     *
+     * 同样是因为验收环境点不动鼠标 —— 「新建便签」按钮和表格行都点不到，
+     * 只能由预览进程把目标状态直接摆出来。生产调用点不传。
+     */
+    previewNotesEditor: String? = null
 ) {
     val c = FluentTheme.colors
     // 启动一律落在「今日」。
@@ -107,7 +115,11 @@ fun AppShell(
                         onRequestNewClass = { newClassRequest += 1 },
                         onOpenClass = { editingClass = it }
                     )
-                    AppPage.NOTES -> NotesPage(viewModel)
+                    AppPage.NOTES -> NotesPage(
+                        viewModel,
+                        initialCreating = previewNotesEditor == "create",
+                        initialSelectedFirst = previewNotesEditor == "edit"
+                    )
                     AppPage.SETTINGS -> FluentSettingsPage(
                         viewModel = viewModel,
                         themeModeOrdinal = themeModeOrdinal,

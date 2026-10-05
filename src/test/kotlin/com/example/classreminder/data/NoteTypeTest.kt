@@ -178,7 +178,7 @@ class NoteTypeTest {
         deadlineAt: Long = 0L
     ) = NoteEntity(
         id = 1,
-        text = "测试",
+        title = "测试",
         position = 0,
         typeIndex = typeIndex,
         customLabel = customLabel,

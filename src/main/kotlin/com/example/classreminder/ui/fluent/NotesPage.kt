@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
@@ -93,7 +95,19 @@ private val ACTION_COL_WIDTH = 64.dp
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun NotesPage(viewModel: MainViewModel) {
+fun NotesPage(
+    viewModel: MainViewModel,
+    /**
+     * 预览专用：一进来就打开右侧编辑面板（空的新建表单）。
+     * 验收环境鼠标注入不可用，点不到「新建便签」按钮 —— 见 [AppShell.previewNotesEditor]。
+     */
+    initialCreating: Boolean = false,
+    /**
+     * 预览专用：一进来就选中第一条便签，于是编辑面板里是**已填好**的标题与正文。
+     * 和 [initialCreating] 二选一，用来分别验「空表单」和「回填」两种状态。
+     */
+    initialSelectedFirst: Boolean = false
+) {
     val c = FluentTheme.colors
     val notes by viewModel.notes.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
@@ -102,13 +116,25 @@ fun NotesPage(viewModel: MainViewModel) {
     var typeFilter by remember { mutableStateOf(-1) }
     var sortByDeadline by remember { mutableStateOf(false) }
     var selectedId by remember { mutableStateOf<Int?>(null) }
-    var creating by remember { mutableStateOf(false) }
+    var creating by remember { mutableStateOf(initialCreating) }
     var filterMenu by remember { mutableStateOf(false) }
     var menuNoteId by remember { mutableStateOf<Int?>(null) }
 
+    // 便签是异步从库里读出来的，第一帧还是空的 —— 所以要等 notes 到货再挑第一条
+    LaunchedEffect(notes, initialSelectedFirst) {
+        if (initialSelectedFirst && selectedId == null) selectedId = notes.firstOrNull()?.id
+    }
+
     val filtered = remember(notes, search, typeFilter, sortByDeadline) {
         var list = notes
-        if (search.isNotBlank()) list = list.filter { it.text.contains(search, ignoreCase = true) }
+        // 标题和正文**都参与匹配**：用户记不清一句话写在标题还是正文里，
+        // 只搜其中一个就会出现「明明记得写过却搜不到」
+        if (search.isNotBlank()) {
+            list = list.filter {
+                it.title.contains(search, ignoreCase = true) ||
+                    it.content.contains(search, ignoreCase = true)
+            }
+        }
         if (typeFilter >= 0) list = list.filter { it.typeIndex == typeFilter }
         if (sortByDeadline) {
             list = list.sortedWith(
@@ -245,11 +271,11 @@ fun NotesPage(viewModel: MainViewModel) {
                 NoteEditorPanel(
                     key = if (creating) "new" else "edit-${selected!!.id}",
                     initial = if (creating) null else selected,
-                    onSave = { text, colorIndex, typeIndex, customLabel, deadlineAt ->
+                    onSave = { title, content, colorIndex, typeIndex, customLabel, deadlineAt ->
                         if (creating) {
-                            viewModel.addNote(text, null, colorIndex, typeIndex, customLabel, deadlineAt)
+                            viewModel.addNote(title, content, null, colorIndex, typeIndex, customLabel, deadlineAt)
                         } else {
-                            viewModel.updateNote(selected!!.id, text, colorIndex, typeIndex, customLabel, deadlineAt)
+                            viewModel.updateNote(selected!!.id, title, content, colorIndex, typeIndex, customLabel, deadlineAt)
                         }
                         creating = false
                     },
@@ -272,7 +298,7 @@ private fun NoteTableHeader() {
     ) {
         Spacer(Modifier.width(GRIP_WIDTH))
         Spacer(Modifier.width(COLOR_COL_WIDTH))
-        Text("内容", modifier = Modifier.weight(1f), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = c.onSurfaceFaint)
+        Text("标题 / 内容", modifier = Modifier.weight(1f), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = c.onSurfaceFaint)
         Text("分类", modifier = Modifier.width(TYPE_COL_WIDTH), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = c.onSurfaceFaint)
         Text("截止", modifier = Modifier.width(DEADLINE_COL_WIDTH), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = c.onSurfaceFaint)
         Spacer(Modifier.width(ACTION_COL_WIDTH))
@@ -371,14 +397,25 @@ private fun NoteTableRow(
                 )
             }
 
+            // 标题 + 正文摘要两行。正文为空时**第二行整个不占位** ——
+            // 否则只有标题的便签下面会挂一段空白，表格行高看起来忽高忽低。
             Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
                 Text(
-                    note.text,
+                    note.title,
                     fontSize = 13.sp,
                     color = c.onSurface,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (note.content.isNotBlank()) {
+                    Text(
+                        note.content,
+                        fontSize = 11.5.sp,
+                        color = c.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             Box(Modifier.width(TYPE_COL_WIDTH)) {
@@ -449,14 +486,15 @@ private fun NoteTableRow(
 private fun NoteEditorPanel(
     key: String,
     initial: NoteEntity?,
-    onSave: (String, Int, Int, String, Long) -> Unit,
+    onSave: (String, String, Int, Int, String, Long) -> Unit,
     onDelete: (() -> Unit)?,
     onCancel: () -> Unit
 ) {
     val c = FluentTheme.colors
     val d = FluentTheme.dimens
 
-    var text by remember(key) { mutableStateOf(initial?.text ?: "") }
+    var title by remember(key) { mutableStateOf(initial?.title ?: "") }
+    var content by remember(key) { mutableStateOf(initial?.content ?: "") }
     var colorIndex by remember(key) { mutableStateOf(initial?.colorIndex ?: 0) }
     var typeIndex by remember(key) { mutableStateOf(initial?.typeIndex ?: 0) }
     var customLabel by remember(key) { mutableStateOf(initial?.customLabel ?: "") }
@@ -466,7 +504,9 @@ private fun NoteEditorPanel(
 
     val type = noteTypeAt(typeIndex)
     val isDeadline = type.kind == NoteTypeKind.DEADLINE
-    val canSave = text.isNotBlank() || initial != null
+    // 编辑已有便签时永远可保存：标题留空会**保留原标题**（见 MainViewModel.updateNote），
+    // 所以「清空标题」不是非法输入，用户可能只是想改个颜色
+    val canSave = title.isNotBlank() || initial != null
 
     Column(
         modifier = Modifier
@@ -483,114 +523,134 @@ private fun NoteEditorPanel(
         )
         Spacer(Modifier.height(14.dp))
 
-        FlSectionLabel("内容")
-        Spacer(Modifier.height(6.dp))
-        FlTextField(
-            value = text,
-            onValueChange = { text = it },
-            placeholder = "写点什么，例如「周五前交实验报告」",
-            singleLine = false,
-            minHeight = 96.dp,
-            modifier = Modifier.fillMaxWidth()
-        )
+        // ⚠️ 表单部分必须可滚。
+        // 加了「标题」之后字段从 4 组变 5 组，而窗口最小高度是 600dp ——
+        // 选上「Deadline」+「自定义」（两组各多出一个输入框）时
+        // 内容会超出面板高度。原先靠 `Spacer(weight(1f))` 兜底，
+        // 溢出时 spacer 先归零、再往下就把按钮挤出屏幕（保存按钮点不到）。
+        // 改成「表单滚动 + 按钮固定在底部」，任何窗口高度下按钮都够得着。
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            FlSectionLabel("标题")
+            Spacer(Modifier.height(6.dp))
+            FlTextField(
+                value = title,
+                onValueChange = { title = it },
+                placeholder = "一句话说清这条便签",
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
 
-        Spacer(Modifier.height(14.dp))
-        FlSectionLabel("颜色")
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            repeat(NOTE_COLOR_COUNT) { index ->
-                val color = fluentNoteColor(index)
-                val on = index == colorIndex
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(RoundedCornerShape(d.radiusControl))
-                        .background(color)
-                        .border(
-                            width = if (on) 2.dp else 0.dp,
-                            color = if (on) c.onSurface else Color.Transparent,
-                            shape = RoundedCornerShape(d.radiusControl)
-                        )
-                        .clickable { colorIndex = index }
-                )
+            Spacer(Modifier.height(14.dp))
+            FlSectionLabel("内容")
+            Spacer(Modifier.height(6.dp))
+            FlTextField(
+                value = content,
+                onValueChange = { content = it },
+                placeholder = "补充细节，可留空",
+                singleLine = false,
+                minHeight = 72.dp,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(14.dp))
+            FlSectionLabel("颜色")
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(NOTE_COLOR_COUNT) { index ->
+                    val color = fluentNoteColor(index)
+                    val on = index == colorIndex
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(d.radiusControl))
+                            .background(color)
+                            .border(
+                                width = if (on) 2.dp else 0.dp,
+                                color = if (on) c.onSurface else Color.Transparent,
+                                shape = RoundedCornerShape(d.radiusControl)
+                            )
+                            .clickable { colorIndex = index }
+                    )
+                }
             }
-        }
 
-        Spacer(Modifier.height(14.dp))
-        FlSectionLabel("分类")
-        Spacer(Modifier.height(8.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            NOTE_TYPES.chunked(4).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEachIndexed { i, t ->
-                        val index = NOTE_TYPES.indexOf(t)
-                        FlToggleChip(
-                            text = t.label,
-                            selected = index == typeIndex,
-                            accent = fluentNoteColor(colorIndex),
-                            onClick = {
-                                typeIndex = index
-                                if (!t.editableLabel) customLabel = ""
-                            }
-                        )
-                        if (i == row.lastIndex) Spacer(Modifier.width(0.dp))
+            Spacer(Modifier.height(14.dp))
+            FlSectionLabel("分类")
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                NOTE_TYPES.chunked(4).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEachIndexed { i, t ->
+                            val index = NOTE_TYPES.indexOf(t)
+                            FlToggleChip(
+                                text = t.label,
+                                selected = index == typeIndex,
+                                accent = fluentNoteColor(colorIndex),
+                                onClick = {
+                                    typeIndex = index
+                                    if (!t.editableLabel) customLabel = ""
+                                }
+                            )
+                            if (i == row.lastIndex) Spacer(Modifier.width(0.dp))
+                        }
                     }
                 }
             }
-        }
 
-        if (type.editableLabel) {
-            Spacer(Modifier.height(8.dp))
-            FlTextField(
-                value = customLabel,
-                onValueChange = { customLabel = it },
-                placeholder = if (isDeadline) "例如「期末论文」" else "例如「科研」",
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        if (isDeadline) {
-            Spacer(Modifier.height(14.dp))
-            FlSectionLabel("截止时间")
-            Spacer(Modifier.height(6.dp))
-            val cal = remember(deadlineAt) {
-                Calendar.getInstance().apply { timeInMillis = if (deadlineAt > 0) deadlineAt else System.currentTimeMillis() }
+            if (type.editableLabel) {
+                Spacer(Modifier.height(8.dp))
+                FlTextField(
+                    value = customLabel,
+                    onValueChange = { customLabel = it },
+                    placeholder = if (isDeadline) "例如「期末论文」" else "例如「科研」",
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FlButton(
-                    if (deadlineAt > 0) String.format(
-                        Locale.getDefault(), "%04d-%02d-%02d",
-                        cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)
-                    ) else "选日期",
-                    onClick = { showDate = true },
-                    variant = FlButtonVariant.GHOST,
-                    icon = Icons.Default.DateRange,
-                    compact = true
-                )
-                FlButton(
-                    if (deadlineAt > 0) String.format(
-                        Locale.getDefault(), "%02d:%02d",
-                        cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE)
-                    ) else "选时间",
-                    onClick = { showTime = true },
-                    variant = FlButtonVariant.GHOST,
-                    compact = true
-                )
+
+            if (isDeadline) {
+                Spacer(Modifier.height(14.dp))
+                FlSectionLabel("截止时间")
+                Spacer(Modifier.height(6.dp))
+                val cal = remember(deadlineAt) {
+                    Calendar.getInstance().apply { timeInMillis = if (deadlineAt > 0) deadlineAt else System.currentTimeMillis() }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlButton(
+                        if (deadlineAt > 0) String.format(
+                            Locale.getDefault(), "%04d-%02d-%02d",
+                            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)
+                        ) else "选日期",
+                        onClick = { showDate = true },
+                        variant = FlButtonVariant.GHOST,
+                        icon = Icons.Default.DateRange,
+                        compact = true
+                    )
+                    FlButton(
+                        if (deadlineAt > 0) String.format(
+                            Locale.getDefault(), "%02d:%02d",
+                            cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE)
+                        ) else "选时间",
+                        onClick = { showTime = true },
+                        variant = FlButtonVariant.GHOST,
+                        compact = true
+                    )
+                    if (deadlineAt > 0) {
+                        FlButton("清除", onClick = { deadlineAt = 0L }, variant = FlButtonVariant.TEXT, compact = true)
+                    }
+                }
                 if (deadlineAt > 0) {
-                    FlButton("清除", onClick = { deadlineAt = 0L }, variant = FlButtonVariant.TEXT, compact = true)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "${deadlineTimeLabel(deadlineAt, System.currentTimeMillis())} · ${deadlineCountdown(deadlineAt, System.currentTimeMillis())}",
+                        fontSize = 12.sp,
+                        color = c.error
+                    )
                 }
             }
-            if (deadlineAt > 0) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "${deadlineTimeLabel(deadlineAt, System.currentTimeMillis())} · ${deadlineCountdown(deadlineAt, System.currentTimeMillis())}",
-                    fontSize = 12.sp,
-                    color = c.error
-                )
-            }
+
+            Spacer(Modifier.height(16.dp))
         }
 
-        Spacer(Modifier.weight(1f))
         FlDivider()
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -605,7 +665,7 @@ private fun NoteEditorPanel(
                 onClick = {
                     val finalDeadline = if (isDeadline) deadlineAt else 0L
                     val finalLabel = if (type.editableLabel) customLabel else ""
-                    onSave(text, colorIndex, typeIndex, finalLabel, finalDeadline)
+                    onSave(title, content, colorIndex, typeIndex, finalLabel, finalDeadline)
                 },
                 enabled = canSave,
                 compact = true

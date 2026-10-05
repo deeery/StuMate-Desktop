@@ -26,7 +26,8 @@ class BackupCodecTest {
 
     private val note = NoteEntity(
         id = 3,
-        text = "交作业",
+        title = "交作业",
+        content = "周五前交给王老师，记得带实验报告",
         position = 1,
         createdAt = 1_700_000_000_000L,
         colorIndex = 5,
@@ -101,15 +102,70 @@ class BackupCodecTest {
     }
 
     @Test
-    fun notesWithBlankTextAreSkipped() {
+    fun notesWithBlankTitleAreSkipped() {
         val payload = jsonObject(
             "items" to jsonArray(
-                listOf(jsonObject("text" to "   ".toJson()), jsonObject("text" to "有用".toJson()))
+                listOf(
+                    jsonObject("title" to "   ".toJson()),
+                    jsonObject("title" to "有用".toJson())
+                )
             )
         )
         val decoded = BackupCodec.decodeNotes(payload)
         assertEquals(1, decoded.size)
-        assertEquals("有用", decoded.first().text)
+        assertEquals("有用", decoded.first().title)
+    }
+
+    /**
+     * v2 及更早的备份里只有 `text`、没有 `title`。
+     * 按约定老便签的全文整条进标题，正文留空 —— 这条测试钉住这个回退，
+     * 否则用户导一份旧备份进来会发现便签**全部消失**（标题空 → 被跳过）。
+     */
+    @Test
+    fun legacyBackupWithoutTitleFallsBackToText() {
+        val payload = jsonObject(
+            "items" to jsonArray(
+                listOf(jsonObject("id" to 1.toJson(), "text" to "老便签".toJson()))
+            )
+        )
+        val decoded = BackupCodec.decodeNotes(payload)
+        assertEquals(1, decoded.size)
+        assertEquals("老便签", decoded.first().title)
+        assertEquals("", decoded.first().content)
+    }
+
+    /** `title` 存在时以它为准，不去读兼容字段 `text` */
+    @Test
+    fun titleWinsOverLegacyTextField() {
+        val payload = jsonObject(
+            "items" to jsonArray(
+                listOf(
+                    jsonObject(
+                        "title" to "新标题".toJson(),
+                        "content" to "新正文".toJson(),
+                        "text" to "旧镜像".toJson()
+                    )
+                )
+            )
+        )
+        val decoded = BackupCodec.decodeNotes(payload)
+        assertEquals("新标题", decoded.first().title)
+        assertEquals("新正文", decoded.first().content)
+    }
+
+    /**
+     * 编码时**必须**同时写出 `text`（= `title` 的镜像）。
+     *
+     * 这是给还没升级的旧客户端留的口子：它们的解码器只认 `text`，
+     * 且带一个「`text` 为空就跳过这条」的守卫 —— 镜像缺了，旧端会静默丢掉全部便签。
+     * 以后要清理这个兼容字段时，先把这条测试删掉，并确认线上没有旧版本在跑。
+     */
+    @Test
+    fun encodedNotesKeepLegacyTextFieldAsTitleMirror() {
+        val json = MiniJson.write(BackupCodec.encodeNotes(listOf(note)), pretty = false)
+        assertTrue("缺少兼容字段 text", json.contains("\"text\":\"交作业\""))
+        assertTrue("缺少 title", json.contains("\"title\":\"交作业\""))
+        assertTrue("缺少 content", json.contains("\"content\":\"周五前交给王老师，记得带实验报告\""))
     }
 
     @Test

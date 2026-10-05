@@ -220,8 +220,16 @@ fun main() = application {
                             // 指定起始页，否则课表页的截图根本走不到。
                             initialPage = when (scenario) {
                                 "week" -> AppPage.WEEK
-                                "notes" -> AppPage.NOTES
+                                "notes", "notescreate", "notesedit" -> AppPage.NOTES
                                 else -> AppPage.SETTINGS
+                            },
+                            // 便签的编辑面板要靠点「新建便签」或点表格行才会出现，
+                            // 而验收环境点不动鼠标 —— 这两个场景直接把面板摆出来。
+                            // 前者是空表单（验新字段的默认态），后者回填第一条（验读取路径）。
+                            previewNotesEditor = when (scenario) {
+                                "notescreate" -> "create"
+                                "notesedit" -> "edit"
+                                else -> null
                             }
                         )
                     }
