@@ -59,12 +59,55 @@ def runtime_classpath():
         with open(CLASSPATH_CACHE, encoding="utf-8") as f:
             cp = f.read().strip()
             if cp:
+                check_fresh(cp)
                 return cp
     raise SystemExit(
         "缺少 .preview-classpath。先跑：\n"
         "  ./gradlew printRuntimeClasspath --offline -q | grep RUNTIME_CLASSPATH= "
         "| sed 's/^RUNTIME_CLASSPATH=//' > .preview-classpath"
     )
+
+
+def check_fresh(cp):
+    """拦住「改了源码但 classpath 还指着旧 class 目录」。
+
+    这个假阴性非常贵：截图看起来一切正常，只是**新加的东西一个都不在**，
+    于是很容易得出「改了没生效」的错误结论，再去瞎改代码。
+    实测踩过一次 —— 项目里同时存在 `build/` 和隔离构建目录
+    `F:/DownloadQQ/stumate-altbuild/`，而 `.preview-classpath` 里存的是
+    前者（旧的），最后一次真正编译却发生在后者。
+
+    判据：classpath 里的 classes 目录，其最新 class 必须比 `src/main/kotlin`
+    里最新的 .kt 还新。不满足就**直接报错**，不截一张假的图。
+    """
+    import glob
+
+    dirs = [p for p in cp.split(os.pathsep) if p and "classes" in p.lower()]
+    srcs = glob.glob(os.path.join(PROJECT, "src", "main", "kotlin", "**", "*.kt"),
+                     recursive=True)
+    if not dirs or not srcs:
+        return
+    newest_src = max(os.path.getmtime(p) for p in srcs)
+    newest_cls = 0.0
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for base, _dirs, files in os.walk(d):
+            for f in files:
+                if f.endswith(".class"):
+                    t = os.path.getmtime(os.path.join(base, f))
+                    if t > newest_cls:
+                        newest_cls = t
+    if newest_cls and newest_cls < newest_src:
+        raise SystemExit(
+            "❌ .preview-classpath 指向的 class 目录比源码旧，截出来会是「改了没生效」。\n"
+            f"   最新 .kt   {time.strftime('%H:%M:%S', time.localtime(newest_src))}\n"
+            f"   最新 .class{time.strftime('%H:%M:%S', time.localtime(newest_cls))}\n"
+            "   先重新编译，再刷新缓存（注意用你真正在用的那个构建目录）：\n"
+            "     ./gradlew compileKotlin --offline\n"
+            "     ./gradlew printRuntimeClasspath --offline -q "
+            "| grep RUNTIME_CLASSPATH= | sed 's/^RUNTIME_CLASSPATH=//' > .preview-classpath"
+        )
 
 DEFAULT_SCENARIOS = [
     ("account", "acc-01-account-signedout.png"),
@@ -206,6 +249,12 @@ def run_scenario(scenario, out_path, timeout=150, settle=4.0, state=None):
             return False
         cmd.append(f"-Dstumate.email={email}")
         cmd.append(f"-Dstumate.password={password}")
+    # 假装当前是更旧的版本，用来截「有新版本」那张图（`update` 场景）。
+    # 不传就是真实版本 —— 那时 update 场景截到的是「已是最新」。
+    # 两个都要截：只有「已是最新」能证明查得到，只有「有新版本」能证明比得对。
+    override = os.environ.get("STUMATE_CURRENT_VERSION")
+    if override:
+        cmd.append(f"-Dstumate.currentVersion={override}")
     cmd += [
         "-cp", runtime_classpath(),
         "com.example.classreminder.dev.UiPreviewKt",
@@ -220,7 +269,7 @@ def run_scenario(scenario, out_path, timeout=150, settle=4.0, state=None):
     try:
         # 需要登录的场景：等窗口标题出现 ' ready'（预览进程登录成功后才打），
         # 超时了要当失败报出来 —— 截一张「未登录」比不截更糟。
-        waits_ready = scenario in ("signedin", "setpwd", "modpwd", "firstrun")
+        waits_ready = scenario in ("signedin", "setpwd", "modpwd", "firstrun", "update")
         deadline = time.time() + timeout
         hwnd = pid = None
         while time.time() < deadline:

@@ -459,6 +459,34 @@ tasks.register<JavaExec>("syncSmoke") {
 }
 
 /**
+ * 自动更新端到端冒烟（连真实 GitHub Release）。见 dev/UpdateSmoke.kt
+ *
+ * ```
+ * ./gradlew updateSmoke                 # 自动找已构建的目录版产物
+ * ./gradlew updateSmoke -Pdist=<路径>   # 指定目录版根目录（含 StuMate.exe 的那层）
+ * ./gradlew updateSmoke -Pkeep          # 跑完不删临时副本
+ * ```
+ *
+ * 它把真实安装目录**复制一份**，对副本跑一次真正的「下载 → 校验 → 就地替换」，
+ * 再逐条断言磁盘状态。**不会碰用户正在用的那份安装。**
+ *
+ * ⚠️ 同 syncSmoke：值必须同时走 `-P`（Gradle 侧）和 `jvmArgs("-D…")`（JVM 侧）。
+ * 只传 `-P` 的话程序里 `System.getProperty` 读到 null，会静默退回默认值。
+ */
+tasks.register<JavaExec>("updateSmoke") {
+    group = "verification"
+    description = "连真实 GitHub Release 验证「检查 → 下载补丁 → 就地替换」"
+    mainClass.set("com.example.classreminder.dev.UpdateSmokeKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    jvmArgs("-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+
+    val dist = providers.gradleProperty("dist").orNull?.trim()
+    val keep = providers.gradleProperty("keep").orNull?.trim()
+    if (!dist.isNullOrBlank()) jvmArgs("-Dstumate.dist=$dist")
+    if (!keep.isNullOrBlank()) jvmArgs("-Dstumate.keep=1")
+}
+
+/**
  * 只渲染账号相关 UI 的预览窗口，用于截图验收。见 dev/UiPreview.kt
  *
  * ⚠️ 场景通过 `-P` 传，**不能**靠环境变量：Gradle 守护进程是长驻进程，
@@ -481,7 +509,14 @@ tasks.register<JavaExec>("uiPreview") {
         "email" to "",
         "password" to "",
         // 同步卡的预览态：offline / idle / done / busy / override / failed / skipped / preinit
-        "sync" to "offline"
+        "sync" to "offline",
+        // 假装当前是更旧的版本，用来截「有新版本」那张图。
+        // 例：`./gradlew uiPreview -Ppreview=update -PcurrentVersion=1.5.9`
+        //
+        // ⚠️ 必须同时传 `-P`（Gradle 侧读得到）**和**这里注入系统属性（JVM 侧读得到）。
+        // 只传 `-P` 的话 `UpdateCenter.VERSION_OVERRIDE` 读到的还是 null，
+        // 症状是**静默按真实版本走**（截出来是「已是最新」），不报任何错。
+        "currentVersion" to ""
     ).forEach { (key, default) ->
         systemProperty("stumate.$key", project.findProperty(key) ?: default)
     }

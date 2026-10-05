@@ -7,6 +7,7 @@ import com.example.classreminder.data.backup.array
 import com.example.classreminder.data.backup.long
 import com.example.classreminder.data.backup.str
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,9 +17,15 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.security.KeyStore
 import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.time.Duration
 import java.util.zip.ZipInputStream
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 
 /**
  * 基于 GitHub Releases 的更新检测与「就地替换」。
@@ -74,11 +81,73 @@ object UpdateCenter {
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
     private val http: HttpClient by lazy {
-        HttpClient.newBuilder()
+        val builder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .followRedirects(HttpClient.Redirect.NORMAL)
-            .build()
+        sslContext()?.let(builder::sslContext)
+        builder.build()
     }
+
+    /**
+     * 更新检查用的 SSLContext：**JDK 自带 CA ∪ 操作系统根证书**。
+     *
+     * ## 为什么不能只用 JDK 的 `cacerts`
+     *
+     * 本机实测踩到：装了 SteamTools / Watt Toolkit（`Steamcommunity302`）这类
+     * 「加速 GitHub」的工具之后，`api.github.com` 的 TLS 会被它**透明中间人**，
+     * 它换上的根证书只装进了 **Windows 证书库**，没进 JDK 的 `cacerts`。
+     * 于是浏览器、Python、curl 全都正常，只有这个 Java 应用报
+     * `PKIX path building failed: unable to find valid certification path`。
+     *
+     * 这类工具在中文用户里装机量很大，而且**恰好就是为了访问 GitHub** ——
+     * 不处理的话「自动更新」对这批用户是**静默失效**的（静默检查失败不留痕，
+     * 用户只会看到「点检查更新没反应」）。
+     *
+     * ## 为什么是「合并 KeyStore」而不是「拼两个 TrustManager」
+     *
+     * ⚠️ `SSLContext.init(null, arrayOf(tmA, tmB), random)` **不是「两个都试」**：
+     * JDK 内部 `SSLContextImpl.chooseTrustManager()` 只取数组里**第一个**
+     * `X509TrustManager`，后面的静默丢弃。踩过这个坑 —— 拼完照样 PKIX 失败，
+     * 现象和没改一样。正确做法是把两边的根证书**倒进同一个 KeyStore**，
+     * 再基于它建唯一一个 TrustManagerFactory。
+     *
+     * ## 这样做会不会降低安全性
+     *
+     * 不会。系统根证书库本来就是这台机器的信任基线 —— 用户装了什么根证书，
+     * 这台机器上**每一个**原生应用（浏览器、Electron 应用、Windows 自身）
+     * 都已经在信任了。Java 只信自己那份 `cacerts` 反而是个**不一致**：
+     * 同一台机器上不同程序对「谁可信」的答案不一样，只会制造这种
+     * 「只有它连不上」的诡异故障。这里是把 Java 对齐到操作系统，不是额外放宽。
+     *
+     * 拿不到系统库时（非 Windows、或受限环境）返回 null，调用方退回默认 context，
+     * 行为与不加这段代码完全一致。
+     */
+    private fun sslContext(): SSLContext? = runCatching {
+        val algorithm = TrustManagerFactory.getDefaultAlgorithm()
+
+        // ① JDK 自带 cacerts 的全部根
+        val jdk = TrustManagerFactory.getInstance(algorithm)
+            .apply { init(null as KeyStore?) }
+            .trustManagers
+            .filterIsInstance<X509TrustManager>()
+            .firstOrNull()
+            ?: return@runCatching null
+
+        val merged = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null, null) }
+        jdk.acceptedIssuers.forEachIndexed { i, cert -> merged.setCertificateEntry("jdk-$i", cert) }
+
+        // ② 操作系统根证书库
+        val os = KeyStore.getInstance("Windows-ROOT").apply { load(null, null) }
+        var n = 0
+        for (alias in os.aliases()) {
+            val cert = os.getCertificate(alias) as? X509Certificate ?: continue
+            merged.setCertificateEntry("os-${n++}", cert)
+        }
+        if (n == 0) return@runCatching null
+
+        val tmf = TrustManagerFactory.getInstance(algorithm).apply { init(merged) }
+        SSLContext.getInstance("TLS").apply { init(null, tmf.trustManagers, SecureRandom()) }
+    }.getOrNull()
 
     // ── 安装形态识别 ────────────────────────────────────────────────
 
@@ -166,20 +235,23 @@ object UpdateCenter {
     )
 
     private suspend fun fetchLatest(): Release = withContext(Dispatchers.IO) {
-        val request = HttpRequest.newBuilder(URI(LATEST_URL))
-            .timeout(Duration.ofSeconds(20))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", USER_AGENT)
-            .GET()
-            .build()
-        val response = http.send(request, HttpResponse.BodyHandlers.ofString(Charsets.UTF_8))
-        when (response.statusCode()) {
-            200 -> Unit
-            404 -> throw IllegalStateException("仓库还没有发布过任何版本")
-            403 -> throw IllegalStateException("GitHub 限流了，过一会儿再试")
-            else -> throw IllegalStateException("GitHub 返回 HTTP ${response.statusCode()}")
+        val body = retrying(what = "查询最新版本") {
+            val request = HttpRequest.newBuilder(URI(LATEST_URL))
+                .timeout(Duration.ofSeconds(20))
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", USER_AGENT)
+                .GET()
+                .build()
+            val response = http.send(request, HttpResponse.BodyHandlers.ofString(Charsets.UTF_8))
+            when (response.statusCode()) {
+                200 -> response.body()
+                404 -> throw IllegalStateException("仓库还没有发布过任何版本")
+                403 -> throw IllegalStateException("GitHub 限流了，过一会儿再试")
+                // 5xx 是可重试的，抛出去让 retrying 再试一次
+                else -> throw IllegalStateException("GitHub 返回 HTTP ${response.statusCode()}")
+            }
         }
-        val root = MiniJson.parse(response.body()) as? JsonValue.Obj
+        val root = MiniJson.parse(body) as? JsonValue.Obj
             ?: throw IllegalStateException("GitHub 返回的不是 JSON 对象")
 
         val tag = root.str("tag_name")
@@ -251,7 +323,7 @@ object UpdateCenter {
         }
     }
 
-    private fun applyPatch(
+    private suspend fun applyPatch(
         layout: InstallLayout,
         patch: UpdateAsset,
         onProgress: (Long, Long) -> Unit
@@ -263,29 +335,7 @@ object UpdateCenter {
         val zipFile = File(staging, patch.name)
 
         // ① 下载。补丁包只有 1.7 MB，但还是按流写盘 —— 免得以后换成整包时炸内存。
-        val request = HttpRequest.newBuilder(URI(patch.url))
-            .timeout(Duration.ofMinutes(5))
-            .header("User-Agent", USER_AGENT)
-            .GET()
-            .build()
-        val response = http.send(request, HttpResponse.BodyHandlers.ofInputStream())
-        if (response.statusCode() != 200) {
-            throw IllegalStateException("下载补丁失败：HTTP ${response.statusCode()}")
-        }
-        val declared = response.headers().firstValueAsLong("content-length").orElse(patch.size)
-        response.body().use { input ->
-            zipFile.outputStream().use { out ->
-                val buf = ByteArray(1 shl 16)
-                var got = 0L
-                while (true) {
-                    val n = input.read(buf)
-                    if (n < 0) break
-                    out.write(buf, 0, n)
-                    got += n
-                    onProgress(got, declared)
-                }
-            }
-        }
+        retrying(what = "下载补丁包") { downloadTo(patch, zipFile, onProgress) }
 
         // ② 校验。下载下来的东西在被写进安装目录之前必须过这三关。
         patch.sha256?.let { expected ->
@@ -338,6 +388,105 @@ object UpdateCenter {
     }
 
     private class Extracted(val jar: File, val cfg: String)
+
+    /** 把补丁包流式写到 [dest]。失败时把半截文件删掉，免得重试时 `outputStream()` 追加在后面 */
+    private fun downloadTo(patch: UpdateAsset, dest: File, onProgress: (Long, Long) -> Unit) {
+        val request = HttpRequest.newBuilder(URI(patch.url))
+            .timeout(Duration.ofMinutes(5))
+            .header("User-Agent", USER_AGENT)
+            .GET()
+            .build()
+        try {
+            val response = http.send(request, HttpResponse.BodyHandlers.ofInputStream())
+            if (response.statusCode() != 200) {
+                throw IllegalStateException("下载补丁失败：HTTP ${response.statusCode()}")
+            }
+            val declared = response.headers().firstValueAsLong("content-length").orElse(patch.size)
+            response.body().use { input ->
+                dest.outputStream().use { out ->
+                    val buf = ByteArray(1 shl 16)
+                    var got = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        got += n
+                        onProgress(got, declared)
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            dest.delete()
+            throw t
+        }
+    }
+
+    /**
+     * 网络抖动重试。
+     *
+     * ## 为什么必须有
+     *
+     * 实测这条链路上瞬时失败**很常见**：一次 HTTP 502、一次 HTTP/2 连接被重置
+     * （`Http2Connection` 里抛出来），四次尝试里坏了两回。国内直连
+     * `objects.githubusercontent.com` 本来就不稳，很多用户还挂着各种加速工具。
+     * 没有重试的话，用户点「立即更新」得到的是「下载失败」，
+     * 而他唯一的办法就是再点一次 —— 那不如替他把这一次点掉。
+     *
+     * ## 为什么不区分异常类型
+     *
+     * 「哪些异常可重试」这个判断在这里做不准（连接重置、读超时、代理 502、
+     * DNS 抖动……表现各异）。统一重试 3 次、间隔递增，代价是多花一两秒，
+     * 而最坏情况只是**把真实的错误信息延后 3 次**才抛出来 —— 错误信息本身不变。
+     * 唯一的例外是文件系统错误（写不进去），那种重试也没用，但它本来就不在这里。
+     */
+    private suspend fun <T> retrying(times: Int = 3, what: String, block: suspend () -> T): T {
+        var last: Throwable? = null
+        repeat(times) { attempt ->
+            runCatching { block() }
+                .onSuccess { return it }
+                .onFailure {
+                    last = it
+                    if (attempt < times - 1) delay(800L * (attempt + 1))
+                }
+        }
+        throw IllegalStateException("$what 失败（已重试 $times 次）：${last?.message ?: last?.javaClass?.simpleName}")
+    }
+
+    /**
+     * 冒烟专用：对**指定安装目录**跑一遍真实的「查最新 Release → 下载 → 校验 → 就地替换」。
+     *
+     * 为什么要开这个口子：`detectInstall()` 是从**自身 class 的位置**反推安装目录的，
+     * 而冒烟进程跑的是 `build/classes`，永远反推不出安装目录 —— 生产路径在冒烟里
+     * 根本走不到「替换」那一步。所以这里只把「目录从哪来」变成参数，
+     * **后面每一步（sha256、版本号断言、主类探测、依赖行比对、落盘顺序、原子改名）
+     * 都是生产用的同一段代码**，不存在「测试版逻辑」。
+     *
+     * 冒烟脚本会把真实安装目录**复制一份**再传进来，绝不碰用户正在用的那份。
+     *
+     * @return 替换完成后 `app.classpath=` 指向的主 jar 文件名
+     */
+    internal suspend fun smokeApplyPatchTo(root: File): String {
+        val release = withContext(Dispatchers.IO) { fetchLatest() }
+        val patch = release.patch ?: throw IllegalStateException("最新 Release 没有补丁包")
+
+        val appDir = File(root, "app")
+        val cfg = File(appDir, "StuMate.cfg")
+        val launcher = File(root, "StuMate.exe")
+        if (!cfg.isFile) throw IllegalStateException("不是安装目录（缺 app/StuMate.cfg）：$root")
+        if (!launcher.isFile) throw IllegalStateException("不是安装目录（缺 StuMate.exe）：$root")
+
+        val runningJar = appDir.listFiles { f ->
+            f.isFile && f.name.startsWith(MAIN_JAR_PREFIX) && f.name.endsWith(".jar")
+        }?.firstOrNull()?.name.orEmpty()
+
+        val layout = InstallLayout(root, appDir, cfg, launcher, runningJar)
+        withContext(Dispatchers.IO) { applyPatch(layout, patch) { _, _ -> } }
+
+        return cfg.readText(Charsets.UTF_8).lines()
+            .firstOrNull { it.startsWith("app.classpath=") && it.contains(MAIN_JAR_PREFIX) }
+            ?.substringAfterLast('\\')
+            ?: throw IllegalStateException("替换后 cfg 里找不到主 jar 那一行")
+    }
 
     private fun extractPatch(zip: File, staging: File): Extracted {
         var jar: File? = null
