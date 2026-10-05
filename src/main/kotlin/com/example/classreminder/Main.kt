@@ -74,12 +74,29 @@ import com.example.classreminder.ui.fluent.workAreaOf
 import kotlinx.coroutines.launch
 import java.awt.Dimension
 
-fun main() = application {
-    // ⚠️ 必须是第一件事：Shell 在**创建第一个窗口/托盘图标**时就把进程身份定下来了，
-    // 之后再设 AUMID 对已登记的窗口无效。不设的话 Windows 11 会直接吞掉托盘气泡
-    // （调用不报错，但屏幕上什么都不出现）—— 详见 [AppIdentity]。
+fun main() {
+    // 设 AUMID + 注册显示名。**放在 `application { }` 之外**，是取「最早能调到的位置」。
+    //
+    // 文档要求 `SetCurrentProcessExplicitAppUserModelID` 在**创建任何窗口之前**调用；
+    // Compose 的 `application { }` 在进入 lambda 之前就已经把 AWT 起起来了
+    // （要事件循环、要 Toolkit），所以写在 lambda 第一行严格来说已经晚于 AWT 初始化。
+    //
+    // ⚠️ 但**别把这一条当成已验证的根因**：探针 `-PawtFirst=1`（先建一个真实
+    // 原生窗口、`dispose()` 掉，再 `install()`）实测气泡**照样正常弹出**
+    // （`dev/TrayProbe.kt`，2026-10-05）。也就是说在本机这个约束**复现不出来**。
+    // 之所以仍然提到外面：它是文档要求的方向，且不花任何代价。
+    //
+    // 用户报的「中文乱码」真正的根因是**显示名没注册**（气泡标题显示成原始 AUMID），
+    // 与调用时机无关 —— 详见 [AppIdentity] 的类注释。
     AppIdentity.install()
+    runApp()
+}
 
+/**
+ * 起 Compose 应用。**单独抽出来**是为了让 [main] 能在建任何窗口之前先把
+ * AUMID 设好（理由与保留这个结构的代价见 [main] 的注释）。
+ */
+private fun runApp() = application {
     val viewModel = remember { MainViewModel() }
     val scope = rememberCoroutineScope()
 

@@ -9,41 +9,38 @@ import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
 
 /**
- * 进程的 **AppUserModelID（AUMID）** —— Windows 用它把「一个进程」和
- * 「一个已安装的应用」对起来。
+ * 进程的 **AppUserModelID（AUMID）** 与应用显示名 —— 决定托盘气泡左上角
+ * 「这条通知是哪个应用发的」那一行显示什么。
  *
- * ## 为什么必须显式设置
+ * ## 🔴 实测更正：气泡弹不弹，和 AUMID 无关
  *
- * jpackage 打出来的启动器 `StuMate.exe` **本身不带 AUMID**（实测：整个 exe 里
- * 搜不到任何 AUMID 字样）。不设的后果不是「难看」，是**功能直接没了**：
- * Windows 11 的 Shell 拒绝为没有身份标识的进程显示托盘气泡 ——
- * `TrayIcon.displayMessage` 调用返回正常，**屏幕上什么都不出现**。
- * 实测对照（Win11 26200，打包同款 jlink 运行时，见 `dev/TrayProbe.kt`）：
- *  - 不设 AUMID → 气泡完全不弹
- *  - 设了 AUMID → 气泡正常弹出
+ * 本文件早期版本写着「jpackage 启动器不带 AUMID → Windows 11 拒绝显示托盘气泡，
+ * 调用不报错但屏幕上什么都不出现」。**这个说法是错的**，已用
+ * [com.example.classreminder.dev.TrayProbeKt] 逐项对照推翻
+ * （Win11 26200，打包同款 jlink 运行时，2026-10-05）：
  *
- * ## 为什么还要写注册表（`DisplayName`）
+ * | 场景 | 气泡 | 标题那一行 |
+ * |---|---|---|
+ * | 不设 AUMID | **照弹** | `OpenJDK Platform binary`（宿主 exe 的文件描述） |
+ * | 设 AUMID，但没注册显示名 | 照弹 | 原始 AUMID 字符串 |
+ * | 设 AUMID + 注册 `DisplayName` | 照弹 | `StuMate` |
  *
- * **这才是「中文显示成乱码」的真正来源。** 只设 AUMID 时气泡是能弹的，
- * 但标题那一行会显示**原始的 AUMID 字符串**：
+ * 同一批对照还推翻了「设 AUMID 必须早于任何窗口」：先建一个真实原生窗口
+ * （`setVisible(true)`，不是只 `setSize`）再调 `install()`，气泡依然正常。
  *
- * ```
- * ┌──────────────────────────────────┐
- * │ StuMate.Desktop.1            …  ×│   ← 这一行不是给人看的
- * │  ⓘ  即将上课：高等数学            │
- * │     教二 305  08:00 - 09:35      │
- * └──────────────────────────────────┘
- * ```
+ * 所以**真正要修的只有「显示名」**。用户报的「中文显示成乱码」就是上表第二行：
+ * 气泡上顶着一串机器标识符（`StuMate.Desktop.1`）—— 严格说不是乱码，
+ * 但用户只能这么描述。
  *
- * 用户看到的就是 `StuMate.Desktop.1` —— 一个机器标识符，只能描述成「乱码」。
+ * ## 显示名从哪来
  *
- * 原因是 Shell 去 `HK[LM|CU]\SOFTWARE\Classes\AppUserModelId\<AUMID>` 下找
- * **值名恰好是 `DisplayName`** 的字符串来当应用名；找不到就退回显示 AUMID 本身。
- * `tools/postprocess_msi.py` 里那一项**值名写成了 `StuMate`**（不是 `DisplayName`），
- * 等于没注册 —— 所以走 MSI 安装、从快捷方式启动（快捷方式带 AUMID）的用户
- * 一定会看到那串原始 AUMID。那个脚本的写法已一并修正。
+ * Shell 去 `HK[LM|CU]\SOFTWARE\Classes\AppUserModelId\<AUMID>` 下找**值名恰好是
+ * `DisplayName`** 的字符串来当应用名；找不到就退回显示 AUMID 本身、
+ * 或者进程宿主 exe 的文件描述。`tools/postprocess_msi.py` 里那一项
+ * **值名写成了 `StuMate`**（不是 `DisplayName`），等于没注册 ——
+ * 走 MSI 安装的用户必然中招。那个脚本已一并修正。
  *
- * 这里在**进程内**写一份 `HKCU` 的，覆盖三种安装方式：
+ * 这里在**进程内**再写一份 `HKCU` 的，覆盖三种安装方式：
  *  - 便携包（`StuMate.exe` 直接双击）—— 没有 MSI 去写 HKLM，只能靠这里
  *  - `gradlew run` / IDE 里跑 —— 同上
  *  - MSI 安装 —— `HKCU` 优先级高于 `HKLM`，写同一份内容，结果一致
@@ -125,12 +122,12 @@ object AppIdentity {
     }
 
     /**
-     * 设置 AUMID + 注册应用显示名。**必须在创建任何窗口/托盘图标之前调用** ——
-     * Shell 是在窗口登记那一刻把进程身份定下来的，之后再改对已建好的窗口无效。
+     * 设置 AUMID + 注册应用显示名。建议在 `main()` 最前面调（见 `Main.kt`），
+     * 但**不必**为「必须早于建窗口」而紧张 —— 那一条实测复现不出来，见类注释。
      *
      * 两步都是「失败就静默降级」：拿不到 shell32/advapi32（非 Windows、
      * 被裁剪的运行时）、或注册表被策略锁住时，应用该照常起来 ——
-     * 最坏结果只是气泡标题显示成 AUMID，不能因此让整个软件起不来。
+     * 最坏结果只是气泡标题退化成机器标识符，不能因此让整个软件起不来。
      *
      * @return true = 两步都成功
      */
@@ -139,6 +136,15 @@ object AppIdentity {
         val nameOk = registerDisplayName()
         return aumidOk && nameOk
     }
+
+    /**
+     * 只设 AUMID，**不**注册显示名。
+     *
+     * ⚠️ **只给 `dev/TrayProbe.kt` 的对照组用**（`-Dstumate.probe.noDisplayName=1`）——
+     * 它复现的是修复前用户的处境，用来确认气泡标题会退化成什么。
+     * 生产路径永远走 [install]。
+     */
+    fun installAumidOnly(): Boolean = installAumid()
 
     private fun installAumid(): Boolean {
         val api = shell32 ?: return false

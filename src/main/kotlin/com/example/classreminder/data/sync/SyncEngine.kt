@@ -32,7 +32,7 @@ import java.util.Locale
  * ## 一轮同步的五步，顺序不能换
  *
  * ```
- * 1. 收敛  本地同 uid 重复行（历史脏数据）
+ * 1. 收敛  本地重复行（同 uid 多行 + 内容一致的跨 uid 双胞胎）
  * 2. push  本地变更推上去
  * 3. pull  服务端变更拉下来
  * 4. apply 落到本地库
@@ -201,12 +201,18 @@ class SyncEngine(
         var pushedAny = false
         var alignedToServer = false
         try {
-            // ── 1. 收敛本地脏数据（同一 uid 多行）────────────────
+            // ── 1. 收敛本地脏数据 ────────────────────────────
             //
             // 必须在 push 之前：否则那几行重复会被原样推上去，
             // 服务端按 uid 去重不会存两条，但 `conflicts` 会被撑起来，
             // UI 上冒出「服务端更新覆盖了 N 条」的假警告。见类注释。
-            val collapsed = collapseSameUidDuplicates()
+            //
+            // 两步顺序不能换：
+            //   ① 同 uid 多行 → 物理删多余行（uid 是唯一标识，多行必是脏数据）
+            //   ② 内容一致但 uid 不同 → 败者转墓碑并推出去
+            // 先做 ①，② 才是在「每个 uid 只剩一行」的干净输入上做内容分组。
+            val collapsed =
+                collapseSameUidDuplicates() + collapseCrossUidDuplicates()
 
             // ── 2. 先决定「本地这份分歧能不能推上去」（§5.8 首端权威）──
             //
@@ -632,6 +638,60 @@ class SyncEngine(
         if (classDrop.isNotEmpty()) removed += syncDao.deleteClassesByIds(classDrop)
         if (noteDrop.isNotEmpty()) removed += syncDao.deleteNotesByIds(noteDrop)
         return removed
+    }
+
+    /**
+     * 把**本机已有的**「内容一致但 uid 不同」的活行收敛成一条。
+     *
+     * ## 为什么 `applyRemote` 里的 `planTwin` 不够
+     *
+     * `planTwin` 只在**远端那条到达时**才触发。用户库里已经躺着的重复
+     * （两台设备各建过一次同一门课）不会自己消失 —— 游标早就推到最后了，
+     * `pull` 不会再把它们发下来，`applyRemote` 根本没机会看到。
+     * 所以每轮同步要主动扫一遍本地。
+     *
+     * ## 为什么败者写墓碑，而不是直接删
+     *
+     * 直接删只清掉本机那份，**服务端还留着**。任何一次全量重拉
+     * （新设备首次同步 / 用户重新登录 / 首端切换）都会把它拉回来 ——
+     * 重复「复活」。写墓碑（`deletedAt = now`）才会被
+     * [collectLocalChanges] 推上去，让服务端也标成删除，两端一起收敛。
+     *
+     * ## 为什么留 uid 最小的那条
+     *
+     * 与 [SyncMerge.electSurvivor] 同一个判据。🔴 必须确定性 ——
+     * 两台设备各留「自己那条」会变成「你删我、我删你」把课删没。
+     *
+     * 便签**不做**内容去重（理由见 [applyRemote]）。
+     *
+     * @return 转成墓碑的行数
+     */
+    internal suspend fun collapseCrossUidDuplicates(): Int {
+        // 指纹 → 该内容目前 uid 最小的那条活行
+        val winner = HashMap<String, ClassEntity>()
+        val losers = ArrayList<ClassEntity>()
+
+        syncDao.allClasses().forEach { e ->
+            if (e.deletedAt != 0L || e.uid.isBlank()) return@forEach
+            val key = SyncMerge.courseKey(e)
+            val cur = winner[key]
+            when {
+                cur == null -> winner[key] = e
+                // 与 electSurvivor 同判据：cur 更小就留 cur，否则换 e
+                SyncMerge.electSurvivor(cur.uid, e.uid) == cur.uid -> losers += e
+                else -> {
+                    losers += cur
+                    winner[key] = e
+                }
+            }
+        }
+        if (losers.isEmpty()) return 0
+
+        // `updatedAt` 一起推到现在：服务端是按 `updatedAt` 判 LWW 的，
+        // 不推新的话「删除」会比服务端那条旧记录更旧 → 被拒 → 服务端留着它。
+        val now = System.currentTimeMillis()
+        losers.forEach { syncDao.upsertClass(it.copy(updatedAt = now, deletedAt = now)) }
+        return losers.size
     }
 
     /** 当前保留者的定位信息，只用于比较，不回表 */

@@ -525,9 +525,16 @@ tasks.register<JavaExec>("syncMergeSmoke") {
  *
  * ```
  * ./gradlew trayProbe                          # 默认：设 AUMID + 写 DisplayName
- * ./gradlew trayProbe -PnoAumid=1              # 对照组：不设 AUMID（气泡完全不弹）
+ * ./gradlew trayProbe -PnoAumid=1              # 对照组：不设 AUMID（标题退化成宿主 exe 的文件描述）
+ * ./gradlew trayProbe -PawtFirst=1             # 对照组：先建真实窗口再设 AUMID（实测不影响）
  * ./gradlew trayProbe -Ptag=X -Phold=40        # 换文案避免被 Toast 历史抑制 + 多停留
+ * ./gradlew trayProbe -Pshot=F:/tmp/shots      # 存下基线/after 图供复核（探针自己截图）
  * ```
+ *
+ * ⚠️ `-Ptag=X` **很重要**：Windows 对「内容完全相同」的 Toast 有抑制，
+ * 不换文案会看到「气泡不弹」的**假象**。同理，别再用外部脚本「等 N 秒再抓」——
+ * 探针现在在进程内自己取基线 + after 做差分并打印 `气泡可见 = true/false`，
+ * 时序不靠运气。实测结论表见 `dev/TrayProbe.kt` 的类注释。
  *
  * ## 为什么需要它
  *
@@ -551,7 +558,12 @@ tasks.register<JavaExec>("trayProbe") {
     classpath = sourceSets["main"].runtimeClasspath
     // 刻意**不**注入 -Dfile.encoding：打包产物也没有，要跟它保持一致
     jvmArgs("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
-    listOf("tag" to "", "hold" to "25", "noAumid" to "").forEach { (key, default) ->
+    listOf(
+        "tag" to "", "hold" to "25", "noAumid" to "", "awtFirst" to "", "noDisplayName" to "",
+        // shot / corner：让探针自己截图并给出「气泡可见 = true/false」的判定
+        // （外部脚本等 N 秒再抓是在赌时机，抓早了会得到假阴性）
+        "shot" to "", "corner" to ""
+    ).forEach { (key, default) ->
         val v = project.findProperty(key)?.toString()
         if (!v.isNullOrBlank()) systemProperty("stumate.probe.$key", v) else if (default.isNotEmpty()) systemProperty("stumate.probe.$key", default)
     }

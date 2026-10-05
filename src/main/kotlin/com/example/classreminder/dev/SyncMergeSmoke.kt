@@ -148,6 +148,30 @@ fun main() = runBlocking {
     check("collapse 报出删了 2 行", collapsedD == 2, "实际 $collapsedD")
     check("库里没有任何 uid 出现两次", noDuplicateUid(dao.allClasses()))
 
+    // ══ 场景 D2：清理库里**已经躺着**的「内容一致但 uid 不同」的活行 ═════
+    //
+    // 这是 `planTwin` 覆盖不到的一类：两台设备各建过一次同一门课，
+    // 两条都已经落库、uid 不同，而且**游标早就推到最后了** ——
+    // `pull` 不会再把它们发下来，`applyRemote` 根本没机会看到。
+    // 用户库里现存的那几组就是这么来的。
+    println("\n【D2. 本机已有的跨 uid 重复 → 收敛成一条 + 败者转墓碑】")
+    val twinKeep = "22222222-0000-4000-8000-000000000001"
+    val twinDrop = "88888888-0000-4000-8000-000000000002"
+    dao.upsertClass(cls(id = 910, uid = twinKeep, title = "大学物理", updatedAt = 500L))
+    dao.upsertClass(cls(id = 911, uid = twinDrop, title = "大学物理", updatedAt = 900L))
+    check("塞了两条内容一致的活行（前提成立）", dao.allClasses().count { it.deletedAt == 0L && it.title == "大学物理" } == 2)
+    val turned = engine.collapseCrossUidDuplicates()
+    val keepRow = dao.allClasses().firstOrNull { it.uid == twinKeep }
+    val dropRow = dao.allClasses().firstOrNull { it.uid == twinDrop }
+    check("留 uid 较小的那条（与 electSurvivor 同判据）", keepRow?.deletedAt == 0L, "实际 deletedAt=${keepRow?.deletedAt}")
+    check("败者转成墓碑而不是被删掉", dropRow != null && dropRow.deletedAt > 0L, dropRow?.toString() ?: "行没了")
+    check("墓碑的 updatedAt 也推到当前（否则服务端按 LWW 会拒掉这次删除）",
+        (dropRow?.updatedAt ?: 0L) > 900L, "实际 ${dropRow?.updatedAt}")
+    check("报告转墓碑 1 条", turned == 1, "实际 $turned")
+    check("这门课只剩一条活行", dao.allClasses().count { it.deletedAt == 0L && it.title == "大学物理" } == 1)
+    // 再跑一遍必须是幂等的（否则每轮同步都会重复写墓碑）
+    check("重复跑不再改动（幂等）", engine.collapseCrossUidDuplicates() == 0)
+
     // ══ 场景 E：墓碑不参与去重 ══════════════════════════════════════════
     //
     // 删除本来就要原样传播。若把墓碑也当成「内容一致的重复」去合并，
