@@ -60,6 +60,14 @@ object UpdateCenter {
 
     private const val USER_AGENT = "StuMate-Desktop-Updater"
 
+    /**
+     * 认得出「这是 TLS 信任链问题」的正则。
+     *
+     * 命中时 [retrying] 会把 [sslDiagnostics] 一起贴出来 —— 见那里的注释。
+     * 三个词分别对应：PKIX 链构不出来 / 握手失败 / 别的证书类报错。
+     */
+    private val TLS_HINT = Regex("PKIX|certification path|SSLHandshake|certificate", RegexOption.IGNORE_CASE)
+
     /** 主 jar 文件名前缀。jpackage 打出来的名字是 `StuMate-Desktop-<版本>-<hash>.jar` */
     private const val MAIN_JAR_PREFIX = "StuMate-Desktop-"
 
@@ -131,7 +139,26 @@ object UpdateCenter {
      * 拿不到系统库时（非 Windows、或受限环境）返回 null，调用方退回默认 context，
      * 行为与不加这段代码完全一致。
      */
-    private fun sslContext(): SSLContext? = runCatching {
+    /**
+     * 上一次 [sslContext] 的结论 —— 成功是 `jdk=148 os=73`，失败是原因。
+     *
+     * ## 为什么要有它
+     *
+     * 这段逻辑**失败是静默的**：`runCatching` 吞掉异常 → 返回 null → 退回默认
+     * SSLContext。而它唯一的下游症状就是那句 `PKIX path building failed` ——
+     * 那句话既可能是「真被中间人了」，也可能是「这里压根没生效」，**指不出根因**。
+     *
+     * 实测踩过：打包运行时缺 `jdk.crypto.mscapi`（`SunMSCAPI` provider 所在模块），
+     * `KeyStore.getInstance("Windows-ROOT")` 抛 `KeyStoreException: Windows-ROOT not found`
+     * 被吞掉，界面上只剩 PKIX。IDE 里跑（全量 JDK）完全正常，**只有打包产物中招**。
+     *
+     * 把结论带进错误信息（见 [retrying]），下次一眼能分辨是证书还是缺模块。
+     */
+    internal var sslDiagnostics: String = "尚未构建"
+        private set
+
+    /** `internal` 而不是 `private`：单测要直接跑它并断言 [sslDiagnostics] 的形状 */
+    internal fun sslContext(): SSLContext? = runCatching {
         val algorithm = TrustManagerFactory.getDefaultAlgorithm()
 
         // ① JDK 自带 cacerts 的全部根
@@ -140,22 +167,34 @@ object UpdateCenter {
             .trustManagers
             .filterIsInstance<X509TrustManager>()
             .firstOrNull()
-            ?: return@runCatching null
+            ?: run {
+                sslDiagnostics = "拿不到 JDK 自带 cacerts 的 TrustManager"
+                return@runCatching null
+            }
 
         val merged = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null, null) }
         jdk.acceptedIssuers.forEachIndexed { i, cert -> merged.setCertificateEntry("jdk-$i", cert) }
 
         // ② 操作系统根证书库
+        //    ⚠️ 这一步需要 `jdk.crypto.mscapi` 模块（`SunMSCAPI` provider）。
+        //    打包时漏了它 → 这里抛 KeyStoreException，被 runCatching 吞掉 →
+        //    静默退回默认 context → 用户只看到 PKIX。由 `JlinkModulesTest` 守着。
         val os = KeyStore.getInstance("Windows-ROOT").apply { load(null, null) }
         var n = 0
         for (alias in os.aliases()) {
             val cert = os.getCertificate(alias) as? X509Certificate ?: continue
             merged.setCertificateEntry("os-${n++}", cert)
         }
-        if (n == 0) return@runCatching null
+        if (n == 0) {
+            sslDiagnostics = "系统根证书库读到了但是空的（jdk=${jdk.acceptedIssuers.size} os=0）"
+            return@runCatching null
+        }
 
         val tmf = TrustManagerFactory.getInstance(algorithm).apply { init(merged) }
         SSLContext.getInstance("TLS").apply { init(null, tmf.trustManagers, SecureRandom()) }
+            .also { sslDiagnostics = "jdk=${jdk.acceptedIssuers.size} os=$n" }
+    }.onFailure {
+        sslDiagnostics = "构建失败：${it.javaClass.simpleName}: ${it.message}"
     }.getOrNull()
 
     // ── 安装形态识别 ────────────────────────────────────────────────
@@ -458,7 +497,18 @@ object UpdateCenter {
                     if (attempt < times - 1) delay(800L * (attempt + 1))
                 }
         }
-        throw IllegalStateException("$what 失败（已重试 $times 次）：${last?.message ?: last?.javaClass?.simpleName}")
+        throw IllegalStateException(
+            buildString {
+                append("$what 失败（已重试 $times 次）：")
+                append(last?.message ?: last?.javaClass?.simpleName)
+                // TLS 类失败单独补一句：这类错误里「证书真被中间人」和
+                // 「系统根证书库压根没并进来」长得一模一样，只有把 [sslDiagnostics]
+                // 带出来才分得清。见 [sslDiagnostics] 的注释。
+                if (TLS_HINT.containsMatchIn(last?.message.orEmpty())) {
+                    append("\n（本机信任库：$sslDiagnostics）")
+                }
+            }
+        )
     }
 
     /**

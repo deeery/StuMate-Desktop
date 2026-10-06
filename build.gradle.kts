@@ -236,6 +236,13 @@ compose.desktop {
             //  - java.xml            桌面平台配置
             //  - java.net.http       云同步用的 JDK HttpClient
             //  - jdk.unsupported     Skiko/JNA 要用的 sun.misc.Unsafe 等内部类
+            //  - jdk.crypto.mscapi   `SunMSCAPI` provider —— 读 **Windows 证书库**用的。
+            //    `UpdateCenter.sslContext()` 要靠 `KeyStore.getInstance("Windows-ROOT")`
+            //    把系统根证书并进来（对付 SteamTools 这类「加速 GitHub」的中间人工具）。
+            //    🔴 **缺它的症状和上面 java.sql 那个一模一样**：本地好、打包坏，而且
+            //    `runCatching` 会把 `KeyStoreException: Windows-ROOT not found` 吞掉，
+            //    静默退回默认 SSLContext → 只剩 `PKIX path building failed`，
+            //    完全看不出是缺模块。由 `JlinkModulesTest` 跨文件守着。
             modules(
                 "java.sql",
                 "java.logging",
@@ -245,6 +252,7 @@ compose.desktop {
                 "java.xml",
                 "java.net.http",
                 "jdk.unsupported",
+                "jdk.crypto.mscapi",
             )
         }
     }
@@ -567,6 +575,26 @@ tasks.register<JavaExec>("trayProbe") {
         val v = project.findProperty(key)?.toString()
         if (!v.isNullOrBlank()) systemProperty("stumate.probe.$key", v) else if (default.isNotEmpty()) systemProperty("stumate.probe.$key", default)
     }
+}
+
+/**
+ * 「检查更新」链路的运行时探针。见 dev/UpdateProbe.kt
+ *
+ * ```bash
+ * ./gradlew updateProbe
+ * ```
+ *
+ * ⚠️ 这个任务跑在**全量 JDK** 上，所以它**永远通过** —— 缺 `jdk.crypto.mscapi`
+ * 只在打包产物里暴露。要真验打包路径，得把 `createDistributable` 的输出复制一份、
+ * 把 `app/StuMate.cfg` 的 `app.mainclass` 改成
+ * `com.example.classreminder.dev.UpdateProbeKt`，再跑那个 `StuMate.exe`。
+ */
+tasks.register<JavaExec>("updateProbe") {
+    group = "verification"
+    description = "探一次「查最新版本」，打印系统根证书库的合并结果"
+    mainClass.set("com.example.classreminder.dev.UpdateProbeKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    jvmArgs("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
 }
 
 /**
