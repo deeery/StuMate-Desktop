@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StuMate 桌面端 · 「检查更新」PKIX 修复验收 v1.0</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#14161a; --dim:#5a616b; --line:#e3e6ea;
+    --accent:#0067C0; --ok:#0f7b3d; --bad:#c42b1c; --warn:#9a6400;
+    --code:#0f1115; --codeink:#e6e9ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.2px}
+  .sub{color:var(--dim);margin:0 0 28px;font-size:13.5px}
+  h2{font-size:18px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:24px 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin:14px 0}
+  p{margin:8px 0}
+  code{background:#eef0f3;padding:1.5px 5px;border-radius:4px;font-size:12.5px;
+       font-family:"Cascadia Mono",Consolas,monospace}
+  pre{background:var(--code);color:var(--codeink);padding:14px 16px;border-radius:8px;
+      overflow-x:auto;font:12.5px/1.65 "Cascadia Mono",Consolas,monospace;margin:10px 0}
+  pre .g{color:#6ee7a8} pre .r{color:#ff8a80} pre .y{color:#ffd479} pre .d{color:#8b93a1}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#eef1f5;font-weight:600;font-size:12.5px;color:#3a414b}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--ok);font-weight:600}
+  .bad{color:var(--bad);font-weight:600}
+  .warn{color:var(--warn);font-weight:600}
+  .pill{display:inline-block;padding:1.5px 9px;border-radius:99px;font-size:11.5px;font-weight:600}
+  .pill.ok{background:#e3f5ea;color:#0f7b3d}
+  .pill.bad{background:#fde9e7;color:#c42b1c}
+  .pill.info{background:#e5f0fb;color:#0067C0}
+  .lead{font-size:14.5px}
+  .kv{display:grid;grid-template-columns:190px 1fr;gap:6px 16px;font-size:13px}
+  .kv dt{color:var(--dim)}
+  .kv dd{margin:0;font-family:"Cascadia Mono",Consolas,monospace}
+  .note{border-left:3px solid var(--accent);background:#eef5fc;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+  .danger{border-left:3px solid var(--bad);background:#fdeeec;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+  .tag{font-size:11.5px;color:var(--dim);font-family:"Cascadia Mono",Consolas,monospace}
+  ul{margin:8px 0;padding-left:22px} li{margin:5px 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:820px){.two{grid-template-columns:1fr}}
+  footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>「检查更新」永远报 PKIX —— 根因与修复验收</h1>
+<p class="sub">StuMate 桌面端 · 1.6.1 → 1.6.2 · 验收页 v1.0 · 2026-10-06</p>
+
+<div class="card lead">
+  <p><strong>一句话：</strong>打包用的 jlink 裁剪运行时漏了 <code>jdk.crypto.mscapi</code>，
+  导致读不到 Windows 系统根证书库；本机装着 SteamTools（GitHub 走中间人），
+  于是「检查更新」必然失败 —— 而异常被 <code>runCatching</code> 吞掉，
+  用户只看到一句 <code>PKIX path building failed</code>，完全指不出根因。</p>
+  <p>本次做了两件事：<strong>①</strong> 补上模块并把它变成「不可再漏」；
+  <strong>②</strong> 让<strong>补丁包也能替换 <code>runtime/</code></strong> ——
+  否则代码修好了也送不到用户手上。</p>
+</div>
+
+<h2>1. 现象</h2>
+<div class="card">
+<p>1.6.1 安装版在「设置 → 软件更新」点「检查更新」，稳定失败：</p>
+<pre><span class="r">× 检查失败</span>
+查询最新版本 失败（已重试 3 次）：PKIX path building failed:
+  sun.security.provider.certpath.SunCertPathBuilderException:
+  unable to find valid certification path to requested target</pre>
+<p>同一台机器上 <code>./gradlew run</code>（开发态）<strong>永远正常</strong>。</p>
+</div>
+
+<h2>2. 根因</h2>
+
+<h3>2.1 三条独立证据</h3>
+<div class="card">
+<table>
+<tr><th style="width:300px">检查项</th><th>结果</th></tr>
+<tr>
+  <td><code>jimage list runtime/lib/modules | grep -i mscapi</code></td>
+  <td class="bad">无输出 —— 模块不在镜像里</td>
+</tr>
+<tr>
+  <td><code>runtime/conf/security/java.security:77</code></td>
+  <td>写着 <code>security.provider.12=SunMSCAPI</code> —— <strong>配置以为它在</strong></td>
+</tr>
+<tr>
+  <td>全量 JDK 下 <code>KeyStore.getInstance("Windows-ROOT")</code></td>
+  <td>读到 <strong>73</strong> 条证书（含 SteamTools 两条）—— 证书库本身没问题</td>
+</tr>
+</table>
+<p>链条：缺模块 → <code>SunMSCAPI</code> provider 不注册 → <code>Windows-ROOT</code>
+抛 <code>KeyStoreException</code> → 被 <code>runCatching</code> 吞掉 → 静默退回默认
+SSLContext → 只剩一句 PKIX。</p>
+</div>
+
+<h3>2.2 A/B 实测：同 jar、同 JDK 17.0.12，只差 runtime 模块集</h3>
+<div class="card">
+<p>做法：把 <code>createDistributable</code> 的产物复制两份，cfg 的
+<code>app.mainclass</code> 指向运行时探针 <code>UpdateProbeKt</code>，
+B 组只把 <code>runtime/</code> 换成缺 mscapi 的那套。</p>
+
+<div class="two">
+<div>
+<p><span class="pill ok">A 组</span> runtime 含 <code>jdk.crypto.mscapi</code></p>
+<pre><span class="d">更新检查探针</span>
+  java.home      = …\StuMate-probeA\runtime
+  sslDiagnostics = 尚未构建   <span class="d">← 尚未构建</span>
+<span class="g">  sslDiagnostics = jdk=148 os=73</span>
+<span class="g">  state          = UpToDate(current=1.6.1)</span>
+<span class="g">√ 系统根证书库已并进信任链</span></pre>
+</div>
+<div>
+<p><span class="pill bad">B 组</span> runtime 缺该模块</p>
+<pre><span class="d">更新检查探针</span>
+  java.home      = …\StuMate-probeB\runtime
+  sslDiagnostics = 尚未构建   <span class="d">← 尚未构建</span>
+<span class="r">  sslDiagnostics = 构建失败：KeyStoreException:
+                   Windows-ROOT not found</span>
+<span class="r">  state          = Failed(… PKIX path building failed …)</span>
+<span class="r">× 系统根证书库没读进来</span></pre>
+</div>
+</div>
+
+<p><code>os=73</code> 与 2.1 里「全量 JDK 读到 73 条」完全一致 —— 说明 A 组真的把
+系统库读进来了。</p>
+</div>
+
+<h3>2.3 为什么「只在打包产物里出现」</h3>
+<div class="card">
+<p><code>./gradlew run</code> / IDE 用的是系统 JDK 的<strong>完整</strong>模块集，
+这个 API 一定正常。只有 jpackage 那个被 <code>modules(...)</code> 裁剪过的
+runtime 才会抛异常 —— 而异常又被吞了，所以本地怎么试都是「好的」。</p>
+</div>
+
+<h2>3. 修复（一）：补上模块，并让「再漏」不可能静默</h2>
+
+<div class="card">
+<h3>① <code>build.gradle.kts</code> 的 <code>modules(...)</code> 加一行</h3>
+<pre>modules(
+    "java.sql", "java.logging", "java.naming", "java.prefs",
+    "java.management", "java.xml", "java.net.http",
+    "jdk.unsupported",
+    <span class="g">"jdk.crypto.mscapi",   // ← 补上</span>
+)</pre>
+<p>缺它的症状与当初漏 <code>java.sql</code> 一模一样：都是「异常被吞 + 只在打包产物暴露」。</p>
+</div>
+
+<div class="card">
+<h3>② <code>UpdateCenter</code> 新增 <code>sslDiagnostics</code> —— 把静默降级变成可诊断</h3>
+<p>每个失败分支都记下信任链的构建结果，TLS 类失败时把诊断串附在错误信息里。
+修复后 B 组那种安装报的错会自带一行：</p>
+<pre><span class="r">查询最新版本 失败（已重试 3 次）：PKIX path building failed …</span>
+<span class="y">（本机信任库：构建失败：KeyStoreException: Windows-ROOT not found）</span></pre>
+<p>用户截图就能看出断在哪一层，不必再查半天。</p>
+</div>
+
+<div class="card">
+<h3>③ <code>JlinkModulesTest</code> —— 跨文件断言，不靠人记得</h3>
+<p>直接解析 <code>build.gradle.kts</code> 的 <code>modules(...)</code> 块，
+断言必须含 <code>jdk.crypto.mscapi</code>；并反向守卫「解析出的模块集不是空壳」
+（防止正则失效导致「因为错误的原因通过」）。另有两条运行时断言。</p>
+</div>
+
+<h2>4. 修复（二）：让补丁包能替换 <code>runtime/</code></h2>
+
+<div class="danger">
+<strong>为什么必须做：</strong>1.6.1 的补丁包<strong>只含 <code>app/</code> 下 2 个文件</strong>。
+就算发了 1.6.2 补丁，用户点「立即更新」之后 runtime 还是坏的那个 ——
+「检查更新」照旧报 PKIX。<strong>代码修好了送不到用户手上，等于没修。</strong>
+</div>
+
+<div class="card">
+<h3>新格式</h3>
+<table>
+<tr><th style="width:300px">条目</th><th>什么时候带</th><th>大小</th></tr>
+<tr><td><code>app/StuMate-Desktop-&lt;版本&gt;-*.jar</code> + <code>app/StuMate.cfg</code></td><td>总是</td><td>约 2 MB</td></tr>
+<tr><td><code>runtime/release</code></td><td><strong>总是</strong>（它写着「这个版本期望的模块集」）</td><td>247 B</td></tr>
+<tr><td><code>runtime/lib/modules</code></td><td>只在模块集<strong>真的变了</strong>时</td><td>约 15 MB（压缩后）</td></tr>
+<tr><td><code>runtime/</code> 下其它变化文件</td><td>随基准比对自动带上</td><td>很小</td></tr>
+</table>
+<p>客户端拿补丁里的模块集与本地比：不同 → 换；相同 → 不动（省下 15 MB 流量）。
+打包端 <code>release.py</code> 自动挑 <code>dist/</code> 里更早的最大版本 portable zip 当基准。</p>
+</div>
+
+<div class="card">
+<h3>为什么能在运行时替换一个「正在被用着」的文件</h3>
+<p><code>runtime/lib/modules</code> 是 jlink 的模块镜像，启动时被打开并按需映射。
+<strong>实测它可改名、可写、甚至可删</strong>（JDK 打开时带了
+<code>FILE_SHARE_DELETE</code>）：</p>
+<pre><span class="d">--- 1) 改名 (os.rename) ---</span>
+  <span class="g">[OK]   rename modules -> modules.locktest</span>
+<span class="d">--- 2) 直接覆盖写 (open 'wb') ---</span>
+  <span class="g">[OK]   可写：前 16 字节已清零</span>
+<span class="d">--- 3) 删除 (os.remove) ---</span>
+  <span class="g">[OK]   remove modules</span></pre>
+<p>但「允许」不等于「可以随便写」：<strong>不能直接覆盖内容</strong>（本进程还映射着它，
+jimage 懒加载，后面才加载的类会炸）；<strong>改名是安全的</strong>
+（只动目录项，旧 inode 继续被映射）。所以实现是「先全部写 <code>.new</code>，
+再统一改名」。</p>
+<p><code>runtime/bin/</code> 与 <code>lib/server/</code> 下的 native 库是真锁死的
+（Windows loader 加载），规则是<strong>只允许新增</strong> —— 补 mscapi 会多出
+<code>bin/sunmscapi.dll</code>，那是新增，安全。</p>
+</div>
+
+<div class="card">
+<h3>顺序上的两个讲究</h3>
+<ul>
+<li><strong>runtime 替换放在主 jar 之前</strong>：失败时还什么都没动，用户重试即可；
+反过来先换 jar 再失败，就正好复现「新 jar 配旧 runtime」这个形态。</li>
+<li><strong><code>runtime/release</code> 最后落盘</strong>：它是启动自检唯一的依据。
+先落盘而 modules 换失败会让安装「谎报健康」，比明显坏掉更难查。</li>
+</ul>
+</div>
+
+<div class="danger">
+<strong>绕不过去的自举问题：</strong>1.6.1 自带的更新器<strong>不认识</strong>
+<code>runtime/</code> 条目，会静默跳过 —— 用户点了更新、重启了、问题照旧，且无任何提示。
+所以 <strong>1.6.1 用户必须手动装一次 1.6.2 整包</strong>。
+为此加了 <code>runtimeGapOfSelf()</code>：设置页常驻检查装好的 runtime 缺不缺必需模块，
+缺就明确说「请下载整包重新安装一次」。从 1.6.2 起这种安装不再无声无息。
+</div>
+
+<h2>5. 验证</h2>
+
+<h3>5.1 冒烟：真实 1.6.1 安装 + 真实 1.6.2 补丁包</h3>
+<div class="card">
+<p>用 <code>dist/StuMate-portable-1.6.1.zip</code> 解出来的<strong>真安装</strong>当输入
+（不是「同一次构建复制一份」——那样会结构性漏掉一切跨版本问题）。</p>
+<pre>./gradlew updateSmoke -Pdist=&lt;1.6.1 安装&gt; -PpatchZip=dist/StuMate-patch-1.6.2.zip</pre>
+<pre>② 走真实代码：查 Release → 下载补丁 → 校验 → 就地替换
+   替换前模块集：<span class="y">14 个，含 mscapi=false</span>
+   补丁来源：本地 …\dist\StuMate-patch-1.6.2.zip
+   完成，用时 545 ms；<span class="g">runtime 已替换</span>
+
+③ 断言磁盘状态
+   <span class="g">✅</span>  1. app/ 下出现新的主 jar：StuMate-Desktop-1.6.2-1b8bc739….jar
+   <span class="g">✅</span>  2. 新旧 jar 不是同一个文件
+   <span class="g">✅</span>  3. cfg 的 classpath 指向新 jar
+   <span class="g">✅</span>  4. cfg 行数不变（42 → 42）
+   <span class="g">✅</span>  5. 其余依赖行原样保留
+   <span class="g">✅</span>  6. 旧 cfg 备份成 StuMate.cfg.bak
+   <span class="g">✅</span>  7. 没留下 StuMate.cfg.new 中间文件
+   <span class="g">✅</span>  8. 新 jar 大小合理（&gt; 1 MB）
+   <span class="g">✅</span>  9. 新 jar 里能读到主类
+   <span class="g">✅</span> 10. runtime/release 的模块集读得出来（替换后）
+   <span class="g">✅</span> 11. 装好的运行时含全部必需模块 [java.sql, jdk.crypto.mscapi]
+   <span class="g">✅</span> 12. 模块集确实变了（14 → 15）
+   <span class="g">✅</span> 13. 旧 modules 留了 .old 备份（可手工回滚）
+   <span class="g">✅</span> 14. runtime/lib/modules 真的被换掉了（大小 &gt; 40 MB）
+   <span class="g">✅</span> 15. 没留下 modules.new 中间文件
+
+<span class="g"> 15/15 断言通过</span></pre>
+</div>
+
+<h3>5.2 端到端闭环：对「刚被更新过的安装」跑探针</h3>
+<div class="card">
+<p>同一个安装，更新前必报 PKIX；更新后：</p>
+<pre><span class="d">更新检查探针</span>
+  java.home      = …\StuMate-updateSmoke\StuMate\runtime
+  java.version   = 17.0.12
+<span class="g">  sslDiagnostics = jdk=148 os=73</span>
+<span class="g">  state          = UpToDate(current=1.6.2)</span>
+<span class="g">√ 系统根证书库已并进信任链</span></pre>
+<p>补丁新增的 native 库也确实落盘了：
+<code>runtime/bin/sunmscapi.dll</code>（44,776 字节）。</p>
+</div>
+
+<h3>5.3 单元测试</h3>
+<div class="card">
+<table>
+<tr><th>范围</th><th>数量</th><th>结果</th></tr>
+<tr><td>全量</td><td>215</td><td class="ok">215 通过 / 0 失败</td></tr>
+<tr><td>其中 <code>RuntimePatchTest</code>（本次新增）</td><td>12</td><td class="ok">全部通过</td></tr>
+<tr><td>其中 <code>JlinkModulesTest</code></td><td>4</td><td class="ok">全部通过</td></tr>
+</table>
+<p class="tag">原 199 → 203（jlink 那轮）→ 215（本轮）。</p>
+</div>
+
+<h2>6. 补丁包对照</h2>
+<div class="card">
+<table>
+<tr><th>资产</th><th>1.6.1</th><th>1.6.2</th></tr>
+<tr><td><code>StuMate-patch-*.zip</code> 条目数</td><td class="bad">2</td><td class="ok">8</td></tr>
+<tr><td>补丁包大小</td><td>1.82 MB</td><td>16.61 MB（含 15 MB 的 modules）</td></tr>
+<tr><td>补丁能不能换 runtime</td><td class="bad">不能</td><td class="ok">能</td></tr>
+<tr><td>整包 <code>StuMate-portable-*.zip</code></td><td>67.15 MB</td><td>67.22 MB</td></tr>
+<tr><td>整包 runtime 含 mscapi</td><td class="bad">否</td><td class="ok">是</td></tr>
+</table>
+<p class="tag">SHA-256 &nbsp; patch&nbsp;3793b0d99c8fb16c… &nbsp;·&nbsp; portable&nbsp;274784f0c89de690…</p>
+</div>
+
+<h2>7. 待办 / 遗留</h2>
+<div class="card">
+<ul>
+<li><span class="pill bad">必须手动</span> <strong>1.6.1 用户要手动装一次 1.6.2 整包</strong> ——
+它自带的更新器不认识 runtime 条目。装完之后的版本都能自动更新。</li>
+<li><span class="pill info">已做</span> 本机实例 <code>F:\DownloadQQ\unpacked\StuMate</code>
+已换成 1.6.2（旧的那份备份为 <code>StuMate-1.6.1-bak-*</code>）。</li>
+<li><span class="pill info">待发布</span> <code>dist/</code> 里 1.6.2 的两个 zip 已就绪，
+尚未建 GitHub Release。</li>
+<li><span class="pill info">可清理</span> <code>dist/StuMate-1.1.0.{exe,msi}</code> 已过时。</li>
+</ul>
+</div>
+
+<h2>8. 复跑方式</h2>
+<div class="card">
+<pre><span class="d"># A/B 探针（打包产物里跑，才看得出这个坑）</span>
+cp -r &lt;目录版产物&gt; probeA &amp;&amp; cp -r &lt;目录版产物&gt; probeB
+# 两份的 app/StuMate.cfg：app.mainclass 改 com.example.classreminder.dev.UpdateProbeKt
+# B 组额外：把 runtime/ 换成缺 mscapi 的那套
+./probeA/StuMate.exe   <span class="d"># → jdk=148 os=73</span>
+./probeB/StuMate.exe   <span class="d"># → KeyStoreException: Windows-ROOT not found</span>
+
+<span class="d"># 补丁包 + 整包</span>
+python tools/release.py pack --version 1.6.2
+
+<span class="d"># 端到端冒烟（发布前就能验 runtime 替换）</span>
+./gradlew updateSmoke -Pdist=&lt;1.6.1 安装&gt; -PpatchZip=dist/StuMate-patch-1.6.2.zip
+
+<span class="d"># 单元测试</span>
+./gradlew test --rerun</pre>
+</div>
+
+<footer>
+StuMate 桌面端 · 验收页 v1.0 · 提交 <code>493d9f3</code> / <code>a7be78a</code> / <code>ce814a6</code><br>
+本页所有数字均来自实跑输出，未做手工润色。
+</footer>
+
+</div>
+</body>
+</html>
