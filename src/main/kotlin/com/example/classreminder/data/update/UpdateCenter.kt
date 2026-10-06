@@ -36,21 +36,28 @@ import javax.net.ssl.X509TrustManager
  * 60 次/小时/IP —— 而「启动时查一次 + 手动点一下」远远够用。
  *
  * ## 为什么能「就地替换」而不用 helper 进程
- * 桌面端升级只需要动两个文件：主 jar 和 `app/StuMate.cfg`（其余 37 个依赖 jar 与
- * `runtime/` 跨版本逐字节不变，见 `docs/desktop-update-strategy.md`）。
+ * 桌面端升级通常只需要动两个文件：主 jar 和 `app/StuMate.cfg`（37 个依赖 jar
+ * 跨版本逐字节不变，见 `docs/desktop-update-strategy.md`）。
  *
  * - 新 jar 的**文件名带新版本号** → 与正在运行的旧 jar 不冲突，可以直接写进去；
  * - `StuMate.cfg` 只在启动时被 jpackage launcher 读一次，**不会被常驻持有** → 可以覆盖。
+ * - `runtime/lib/modules`（jlink 的模块镜像）**也能换** —— 实测 JVM 运行时它可改名、
+ *   可写、甚至可删（JDK 打开它时带了 `FILE_SHARE_DELETE`）。见 [replaceRuntimeFiles]。
  *
  * 所以「下载 → 落盘 → 改 cfg」三步在**进程活着的时候**就能全部做完，
  * 只要最后重启一次即可。**不需要起 .bat / 辅助 JVM** —— 那类方案在中文路径、
  * 编码、杀软拦截上全是坑。
+ *
+ * ⚠️ 唯一的例外是 `runtime/bin/` 下的东西：那些 dll/exe 由 Windows loader 加载，
+ * 是真的锁死的。所以补丁包**约定不带** `bin/`，模块集变化时只换 `lib/` 与 `conf/`。
  *
  * ## 什么时候做不到
  * - 装在 `%ProgramFiles%` 下 → 写 `app/` 要管理员权限 → `AccessDeniedException`
  *   → 降级为 [UpdateState.NeedsFullPackage]（引导去下载页）。
  * - 新版本改了**依赖**（不只是主 jar）→ 补丁包覆盖不了 → 同样降级为整包。
  *   这条由 [dependencyLines] 比对把关，**不靠人记得**。
+ * - 新版本换了**运行时模块集**、但补丁包没带 `runtime/lib/modules`
+ *   → 同样降级为整包（[runtimeGap] 是启动时的兜底自检）。
  */
 object UpdateCenter {
 
@@ -79,6 +86,27 @@ object UpdateCenter {
      * 详见 [dependencyLines] 里那段「为什么必须抹掉 hash」。
      */
     private val HASH_SUFFIX = Regex("-[0-9a-fA-F]{16,}\\.jar$")
+
+    /**
+     * 裁剪运行时里**必须存在**的模块 —— 少了就说明这个 runtime 不是给当前版本用的。
+     *
+     * 每一条都对应一次真实事故（异常被吞掉、只在打包产物里暴露）：
+     * - `java.sql`：1.5.x 漏过，症状是 SQLite 驱动起不来；
+     * - `jdk.crypto.mscapi`：1.6.1 漏过，症状是「检查更新」永远报 PKIX
+     *   （读不了 `Windows-ROOT`，静默退回默认信任链，扛不住 SteamTools 这类中间人）。
+     *
+     * 加模块的同时**必须**在 [JlinkModulesTest] 里加断言，否则下次还会漏。
+     */
+    internal val REQUIRED_MODULES = listOf("java.sql", "jdk.crypto.mscapi")
+
+    /** jlink 把模块集写在这里，格式：`MODULES="java.base java.xml ..."` */
+    internal const val RUNTIME_RELEASE_PATH = "runtime/release"
+
+    /** 模块镜像本体。模块集变了要换的就是它 */
+    internal const val RUNTIME_MODULES_PATH = "runtime/lib/modules"
+
+    /** `runtime/release` 里那一行 `MODULES="..."` */
+    private val MODULES_LINE = Regex("MODULES=\"([^\"]*)\"")
 
     val currentVersion: String get() = VERSION_OVERRIDE ?: BuildConfig.VERSION
 
@@ -355,8 +383,8 @@ object UpdateCenter {
                 _state.value = UpdateState.Downloading(got, total)
             } }
         }
-        result.onSuccess {
-            _state.value = UpdateState.RestartPending(available.version)
+        result.onSuccess { runtimeSwapped ->
+            _state.value = UpdateState.RestartPending(available.version, runtimeSwapped)
         }.onFailure { t ->
             val reason = t.message ?: t::class.java.simpleName
             _state.value = if (t is java.nio.file.AccessDeniedException) {
@@ -371,18 +399,23 @@ object UpdateCenter {
         }
     }
 
+    /**
+     * 真正的「就地替换」。
+     *
+     * @return 这次是否连 `runtime/` 一起换了（UI 据此把「必须重启」说重一点）。
+     */
     private suspend fun applyPatch(
         layout: InstallLayout,
         patch: UpdateAsset,
         onProgress: (Long, Long) -> Unit
-    ) {
+    ): Boolean {
         val staging = File(System.getProperty("java.io.tmpdir"), "StuMate-update").apply {
             deleteRecursively()
             mkdirs()
         }
         val zipFile = File(staging, patch.name)
 
-        // ① 下载。补丁包只有 1.7 MB，但还是按流写盘 —— 免得以后换成整包时炸内存。
+        // ① 下载。补丁包通常只有 1.7 MB，但还是按流写盘 —— 免得以后换成整包时炸内存。
         retrying(what = "下载补丁包") { downloadTo(patch, zipFile, onProgress) }
 
         // ② 校验。下载下来的东西在被写进安装目录之前必须过这三关。
@@ -400,7 +433,7 @@ object UpdateCenter {
             throw IllegalStateException("补丁包里的 jar 不是 StuMate 主程序")
         }
 
-        // ③ 依赖比对。补丁只换主 jar，所以依赖清单必须**逐行一致**；
+        // ③ 依赖比对。补丁不换依赖 jar，所以依赖清单必须**逐行一致**；
         //    不一致说明这个版本动了依赖，必须走整包。
         val localCfg = layout.cfg.readText(Charsets.UTF_8)
         val localDeps = dependencyLines(localCfg)
@@ -409,7 +442,13 @@ object UpdateCenter {
             throw IllegalStateException("这个版本更新了依赖，需要重新安装整包")
         }
 
-        // ④ 先把新 jar 放进去（新文件名，与运行中的旧 jar 不冲突），
+        // ④ 运行时（jlink 模块镜像）。**放在主 jar 之前** ——
+        //    万一它失败，此时还什么都没动，用户重试即可；
+        //    反过来先换了 jar 再失败，就变成「新 jar 配旧 runtime」，
+        //    正好是 1.6.1 那个「检查更新永远报 PKIX」的形态。
+        val runtimeSwapped = syncRuntime(layout, extracted)
+
+        // ⑤ 先把新 jar 放进去（新文件名，与运行中的旧 jar 不冲突），
         //    再把 cfg 指过去。**顺序不能反** —— 反过来会出现
         //    「cfg 指着一个还不存在的 jar」的瞬间，此时崩溃就再也起不来了。
         val targetJar = File(layout.appDir, extracted.jar.name)
@@ -433,9 +472,166 @@ object UpdateCenter {
             tmp.toPath(), layout.cfg.toPath(),
             java.nio.file.StandardCopyOption.REPLACE_EXISTING
         )
+
+        return runtimeSwapped
     }
 
-    private class Extracted(val jar: File, val cfg: String)
+    /**
+     * 该不该换运行时、以及换完没有。
+     *
+     * ## 判据
+     *
+     * 补丁包**总是**带 `runtime/release`（247 字节）—— 它写着「这个版本期望的模块集」。
+     * 拿它和本地的比：
+     *
+     * | 情况 | 处理 |
+     * |---|---|
+     * | 补丁没带 `runtime/`（1.6.1 之前的老包） | 无从判断，不动 |
+     * | 本地读不出 `release` | 安装不完整，换 |
+     * | 模块集不同 | 换 |
+     * | 模块集相同 | 不动（省下 48 MB 流量） |
+     *
+     * 该换但补丁里没有 `lib/modules` → **明确报错**，让用户去装整包。
+     * 这条是 [REQUIRED_MODULES] 之外的第二道闸：打包端忘了附 modules 时，
+     * 用户看到的是「需要重新安装整包」，而不是「更新成功」之后照旧报 PKIX。
+     */
+    private fun syncRuntime(layout: InstallLayout, extracted: Extracted): Boolean {
+        val wanted = extracted.runtime[RUNTIME_RELEASE_PATH]
+            ?.let { runCatching { runtimeModules(it.readText(Charsets.UTF_8)) }.getOrNull() }
+        val local = localRuntimeModules(layout.root)
+
+        if (!needRuntimeSwap(wanted, local)) return false
+
+        if (extracted.runtime[RUNTIME_MODULES_PATH] == null) {
+            throw IllegalStateException("这个版本换了运行时，需要重新安装整包")
+        }
+        replaceRuntimeFiles(layout.root, extracted.runtime)
+        return true
+    }
+
+    /**
+     * 该不该换运行时。
+     *
+     * 抽成纯函数是为了能单测这三条边界 —— 它们在真实链路上要么很难触发
+     * （本地读不出 `release`），要么代价很大（**该换却不换 = 用户白更新一次**，
+     * 正是 1.6.1 那个 bug 的形态）。
+     */
+    internal fun needRuntimeSwap(patchModules: List<String>?, localModules: List<String>?): Boolean =
+        when {
+            patchModules == null -> false       // 老补丁包没带 runtime 信息，无从判断
+            localModules == null -> true        // 本地连 release 都读不出 → 安装不完整
+            patchModules != localModules -> true
+            else -> false
+        }
+
+    /**
+     * 把补丁里 `runtime/` 下的文件覆盖进安装目录，返回替换掉的相对路径。
+     *
+     * ## 为什么能替换一个「正在被 JVM 用着」的文件
+     *
+     * `runtime/lib/modules` 是 jlink 的模块镜像，启动时被打开并**按需映射**。
+     * 直觉上它应该被锁死 —— 实测**不是**：JDK 在 Windows 上打开它时带了
+     * `FILE_SHARE_DELETE`，于是改名、写入、甚至删除都允许
+     * （`os_windows.cpp` 的 `os::open()` 就是这个共享模式）。
+     *
+     * 但「允许」不等于「可以随便写」：
+     * - ❌ **不能直接覆盖内容** —— 本进程还映射着它，改写会让运行中的 JVM
+     *   读到半新半旧的镜像。jimage 是懒加载的，后面才加载的类会直接炸。
+     * - ✅ **改名是安全的** —— 改名只动目录项，旧 inode 继续被映射，
+     *   本进程一切照旧；新文件从下次启动开始生效。
+     *
+     * 所以这里是「先全部写 `.new`，再统一改名」，而不是逐个覆盖。
+     *
+     * ## 为什么 `release` 必须最后换
+     *
+     * `release` 里写着模块集，是 [runtimeGapOfSelf] 唯一的判断依据。
+     * 如果它先被换掉、而 `modules` 换失败了，自检就会以为运行时是健康的 ——
+     * 一个「谎报健康」的安装，比一个明显坏掉的安装更难查。所以它排在最后，
+     * 充当「这次替换整体成功」的提交标记。
+     */
+    internal fun replaceRuntimeFiles(root: File, files: Map<String, File>): List<String> {
+        val ordered = files.entries.sortedBy { if (it.key == RUNTIME_RELEASE_PATH) 1 else 0 }
+
+        // ① 全部先落到同目录的 `.new`。必须同卷 —— 跨卷改名会退化成「复制 + 删除」，
+        //    那就不是原子的了。
+        val staged = ordered.map { (rel, src) ->
+            val target = File(root, rel)
+            target.parentFile?.mkdirs()
+            val fresh = File(target.parentFile, "${target.name}.new")
+            src.copyTo(fresh, overwrite = true)
+            rel to (fresh to target)
+        }
+
+        // ② 统一改名：先把旧文件让开，再把 `.new` 顶上。
+        val done = mutableListOf<String>()
+        for ((rel, pair) in staged) {
+            val (fresh, target) = pair
+            if (target.isFile) {
+                val retired = File(target.parentFile, "${target.name}.old")
+                runCatching { retired.delete() }
+                runCatching { java.nio.file.Files.move(target.toPath(), retired.toPath()) }
+            }
+            java.nio.file.Files.move(fresh.toPath(), target.toPath())
+            done += rel
+        }
+        return done
+    }
+
+    /**
+     * 补丁包解出来的东西。
+     *
+     * @param runtime 补丁里 `runtime/` 下的文件，键是相对路径（如 `runtime/lib/modules`）。
+     *        正常版本这里只有一条 `runtime/release`（247 字节，就是「期望的模块集」）；
+     *        模块集真变了才会有 `runtime/lib/modules`（约 48 MB）。
+     */
+    private class Extracted(
+        val jar: File,
+        val cfg: String,
+        val runtime: Map<String, File>
+    )
+
+    private fun extractPatch(zip: File, staging: File): Extracted {
+        var jar: File? = null
+        var cfg: String? = null
+        val runtime = mutableMapOf<String, File>()
+        val outDir = File(staging, "pkg").apply { mkdirs() }
+        ZipInputStream(zip.inputStream().buffered()).use { zin ->
+            while (true) {
+                val entry = zin.nextEntry ?: break
+                if (entry.isDirectory) continue
+                val name = entry.name.replace('\\', '/')
+                when {
+                    name.startsWith("app/") && name.endsWith(".jar")
+                            && name.substringAfterLast('/').startsWith(MAIN_JAR_PREFIX) -> {
+                        val target = File(outDir, name.substringAfterLast('/'))
+                        target.outputStream().use { zin.copyTo(it) }
+                        jar = target
+                    }
+                    name == "app/StuMate.cfg" -> cfg = zin.readBytes().toString(Charsets.UTF_8)
+
+                    // runtime/ 下的文件：按原目录结构解出来。
+                    //
+                    // 例外是 `runtime/bin/` —— 那里是 launcher 直接加载的 jvm.dll / java.exe，
+                    // 被 Windows loader 真锁死，运行中换不了。打包端约定不打它；
+                    // 万一打了，**明确报错**而不是静默跳过 —— 静默跳过等于把
+                    // 「更新成功」的假象给用户，正是这个 bug 最初的样子。
+                    name.startsWith("runtime/bin/") ->
+                        throw IllegalStateException("这个版本的补丁包动了 runtime/bin，需要重新安装整包")
+
+                    name.startsWith("runtime/") -> {
+                        val target = File(outDir, name)
+                        target.parentFile?.mkdirs()
+                        target.outputStream().use { zin.copyTo(it) }
+                        runtime[name] = target
+                    }
+                    else -> Unit
+                }
+            }
+        }
+        val j = jar ?: throw IllegalStateException("补丁包里没有主 jar")
+        val c = cfg ?: throw IllegalStateException("补丁包里没有 StuMate.cfg")
+        return Extracted(j, c, runtime)
+    }
 
     /** 把补丁包流式写到 [dest]。失败时把半截文件删掉，免得重试时 `outputStream()` 追加在后面 */
     private fun downloadTo(patch: UpdateAsset, dest: File, onProgress: (Long, Long) -> Unit) {
@@ -547,32 +743,6 @@ object UpdateCenter {
             ?: throw IllegalStateException("替换后 cfg 里找不到主 jar 那一行")
     }
 
-    private fun extractPatch(zip: File, staging: File): Extracted {
-        var jar: File? = null
-        var cfg: String? = null
-        val outDir = File(staging, "pkg").apply { mkdirs() }
-        ZipInputStream(zip.inputStream().buffered()).use { zin ->
-            while (true) {
-                val entry = zin.nextEntry ?: break
-                if (entry.isDirectory) continue
-                val name = entry.name.replace('\\', '/')
-                when {
-                    name.startsWith("app/") && name.endsWith(".jar")
-                            && name.substringAfterLast('/').startsWith(MAIN_JAR_PREFIX) -> {
-                        val target = File(outDir, name.substringAfterLast('/'))
-                        target.outputStream().use { zin.copyTo(it) }
-                        jar = target
-                    }
-                    name == "app/StuMate.cfg" -> cfg = zin.readBytes().toString(Charsets.UTF_8)
-                    else -> Unit
-                }
-            }
-        }
-        val j = jar ?: throw IllegalStateException("补丁包里没有主 jar")
-        val c = cfg ?: throw IllegalStateException("补丁包里没有 StuMate.cfg")
-        return Extracted(j, c)
-    }
-
     /** 启动时清掉历史版本残留的 jar。**运行中的那个删不掉，跳过即可** */
     fun cleanupStaleJars() {
         val layout = detectInstall() ?: return
@@ -666,6 +836,48 @@ object UpdateCenter {
         cfg.lines()
             .filter { it.startsWith("app.classpath=") && !it.contains(MAIN_JAR_PREFIX) }
             .map { HASH_SUFFIX.replace(it, ".jar") }
+
+    /**
+     * 从 `runtime/release` 的内容里解析模块集。
+     *
+     * 那个文件是 jlink 生成的 properties 风格文本，其中一行形如：
+     * ```
+     * MODULES="java.base java.xml java.sql jdk.crypto.mscapi"
+     * ```
+     * 认不出来返回 null（**不要返回空列表** —— 空列表会被当成「一个模块都没有」，
+     * 从而在比对时误判成「模块集变了」）。
+     */
+    internal fun runtimeModules(releaseText: String): List<String>? =
+        MODULES_LINE.find(releaseText)
+            ?.groupValues?.get(1)
+            ?.split(Regex("\\s+"))
+            ?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() }
+
+    /** 读安装目录下 `runtime/release` 的模块集。文件不在或认不出返回 null */
+    internal fun localRuntimeModules(root: File): List<String>? {
+        val f = File(root, RUNTIME_RELEASE_PATH)
+        if (!f.isFile) return null
+        return runCatching { runtimeModules(f.readText(Charsets.UTF_8)) }.getOrNull()
+    }
+
+    /**
+     * 启动自检：当前**装好的**运行时缺哪些必需模块（空列表 = 健康）。
+     *
+     * 为什么需要它 —— 1.6.1 的用户装 1.6.2 补丁时，那个补丁是给「认识 runtime 条目」
+     * 的新更新器准备的，而 1.6.1 自带的更新器**不认识** `runtime/` 条目，会静默跳过。
+     * 于是主 jar 变成 1.6.2、runtime 还是缺 `mscapi` 的那个 —— 用户点了更新、
+     * 重启了、问题照旧，而且没有任何提示。这个自检就是那张安全网：
+     * 从 1.6.2 起，缺模块的安装会在设置页明确说「需要重新安装整包」。
+     *
+     * 开发模式（`detectInstall()` 返回 null）与读不出 `release` 的情况都返回空列表 ——
+     * **宁可漏报也不误报**，否则开发时每次都要看一条假警告。
+     */
+    fun runtimeGapOfSelf(): List<String> =
+        detectInstall()
+            ?.let { localRuntimeModules(it.root) }
+            ?.let { have -> REQUIRED_MODULES.filterNot { it in have } }
+            ?: emptyList()
 
     private fun hasMainClass(jar: File): Boolean {
         var found = false

@@ -601,6 +601,10 @@ private fun UpdateSection() {
     var notify by remember { mutableStateOf(Prefs.getNotifyUpdate()) }
     val busy = state is UpdateState.Checking || state is UpdateState.Downloading
 
+    // 启动自检：装好的运行时缺不缺必需模块。
+    // 只在进设置页时算一次 —— 它要读 runtime/release，没必要每帧做。
+    val runtimeGap = remember { UpdateCenter.runtimeGapOfSelf() }
+
     SectionBlock(
         title = "软件更新",
         description = "从 GitHub Releases 检查新版本。只在点击或启动时访问一次公开接口，" +
@@ -609,6 +613,21 @@ private fun UpdateSection() {
         FlCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 UpdateStatusBlock(state, scope)
+
+                // 这是给「装了 1.6.1、又用 1.6.1 自带的旧更新器去更新」那种安装看的：
+                // 旧更新器不认识补丁包里的 runtime 条目，会静默跳过 ——
+                // 主 jar 升上去了、运行时还是坏的，而界面上一切正常。
+                // 这条警告是那张安全网，让这种安装不再无声无息。
+                if (runtimeGap.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "当前安装的运行时缺少必要组件（${runtimeGap.joinToString("、")}），" +
+                            "「检查更新」等功能会失败。请下载整包重新安装一次。",
+                        fontSize = 11.5.sp,
+                        color = c.warning
+                    )
+                }
+
                 Spacer(Modifier.height(12.dp))
                 FlDivider()
                 FlSettingRow(
@@ -702,7 +721,14 @@ private fun UpdateStatusBlock(state: UpdateState, scope: kotlinx.coroutines.Coro
             StatusLine(c.success, "${state.version} 已就绪，重启后生效")
             Spacer(Modifier.height(4.dp))
             Text(
-                "文件已经换好了，当前窗口跑的仍是旧版本 —— 重启一下就是新版。",
+                // 换过运行时的话这次重启是**必需**的，不是「随便什么时候都行」：
+                // 磁盘上的 modules 已经是新的，而本进程还映射着旧的，属于半截状态。
+                if (state.runtimeReplaced) {
+                    "主程序和运行时都已换好。当前窗口跑的仍是旧版本，请立刻重启 —— " +
+                        "运行时换了之后这次运行处于半新半旧的状态，不适合继续用。"
+                } else {
+                    "文件已经换好了，当前窗口跑的仍是旧版本 —— 重启一下就是新版。"
+                },
                 fontSize = 11.5.sp,
                 color = c.onSurfaceVariant
             )

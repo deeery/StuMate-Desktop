@@ -56,8 +56,18 @@ sealed interface UpdateState {
         val percent: Int get() = if (total <= 0) -1 else ((received * 100) / total).toInt()
     }
 
-    /** 文件已替换完，等用户重启 */
-    data class RestartPending(val version: String) : UpdateState
+    /**
+     * 文件已替换完，等用户重启。
+     *
+     * @param runtimeReplaced 这次连 `runtime/` 一起换了（模块集变了，如补 `jdk.crypto.mscapi`）。
+     *        UI 要据此把话说重一点 —— 换过 runtime 之后**必须重启**，光关掉窗口不算，
+     *        而且重启前这次运行可能已经在用「内存里的旧 modules + 磁盘上的新 modules」，
+     *        属于半截状态。见 [UpdateCenter.applyPatch] 第 ⑤ 步。
+     */
+    data class RestartPending(
+        val version: String,
+        val runtimeReplaced: Boolean = false
+    ) : UpdateState
 
     /** 自己装不了，得走整包。reason 是给人看的 */
     data class NeedsFullPackage(
