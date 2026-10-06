@@ -45,6 +45,7 @@ import shutil
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 import zlib
@@ -321,12 +322,14 @@ def gen_notes(args):
         h, _, subject = l.partition("\t")
         body.append(f"- {subject} (`{h}`)")
     body += ["", "### 下载", "",
-             f"- **已有安装（1.6.2 及以后）**：应用内「设置 → 软件更新 → 检查更新」点一下就行，"
+             "- **已有安装（1.6.2 及以后）**：应用内「设置 → 软件更新 → 检查更新」点一下就行，"
              "不用手动下载。",
-             f"- **已有安装（1.6.2 之前）**：请用 `StuMate-portable-{version}.zip` 覆盖安装一次。"
-             "更早的更新器不认识补丁包里的 runtime 条目，会静默跳过 —— "
+             f"- **已有安装（1.6.2 之前）**：请用 `StuMate-portable-{version}.zip` 或 "
+             f"`StuMate-{version}.msi` 覆盖安装一次。"
+             "更早的更新器不认识补丁包里的 `runtime/` 条目，会静默跳过 —— "
              "看起来更新成功、实际运行时没换。",
-             f"- **全新安装**：`StuMate-portable-{version}.zip`（免安装，解压即用）"]
+             f"- **全新安装**：`StuMate-{version}.msi`（进「程序和功能」，可卸载）"
+             f"或 `StuMate-portable-{version}.zip`（免安装，解压即用）。"]
     return "\n".join(body)
 
 
@@ -366,14 +369,44 @@ def api(method, url, token, payload=None, raw=None, ctype="application/json"):
         die(f"{method} {url} → HTTP {e.code}\n{detail}")
 
 
+def upload_asset(url, token, path, ctype, name):
+    """上传单个资产 —— **走 curl，不用 urllib**。
+
+    🔴 为什么必须用 curl（2026-10-06 实测）
+    本机装了 SteamTools 做 HTTPS 中间人，`urllib` 传 68 MB 的 msi 时被
+    `Errno 10054 远程主机强迫关闭了一个现有的连接`。同一个文件换 `curl` 秒过。
+    差别不在协议，而在**流式读取**：`urllib` 这条路是先把整个文件
+    `open().read()` 读进内存再发（见旧实现），中间人代理对这种单次大 body
+    很不友好；curl 是边读边发，且带 `--retry-all-errors` 能自愈瞬时断连。
+    16 MB 的 patch 用 urllib 能过、68 MB 过不去 —— 正是「大」这一点触发的。
+
+    改 curl 后 16.6/67.2/68.1 MB 三个资产均一次通过
+    （HTTP 201，分别约 6.5s / 23.3s / 15.5s）。
+    """
+    cmd = ["curl", "-s", "-S", "-o", os.devnull, "-w", "%{http_code}",
+           "-X", "POST",
+           "-H", "Authorization: Bearer " + token,
+           "-H", "Content-Type: " + ctype,
+           "--retry", "3", "--retry-delay", "3", "--retry-all-errors",
+           "--data-binary", "@" + path,
+           url + "?name=" + urllib.parse.quote(name, safe="")]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    code = (r.stdout or "").strip()
+    if code != "201":
+        die(f"上传 {name} 失败：HTTP {code}\n{r.stderr[:600]}（{url}）")
+
+
 def publish(args):
     version = args.version
     tag = f"v{version}"
-    assets = [os.path.join(DIST, f"StuMate-patch-{version}.zip"),
-              os.path.join(DIST, f"StuMate-portable-{version}.zip")]
+    # 资产顺序决定 GitHub Release 页面上的排列，把「新装用户最需要的 msi」放最前
+    assets = [os.path.join(DIST, f"StuMate-{version}.msi"),
+              os.path.join(DIST, f"StuMate-portable-{version}.zip"),
+              os.path.join(DIST, f"StuMate-patch-{version}.zip")]
     for a in assets:
         if not os.path.isfile(a):
-            die(f"缺资产 {a}；先跑 `python tools/release.py pack --version {version}`")
+            die(f"缺资产 {a}；先跑 `python tools/release.py pack --version {version}`"
+                f"（msi 用 `./gradlew postprocessMsi -PwithMsi=true` 单独打）")
 
     if args.notes_file:
         notes = open(args.notes_file, encoding="utf-8").read()
@@ -412,13 +445,16 @@ def publish(args):
     })
     print("  " + rel["html_url"])
 
+    # 按扩展名给 Content-Type：zip 用 application/zip，msi 用 application/x-msi。
+    # 都给 application/zip 也能装，但浏览器/下载器会把 msi 当压缩包处理，不理想。
+    CTYPES = {".zip": "application/zip", ".msi": "application/x-msi"}
+    up_url = (f"https://uploads.github.com/repos/{args.repo}"
+              f"/releases/{rel['id']}/assets")
     for a in assets:
         name = os.path.basename(a)
-        print(f"上传 {name} …")
-        api("POST",
-            f"https://uploads.github.com/repos/{args.repo}/releases/{rel['id']}/assets"
-            f"?name={name}",
-            token, raw=open(a, "rb").read(), ctype="application/zip")
+        ctype = CTYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
+        print(f"上传 {name} （{human(os.path.getsize(a))}, {ctype}）…")
+        upload_asset(up_url, token, a, ctype, name)
         print("  OK")
 
     print("\n完成。客户端会从这里读到版本：")
