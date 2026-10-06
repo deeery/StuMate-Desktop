@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>托盘气泡验收 v1.0 —— 显示名才是「乱码」的真正来源</title>
+<style>
+  :root {
+    --bg: #12141a; --panel: #1b1e26; --panel2: #22262f; --line: #333845;
+    --fg: #e8eaed; --fg2: #a8b0bd; --fg3: #6f7887;
+    --ok: #4cc38a; --bad: #ff6b6b; --warn: #e8b339; --acc: #60cdff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.7 "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 32px 24px 72px; }
+  h1 { font-size: 24px; margin: 0 0 6px; font-weight: 600; }
+  h2 { font-size: 17px; margin: 40px 0 14px; font-weight: 600;
+       border-left: 3px solid var(--acc); padding-left: 10px; }
+  .sub { color: var(--fg2); margin: 0 0 8px; }
+  .meta { color: var(--fg3); font-size: 12.5px; }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 4px;
+         font-family: Consolas, monospace; font-size: 12.5px; color: var(--acc); }
+
+  /* 结论表 */
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--fg3); font-weight: 500; font-size: 12.5px;
+       text-transform: uppercase; letter-spacing: .04em; }
+  td.mono { font-family: Consolas, monospace; font-size: 12.5px; }
+  .yes { color: var(--ok); font-weight: 600; }
+  .no  { color: var(--bad); font-weight: 600; }
+  .hit { background: rgba(232,179,57,.10); }
+  tr.hit td { color: var(--fg); }
+
+  /* 卡片 */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 6px; overflow: hidden; }
+  .card figure { margin: 0; }
+  .card img { width: 100%; display: block; }
+  .card .body { padding: 12px 14px 14px; }
+  .card h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+  .card p  { margin: 0; font-size: 12.5px; color: var(--fg2); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 3px;
+         margin-left: 6px; vertical-align: 1px; font-weight: 600; }
+  .tag.bad { background: rgba(255,107,107,.16); color: var(--bad); }
+  .tag.ok  { background: rgba(76,195,138,.16);  color: var(--ok); }
+
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+          border-radius: 6px; padding: 14px 16px; margin-top: 14px; font-size: 13px; color: var(--fg2); }
+  .note b { color: var(--fg); }
+  .note.bad { border-left-color: var(--bad); }
+  .note.ok  { border-left-color: var(--ok); }
+  code.cmd { display: block; background: #0d0f14; border: 1px solid var(--line);
+             border-radius: 5px; padding: 9px 12px; margin: 8px 0 0;
+             font-family: Consolas, monospace; font-size: 12px; color: var(--fg2);
+             white-space: pre; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>托盘气泡验收 v1.0</h1>
+  <p class="sub">用户报的「桌面端调用 Windows 提示时中文显示成乱码」，根因是
+     <b>气泡标题的「应用名」没注册</b>，Shell 退化显示原始 AUMID
+     <code>StuMate.Desktop.1</code>。气泡本身一直正常弹出。</p>
+  <p class="meta">2026-10-05 · Win11 26200 · 打包同款 jlink 运行时（<code>file.encoding=GBK</code>）·
+     全部截图由 <code>dev/TrayProbe.kt</code> 在<strong>被测进程内</strong>自取，外部脚本零参与</p>
+
+  <h2>一、实测结论表</h2>
+  <table>
+    <thead>
+      <tr><th>场景</th><th>气泡</th><th>标题那一行显示</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>不设 AUMID</td>
+        <td class="yes">照弹</td>
+        <td class="mono">OpenJDK Platform binary</td>
+        <td>退化成宿主 exe 的文件描述</td>
+      </tr>
+      <tr class="hit">
+        <td>设 AUMID，<b>不注册显示名</b></td>
+        <td class="yes">照弹</td>
+        <td class="mono" style="color:var(--bad)">StuMate.Desktop.1</td>
+        <td><b>← 修复前用户看到的</b></td>
+      </tr>
+      <tr>
+        <td>设 AUMID + 注册 <code>DisplayName</code></td>
+        <td class="yes">照弹</td>
+        <td class="mono" style="color:var(--ok)">StuMate</td>
+        <td>修复后</td>
+      </tr>
+      <tr>
+        <td>先建<strong>真实原生窗口</strong>再设 AUMID</td>
+        <td class="yes">照弹</td>
+        <td class="mono" style="color:var(--ok)">StuMate</td>
+        <td>调用时机<strong>不影响</strong>结果</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note bad">
+    <b>推翻两条旧结论。</b>代码注释里曾写「不设 AUMID → Windows 11 直接吞掉气泡」与
+    「设 AUMID 必须早于任何窗口」。两组对照都<b>复现不出来</b>，两条都已从注释里删除。
+    它们极可能都是<b>假阴性</b>：气泡由 Explorer 托管、不是本进程窗口，
+    早先靠外部脚本「等 N 秒再全屏抓」，抓早了、或被 Windows 对<b>内容完全相同</b>的
+    Toast 去重，都会得到「什么都没弹」的假象。现在探针在进程内自取基线与 after 做差分，
+    时序不再靠运气。
+  </div>
+
+  <h2>二、实拍对照（上 = 发送前基线，下 = 发出 1.6 秒后）</h2>
+  <div class="cards">
+
+    <div class="card">
+      <figure><img src="tray-01-no-aumid.png" alt="不设 AUMID 时的气泡标题"></figure>
+      <div class="body">
+        <h3>① 不设 AUMID <span class="tag bad">对照</span></h3>
+        <p>气泡<strong>照弹</strong>，但标题退化成宿主 exe 的文件描述
+           <code>OpenJDK Platform binary</code>。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <figure><img src="tray-02-aumid-without-displayname.png" alt="只设 AUMID 不注册显示名时的气泡标题"></figure>
+      <div class="body">
+        <h3>② 只设 AUMID，不注册显示名 <span class="tag bad">用户所見</span></h3>
+        <p>标题变成原始机器标识符 <code>StuMate.Desktop.1</code>。
+           严格说不是乱码，但用户只能这么描述 —— 这就是报障的来源。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <figure><img src="tray-03-fixed-displayname.png" alt="修复后气泡标题显示 StuMate"></figure>
+      <div class="body">
+        <h3>③ 修复后 <span class="tag ok">通过</span></h3>
+        <p>标题为 <code>StuMate</code>，正文中文完全正常。
+           这张跑在 <code>StuMate.exe</code>（jpackage 启动器）下，
+           <code>file.encoding=GBK</code>。</p>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>三、改了什么</h2>
+  <table>
+    <thead><tr><th>文件</th><th>改动</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">platform/AppIdentity.kt</td>
+          <td>进程内往 <code>HKCU\SOFTWARE\Classes\AppUserModelId\StuMate.Desktop.1</code>
+              写 <code>DisplayName=StuMate</code>，覆盖便携包 / <code>gradlew run</code> /
+              MSI 三种安装方式（HKCU 不需要管理员权限，优先级高于 HKLM）。</td></tr>
+      <tr><td class="mono">tools/postprocess_msi.py</td>
+          <td>🔴 原来把值名写成了 <code>StuMate</code>（应用名本身），
+              而 Shell 只认值名恰好为 <code>DisplayName</code> 的项 —— 等于<strong>没注册</strong>。
+              已改，并补上 <code>IconUri</code>。</td></tr>
+      <tr><td class="mono">src/test/…/AppIdentityTest.kt</td>
+          <td>跨文件断言：值名必须是 <code>DisplayName</code>、AUMID 与显示名要和打包脚本逐字一致。
+              不一致不会报错、只会静默退化，所以交给测试守。</td></tr>
+      <tr><td class="mono">Main.kt</td>
+          <td><code>AppIdentity.install()</code> 提到 <code>application { }</code> 之外 ——
+              符合文档要求的时机，不花代价；<b>但不作为已验证的根因</b>。</td></tr>
+      <tr><td class="mono">dev/TrayProbe.kt</td>
+          <td>进程内自截图 + 差分判定，打印 <code>气泡可见 = true/false</code>；
+              新增 <code>noDisplayName</code> / 修正后的 <code>awtFirst</code> 对照组。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>四、怎么复跑这三组对照</h2>
+  <code class="cmd"># ① 不设 AUMID
+./gradlew trayProbe -PnoAumid=1        -Ptag=NOAUMID -Pshot=F:/tmp/s1
+# ② 只设 AUMID、不注册显示名（先删掉 HKCU 那把键，否则会被上一轮写回去）
+./gradlew trayProbe -PnoDisplayName=1  -Ptag=NODISP   -Pshot=F:/tmp/s2
+# ③ 正常（设 AUMID + 注册显示名）
+./gradlew trayProbe -Ptag=FIXED        -Pshot=F:/tmp/s3</code>
+
+  <div class="note ok">
+    <b>真实 App 已验证。</b>换入新构建的 <code>F:\DownloadQQ\unpacked\StuMate</code> 启动后，
+    <code>HKCU\SOFTWARE\Classes\AppUserModelId\StuMate.Desktop.1</code> 下自动出现
+    <code>DisplayName = StuMate</code>（原先只有一个被误命名的值），
+    该实例发出的任何气泡都会以「StuMate」为标题。桌面端单测 <b>199/199</b> 全绿。
+  </div>
+
+  <h2>五、同批次修的另一个 bug：云同步把同一门课存成多份</h2>
+  <div class="note">
+    <b>症状</b>：课表里冒出一堆所有字段完全一致的重复课程。<br>
+    <b>根因 1</b>：服务端 <code>pull</code> 返回的是<strong>原始变更流水</strong>而非「每条记录一条」，
+    同一 uid 改过几次就有几条；而落库时用的是<strong>循环外的旧快照</strong>且从不更新，
+    于是第二条查不到刚写的行 → 当成新记录 → 另分配 id → INSERT 出第二行。
+    实测某账号 72 个 uid 里 <b>52 个</b>有 2~4 条修订。<br>
+    <b>根因 2</b>：两台设备各建同一门课 → uid 不同 → 服务端两条。<br>
+    <b>修法</b>：① 落库改成「活索引 + 内容指纹表」，同一 uid 覆盖同一行；
+    ② 同步前先<strong>收敛本地脏数据</strong>：同 uid 多行物理删多余行；
+    内容一致但 uid 不同的<strong>败者写墓碑推给服务端</strong>（直接删会在全量重拉时复活），
+    留 uid 字典序最小的那条 —— 必须确定性，否则两台设备会「你删我、我删你」把课删没。
+  </div>
+
+</div>
+</body>
+</html>
