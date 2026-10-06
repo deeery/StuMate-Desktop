@@ -117,6 +117,16 @@ def main_jar(dist_dir, version):
 # runtime 里这两个由「模块集比对」单独处理，其余部分必须逐字节不变
 RUNTIME_SKIP = {"lib/modules", "release"}
 
+# 被 Windows loader 加载、运行中**真的锁死**的部分：jvm.dll 及其依赖的 native 库。
+#
+# 对它们的规则是「只允许新增，不允许改、不允许删」——
+# 补 `jdk.crypto.mscapi` 会多出一个 `bin/sunmscapi.dll`，那是新增，直接写进去就行；
+# 而**改**一个已有的 dll 会被 loader 拒绝（`MoveFile` 失败），必须走整包。
+#
+# 注意 `lib/modules`（jlink 模块镜像）**不在**这一类 —— 它由 JDK 自己用
+# `FILE_SHARE_DELETE` 打开，实测可改名可删，是能换的。
+LOADER_PREFIXES = ("bin/", "lib/server/")
+
 
 def vkey(v):
     return tuple(int(x) for x in re.findall(r"\d+", v))
@@ -225,19 +235,35 @@ def pack(args):
               + ("**不同**，补丁将带 runtime/lib/modules"
                  if carry_modules else "相同，补丁只带 runtime/release"))
 
-    # ── ② runtime 里除 modules/release 之外的部分必须逐字节不变 ─────
-    # 那些是 dll/exe（`bin/*.exe`、`lib/server/jvm.dll`），由 Windows loader
-    # 加载、**真的锁死**，运行中换不了。变了就只能走整包 —— 在这里拦住，
-    # 而不是等用户更新到一半失败。
+    # ── ② runtime 比对 ────────────────────────────────────────────
+    # 分两类看：
+    #   · **loader 区**（`bin/`、`lib/server/`）—— jvm.dll 及其依赖，被 Windows
+    #     loader 加载，运行中真锁死。只允许**新增**（补 mscapi 就会多出
+    #     `bin/sunmscapi.dll`），改和删都必须整包。
+    #   · 其余（`legal/`、`conf/`、`lib/*.dat`…）—— 纯数据，随便换，随补丁带走。
+    runtime_changed = []
     if base_zip is not None:
         base_man = runtime_manifest_zip(base_zip)
         new_man = runtime_manifest_dir(dist_dir)
-        diff = sorted({k for k, _ in set(base_man.items()) ^ set(new_man.items())})
-        if diff:
-            die("runtime 里除 lib/modules 与 release 之外的东西变了，补丁换不了：\n  "
-                + "\n  ".join(diff[:10])
-                + f"\n（共 {len(diff)} 项；这些是 dll/exe，被 loader 锁死）"
-                + "\n→ 这个版本必须走整包发布。")
+
+        for rel, crc in sorted(base_man.items()):
+            if not rel.startswith(LOADER_PREFIXES):
+                continue
+            if rel not in new_man:
+                die(f"runtime/{rel} 在产物里没了 —— loader 区只允许新增，必须整包发布")
+            if new_man[rel] != crc:
+                die(f"runtime/{rel} 内容变了 —— 被 loader 锁死，运行中换不了，必须整包发布")
+
+        runtime_changed = sorted(
+            rel for rel in set(base_man) | set(new_man)
+            if base_man.get(rel) != new_man.get(rel)
+        )
+        if runtime_changed:
+            print(f"runtime 另有 {len(runtime_changed)} 个文件变化，随补丁带走：")
+            for rel in runtime_changed[:8]:
+                print(f"    {rel}")
+            if len(runtime_changed) > 8:
+                print(f"    … 还有 {len(runtime_changed) - 8} 个")
 
     # ── ③ 写包 ────────────────────────────────────────────────────
     # 补丁的目录前缀必须是 `app/` / `runtime/`，用户解压到安装目录根下才落在正确位置。
@@ -248,6 +274,9 @@ def pack(args):
         if carry_modules:
             z.write(os.path.join(dist_dir, "runtime", "lib", "modules"),
                     "runtime/lib/modules")
+        for rel in runtime_changed:
+            z.write(os.path.join(dist_dir, "runtime", rel.replace("/", os.sep)),
+                    f"runtime/{rel}")
 
     # 绿色版：整目录，根节点是 `StuMate/`（与历史包一致）。
     with zipfile.ZipFile(portable, "w", zipfile.ZIP_DEFLATED) as z:

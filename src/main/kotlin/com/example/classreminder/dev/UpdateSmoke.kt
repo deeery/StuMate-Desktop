@@ -94,9 +94,29 @@ fun main() = runBlocking {
             beforeLines.first { it.startsWith("app.classpath=") }.take(90) + "…")
 
     println("\n② 走真实代码：查 Release → 下载补丁 → 校验 → 就地替换")
+    val beforeModules = UpdateCenter.localRuntimeModules(root)
+    println("   替换前模块集：${beforeModules?.size ?: "读不出"} 个" +
+            (beforeModules?.let { "，含 mscapi=" + ("jdk.crypto.mscapi" in it) } ?: ""))
+
+    val localZip = System.getProperty("stumate.patchZip")
+        ?.takeIf { it.isNotBlank() }?.let { File(it) }
     val t0 = System.currentTimeMillis()
-    val newJar = UpdateCenter.smokeApplyPatchTo(root)
-    println("   完成，用时 ${System.currentTimeMillis() - t0} ms")
+    val runtimeSwapped: Boolean
+    if (localZip != null) {
+        println("   补丁来源：本地 $localZip")
+        runtimeSwapped = UpdateCenter.smokeApplyLocalPatchTo(root, localZip)
+    } else {
+        println("   补丁来源：GitHub 最新 Release")
+        UpdateCenter.smokeApplyPatchTo(root)
+        runtimeSwapped = UpdateCenter.localRuntimeModules(root) != beforeModules
+    }
+    println("   完成，用时 ${System.currentTimeMillis() - t0} ms；" +
+            "runtime ${if (runtimeSwapped) "已替换" else "未替换"}")
+
+    val newJar = cfg.readText(Charsets.UTF_8).lines()
+        .firstOrNull { it.startsWith("app.classpath=") && it.contains("StuMate-Desktop-") }
+        ?.substringAfterLast('\\')
+        ?: error("替换后 cfg 里找不到主 jar 那一行")
 
     println("\n③ 断言磁盘状态")
     val afterJars = mainJars(appDir)
@@ -122,6 +142,25 @@ fun main() = runBlocking {
             z.getEntry("com/example/classreminder/MainKt.class") != null
         }
     }.getOrDefault(false)
+
+    // ── runtime ────────────────────────────────────────────────────
+    // 这一组是 1.6.2 新增的重点：1.6.1 的补丁包换不了 runtime，于是「检查更新」
+    // 永远报 PKIX 而代码修了也没用。这里把它钉死。
+    val afterModules = UpdateCenter.localRuntimeModules(root)
+    checks += "runtime/release 的模块集读得出来（替换后）" to (afterModules != null)
+    checks += "装好的运行时含全部必需模块 ${UpdateCenter.REQUIRED_MODULES}" to
+            UpdateCenter.REQUIRED_MODULES.all { it in (afterModules ?: emptyList()) }
+
+    if (runtimeSwapped) {
+        checks += "模块集确实变了（${beforeModules?.size} → ${afterModules?.size}）" to
+                (beforeModules != afterModules)
+        checks += "旧 modules 留了 .old 备份（可手工回滚）" to
+                File(root, "runtime/lib/modules.old").isFile
+        checks += "runtime/lib/modules 真的被换掉了（大小 > 40 MB）" to
+                (File(root, "runtime/lib/modules").length() > 40_000_000L)
+        checks += "没留下 modules.new 中间文件" to
+                !File(root, "runtime/lib/modules.new").exists()
+    }
 
     var pass = 0
     checks.forEachIndexed { i, (name, ok) ->

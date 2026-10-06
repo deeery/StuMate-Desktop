@@ -473,10 +473,14 @@ tasks.register<JavaExec>("syncSmoke") {
  * ./gradlew updateSmoke                 # 自动找已构建的目录版产物
  * ./gradlew updateSmoke -Pdist=<路径>   # 指定目录版根目录（含 StuMate.exe 的那层）
  * ./gradlew updateSmoke -Pkeep          # 跑完不删临时副本
+ * ./gradlew updateSmoke -PpatchZip=<本地补丁 zip>   # 不去 GitHub，用本地包
  * ```
  *
  * 它把真实安装目录**复制一份**，对副本跑一次真正的「下载 → 校验 → 就地替换」，
  * 再逐条断言磁盘状态。**不会碰用户正在用的那份安装。**
+ *
+ * `-PpatchZip` 是给「发布前验证」用的：`runtime/` 的替换路径（1.6.2 新增）
+ * 没法等 Release 建好了再验 —— 那等于拿线上当测试环境。
  *
  * ⚠️ 同 syncSmoke：值必须同时走 `-P`（Gradle 侧）和 `jvmArgs("-D…")`（JVM 侧）。
  * 只传 `-P` 的话程序里 `System.getProperty` 读到 null，会静默退回默认值。
@@ -490,8 +494,12 @@ tasks.register<JavaExec>("updateSmoke") {
 
     val dist = providers.gradleProperty("dist").orNull?.trim()
     val keep = providers.gradleProperty("keep").orNull?.trim()
+    val patchZip = providers.gradleProperty("patchZip").orNull?.trim()
     if (!dist.isNullOrBlank()) jvmArgs("-Dstumate.dist=$dist")
     if (!keep.isNullOrBlank()) jvmArgs("-Dstumate.keep=1")
+    // 喂本地补丁 zip 而不是去 GitHub 拿 —— 这样**发布之前**就能验
+    // 「补丁包能换 runtime」。见 UpdateCenter.smokeApplyLocalPatchTo 的注释。
+    if (!patchZip.isNullOrBlank()) jvmArgs("-Dstumate.patchZip=$patchZip")
 }
 
 /**

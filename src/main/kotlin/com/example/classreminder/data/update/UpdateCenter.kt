@@ -418,15 +418,34 @@ object UpdateCenter {
         // ① 下载。补丁包通常只有 1.7 MB，但还是按流写盘 —— 免得以后换成整包时炸内存。
         retrying(what = "下载补丁包") { downloadTo(patch, zipFile, onProgress) }
 
+        return applyPatchZip(layout, zipFile, patch.sha256, patch.name)
+    }
+
+    /**
+     * 「补丁 zip 到手之后」的全部步骤 —— 与它**从哪来**无关。
+     *
+     * 拆出来是为了让冒烟能喂一个本地 zip：验证「补丁包能换 runtime」必须在
+     * **发布之前**做，而 [applyPatch] 的第一步就是去 GitHub 拿包，本地 zip 进不去。
+     * 见 [smokeApplyLocalPatchTo]。
+     */
+    private fun applyPatchZip(
+        layout: InstallLayout,
+        zipFile: File,
+        expectedSha256: String?,
+        patchName: String
+    ): Boolean {
+        val staging = zipFile.parentFile
+            ?: throw IllegalStateException("补丁 zip 没有父目录：$zipFile")
+
         // ② 校验。下载下来的东西在被写进安装目录之前必须过这三关。
-        patch.sha256?.let { expected ->
+        expectedSha256?.let { expected ->
             val actual = sha256Of(zipFile)
             if (!actual.equals(expected, ignoreCase = true)) {
                 throw IllegalStateException("补丁包校验失败（sha256 对不上）")
             }
         }
         val extracted = extractPatch(zipFile, staging)
-        if (compareVersions(versionOfJar(extracted.jar.name), patchVersionOf(patch.name)) != 0) {
+        if (compareVersions(versionOfJar(extracted.jar.name), patchVersionOf(patchName)) != 0) {
             throw IllegalStateException("补丁包里的 jar 版本号和文件名对不上")
         }
         if (!hasMainClass(extracted.jar)) {
@@ -556,6 +575,19 @@ object UpdateCenter {
         //    那就不是原子的了。
         val staged = ordered.map { (rel, src) ->
             val target = File(root, rel)
+
+            // loader 区（`bin/`、`lib/server/`）里的 dll/exe 被 Windows 真锁死，
+            // 覆盖不了。打包端只会在**新增**时带上它们（补 mscapi 会多出
+            // `bin/sunmscapi.dll`），所以「目标已存在」就意味着这个版本改了
+            // native 库 —— 那必须走整包。这里明确报错，而不是等改名失败抛一个
+            // 看不懂的共享冲突。
+            if (target.isFile && isLoaderLocked(rel)) {
+                throw IllegalStateException(
+                    "runtime/$rel 已存在且属于被系统锁定的 native 库，无法就地替换 —— " +
+                        "需要重新安装整包"
+                )
+            }
+
             target.parentFile?.mkdirs()
             val fresh = File(target.parentFile, "${target.name}.new")
             src.copyTo(fresh, overwrite = true)
@@ -576,6 +608,16 @@ object UpdateCenter {
         }
         return done
     }
+
+    /**
+     * 被 Windows loader 加载、运行中**真锁死**的部分：`bin/` 与 `lib/server/` 下的
+     * native 库（jvm.dll 及其依赖）。
+     *
+     * 注意 `lib/modules` **不在**这一类 —— 它由 JDK 自己用 `FILE_SHARE_DELETE` 打开，
+     * 实测可改名可删，是能换的（见 [replaceRuntimeFiles] 的注释）。
+     */
+    private fun isLoaderLocked(rel: String): Boolean =
+        rel.startsWith("runtime/bin/") || rel.startsWith("runtime/lib/server/")
 
     /**
      * 补丁包解出来的东西。
@@ -611,13 +653,9 @@ object UpdateCenter {
 
                     // runtime/ 下的文件：按原目录结构解出来。
                     //
-                    // 例外是 `runtime/bin/` —— 那里是 launcher 直接加载的 jvm.dll / java.exe，
-                    // 被 Windows loader 真锁死，运行中换不了。打包端约定不打它；
-                    // 万一打了，**明确报错**而不是静默跳过 —— 静默跳过等于把
-                    // 「更新成功」的假象给用户，正是这个 bug 最初的样子。
-                    name.startsWith("runtime/bin/") ->
-                        throw IllegalStateException("这个版本的补丁包动了 runtime/bin，需要重新安装整包")
-
+                    // `runtime/bin/` 这里**不拦** —— 补 mscapi 这类修复会**新增**
+                    // `bin/sunmscapi.dll`，那是安全的（没有旧文件要覆盖）。
+                    // 「能不能落盘」交给 [replaceRuntimeFiles]：目标已存在才报错。
                     name.startsWith("runtime/") -> {
                         val target = File(outDir, name)
                         target.parentFile?.mkdirs()
@@ -724,6 +762,30 @@ object UpdateCenter {
         val release = withContext(Dispatchers.IO) { fetchLatest() }
         val patch = release.patch ?: throw IllegalStateException("最新 Release 没有补丁包")
 
+        val layout = layoutOf(root)
+        withContext(Dispatchers.IO) { applyPatch(layout, patch) { _, _ -> } }
+        return mainJarLineOf(layout)
+    }
+
+    /**
+     * 冒烟专用：用**本地补丁 zip** 走完 [applyPatchZip] 的全部真实步骤。
+     *
+     * 为什么要开这个口子：验证「补丁包能换 runtime」必须在**发布之前**做 ——
+     * 等 Release 建好了再验，等于拿线上当测试环境。而生产路径的第一步就是
+     * 去 GitHub 拿补丁包，本地 zip 根本进不去。
+     *
+     * 只把「zip 从哪来」变成参数：后面的 sha256、版本号断言、主类探测、
+     * 依赖行比对、runtime 模块集比对、落盘顺序**全是生产用的同一段代码**。
+     *
+     * @return 这次是否连 `runtime/` 一起换了
+     */
+    internal fun smokeApplyLocalPatchTo(root: File, zip: File): Boolean {
+        val layout = layoutOf(root)
+        return applyPatchZip(layout, zip, expectedSha256 = null, patchName = zip.name)
+    }
+
+    /** 从一个安装目录根反推 [InstallLayout]；不像安装目录就抛错 */
+    private fun layoutOf(root: File): InstallLayout {
         val appDir = File(root, "app")
         val cfg = File(appDir, "StuMate.cfg")
         val launcher = File(root, "StuMate.exe")
@@ -734,14 +796,14 @@ object UpdateCenter {
             f.isFile && f.name.startsWith(MAIN_JAR_PREFIX) && f.name.endsWith(".jar")
         }?.firstOrNull()?.name.orEmpty()
 
-        val layout = InstallLayout(root, appDir, cfg, launcher, runningJar)
-        withContext(Dispatchers.IO) { applyPatch(layout, patch) { _, _ -> } }
+        return InstallLayout(root, appDir, cfg, launcher, runningJar)
+    }
 
-        return cfg.readText(Charsets.UTF_8).lines()
+    private fun mainJarLineOf(layout: InstallLayout): String =
+        layout.cfg.readText(Charsets.UTF_8).lines()
             .firstOrNull { it.startsWith("app.classpath=") && it.contains(MAIN_JAR_PREFIX) }
             ?.substringAfterLast('\\')
             ?: throw IllegalStateException("替换后 cfg 里找不到主 jar 那一行")
-    }
 
     /** 启动时清掉历史版本残留的 jar。**运行中的那个删不掉，跳过即可** */
     fun cleanupStaleJars() {
