@@ -57,6 +57,27 @@ data class FluentColors(
      * 整张表看着像一堆挖空的小格子 —— 深色主题里「亮边」才是不扎眼的那个方向。
      */
     val borderRest: Color,
+    /**
+     * 表格内部的**时间网格线**（每小时一条的横线、每天的竖向分栏线）。
+     *
+     * 为什么单独一个 token，不复用 [borderRest] / [outline]：
+     *  - [borderRest] 是给「课程块」那种**实心小面**用的，要能读成一块的边界；
+     *    网格线是**背景纹理**，用它会把表格切成硬格，看着像电子表格而不是课表。
+     *  - [outline] 是容器边界（卡片本身），比网格线更淡一档，压在卡片上就等于没有。
+     *
+     * 深色下比卡片面略亮（+6 级左右）—— 深色里「亮一点」是最不扎眼的加线方式；
+     * 浅色下比卡片面略暗，符合纸质表格的直觉。**两端都刻意做得很淡**：
+     * 表格的层次感应该主要来自斑马纹和课程块，网格线只负责「定位」。
+     */
+    val gridLine: Color,
+    /**
+     * 表格斑马纹（每小时交替的横向色带）。
+     *
+     * 只用极淡的 alpha，不引入新色相 —— 它的作用是「让眼睛扫行时有参照物」，
+     * 一浓就会和课程块抢注意力，整张表变得花。深色下用白、浅色下用黑，
+     * 这样在两种主题里都是「提亮 / 压暗」同一个方向：**离卡片面更远**。
+     */
+    val gridZebra: Color,
     /** 强调色 */
     val accent: Color,
     val onAccent: Color,
@@ -84,6 +105,10 @@ val FluentLightColors = FluentColors(
     outline = Color(0xFFE5E5E5),
     outlineStrong = Color(0xFFC8C8C8),
     borderRest = Color(0xFFD2D2D2),
+    // 浅色：卡片面是纯白 #FFFFFF，网格线压到 #E8E8E8 —— 能看见线，但不会把白面切成格子。
+    gridLine = Color(0xFFE8E8E8),
+    // 浅色斑马纹用黑、alpha 4%：约等于 #F5F5F5，比纯白微微沉一点，扫行时刚好有参照。
+    gridZebra = Color(0x0A000000),
     accent = Color(0xFF0067C0),
     onAccent = Color(0xFFFFFFFF),
     accentTint = Color(0x170067C0),
@@ -112,6 +137,11 @@ val FluentDarkColors = FluentColors(
     outline = Color(0xFF3A3A3A),
     outlineStrong = Color(0xFF4A4A4A),
     borderRest = Color(0xFF404040),
+    // 深色：卡片面 #2B2B2B，网格线提到 #363636 —— 比 outline(#3A3A3A) 略淡，
+    // 但比「底板色当线」那版（#141414，差 23 级，会像刻出来的硬槽）柔和得多。
+    gridLine = Color(0xFF363636),
+    // 深色斑马纹用白、alpha 3%：约 +7 级，不至于和课程块（#333333）糊在一起。
+    gridZebra = Color(0x08FFFFFF),
     accent = Color(0xFF60CDFF),
     onAccent = Color(0xFF003A5C),
     accentTint = Color(0x1F60CDFF),
