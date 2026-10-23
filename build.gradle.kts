@@ -2,7 +2,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
     kotlin("jvm") version "1.9.20"
-    id("org.jetbrains.compose") version "1.5.10"
+    id("org.jetbrains.compose") version "1.5.11"
 }
 
 group = "com.example.classreminder"
@@ -11,7 +11,7 @@ group = "com.example.classreminder"
 //  - `packageVersion`（下面 nativeDistributions 用它）跟着走
 //  - 下面的 `generateBuildConfig` 任务据此生成 `BuildConfig.VERSION`
 //  - 设置页「版本」那一行读 `BuildConfig.VERSION`，不会再和实际版本对不上
-version = "1.6.2"
+version = "1.6.3"
 
 kotlin {
     jvmToolchain(17)
@@ -71,9 +71,9 @@ dependencies {
     implementation(compose.material3)
     // 图标：material-icons-core 在 compose.material 里是 runtime 作用域，
     // 编译期不可见，必须显式声明（注意 CMP 1.5.10 无 Icons.AutoMirrored）
-    implementation("org.jetbrains.compose.material:material-icons-core:1.5.10")
+    implementation("org.jetbrains.compose.material:material-icons-core:1.5.11")
     // androidx.compose.ui.util.lerp —— 源码里的高亮插值用到了，默认不在 classpath 上
-    implementation("org.jetbrains.compose.ui:ui-util:1.5.10")
+    implementation("org.jetbrains.compose.ui:ui-util:1.5.11")
     // 桌面 Dispatchers.Main
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.7.3")
     // 本地 SQLite
@@ -147,7 +147,7 @@ compose.desktop {
             //
             // ## 快捷方式（实测踩过，结论与直觉相反）
             // 我一度断定「CMP 没暴露 jpackage 的 `--win-shortcut`」——**是错的**，
-            // 反编译 `compose-gradle-plugin-1.5.10.jar` 后确认链路完整存在：
+            // 反编译 `compose-gradle-plugin-1.5.11.jar` 后确认链路完整存在：
             //   WindowsPlatformSettings.shortcut / menu / menuGroup
             //     → ConfigureJvmApplicationKt
             //       → AbstractJPackageTask.winShortcut / winMenu / winMenuGroup

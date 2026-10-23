@@ -71,8 +71,21 @@ import com.example.classreminder.ui.fluent.WindowResizeHandles
 import com.example.classreminder.ui.fluent.stuMateMark
 import com.example.classreminder.ui.fluent.toThemeMode
 import com.example.classreminder.ui.fluent.workAreaOf
+import com.example.classreminder.ui.fluent.SavedWindowRect
+import com.example.classreminder.ui.fluent.WindowGeometry
+import com.example.classreminder.ui.fluent.WindowLimits
+import com.example.classreminder.ui.fluent.WindowResizeHandles
+import com.example.classreminder.ui.fluent.chromeCaptionPx
+import com.example.classreminder.ui.fluent.clampDragPosition
+import com.example.classreminder.ui.fluent.dragFromMaximizedPlan
+import com.example.classreminder.ui.fluent.minWindowSizePx
+import com.example.classreminder.ui.fluent.restoreGeometry
+import com.example.classreminder.ui.fluent.savedToPx
+import com.example.classreminder.ui.fluent.uiScaleOf
+import com.example.classreminder.ui.fluent.workAreaOf
 import kotlinx.coroutines.launch
 import java.awt.Dimension
+import kotlin.math.roundToInt
 
 fun main() {
     // 设 AUMID + 注册显示名。**放在 `application { }` 之外**，是取「最早能调到的位置」。
@@ -139,10 +152,11 @@ private fun runApp() = application {
     var firstRunAuthMode by remember { mutableStateOf<Int?>(null) }
     var firstRunForgot by remember { mutableStateOf(false) }
     // 最大化是手工实现的（无边框窗口不能用 WindowPlacement.Maximized，会盖住任务栏），
-    // 所以要自己记住还原时的位置与尺寸
+    // 所以要自己记住还原时的位置与尺寸。
+    // 存 dp 而不是像素：缩放可能在「最大化 → 还原」之间被改掉（插拔屏 / 改系统缩放），
+    // 存像素会按新缩放解释旧数字，窗口尺寸跳一档。见 SavedWindowRect 的注释
     var maximized by remember { mutableStateOf(false) }
-    var restorePosition by remember { mutableStateOf<WindowPosition?>(null) }
-    var restoreSize by remember { mutableStateOf<DpSize?>(null) }
+    var savedRect by remember { mutableStateOf<SavedWindowRect?>(null) }
 
     fun quit() = exitApplication()
 
@@ -250,6 +264,29 @@ private fun runApp() = application {
                 window.minimumSize = Dimension(900, 600)
             }
 
+            // ── 窗口几何接线 ─────────────────────────────────────
+            // 所有算术都在 ui/fluent/WindowGeometry.kt 的纯函数里（可单测），
+            // 这里只负责：读当前窗口 → 调纯函数 → 写回 WindowState。
+
+            fun currentLimits(): Pair<WindowLimits, Double> {
+                val gc = window.graphicsConfiguration
+                val s = uiScaleOf(gc)
+                val (minW, minH) = minWindowSizePx(s)
+                return WindowLimits(workAreaOf(gc), minW, minH) to s
+            }
+
+            fun applyGeometry(geom: WindowGeometry, scale: Double) {
+                windowState.size = DpSize((geom.width / scale).dp, (geom.height / scale).dp)
+                windowState.position = WindowPosition((geom.x / scale).dp, (geom.y / scale).dp)
+            }
+
+            /** 按保存的历史 + 当前窗口算出「还原」落点。两处（按钮还原 / 拖动还原）共用 */
+            fun planRestore(): Pair<WindowGeometry, Double> {
+                val (limits, s) = currentLimits()
+                val (savedPos, savedSize) = savedToPx(savedRect, s)
+                return restoreGeometry(savedPos, savedSize, limits) to s
+            }
+
             val chrome = remember(window) {
                 WindowChrome(
                     window = window,
@@ -259,12 +296,21 @@ private fun runApp() = application {
                     onMinimize = { windowState.isMinimized = true },
                     onToggleMaximize = {
                         if (maximized) {
-                            restorePosition?.let { windowState.position = it }
-                            restoreSize?.let { windowState.size = it }
+                            // 还原不能直接写回历史值，必须过 restoreGeometry：
+                            //   · 尺寸可能比当前屏还大（换了缩放 / 换了小屏）
+                            //   · 位置可能整块落在屏幕外（拔掉副屏）
+                            // 直接写回会得到一扇**找不回来的窗口**。
+                            val (geom, s) = planRestore()
+                            applyGeometry(geom, s)
                             maximized = false
                         } else {
-                            restorePosition = windowState.position
-                            restoreSize = windowState.size
+                            val s = uiScaleOf(window.graphicsConfiguration)
+                            savedRect = SavedWindowRect(
+                                xDp = window.x.toFloat() / s.toFloat(),
+                                yDp = window.y.toFloat() / s.toFloat(),
+                                widthDp = window.width.toFloat() / s.toFloat(),
+                                heightDp = window.height.toFloat() / s.toFloat()
+                            )
                             // ⚠️ `workAreaOf` 返回的**已经是 dp**（AWT 用户空间 =
                             // 物理 / uiScale，Compose 的 density 就是那个 uiScale），
                             // 不要再除 `scale` —— 除一次「最大化」只铺满左上四分之一屏。
@@ -273,6 +319,26 @@ private fun runApp() = application {
                             windowState.size = DpSize(area.width.dp, area.height.dp)
                             maximized = true
                         }
+                    },
+                    // 最大化状态下按住标题栏拖动 = 还原并跟随光标（Windows 原生行为）。
+                    // 返回还原后的矩形，拖动方据此立刻重算抓取偏移 —— 否则第一帧会用
+                    // 最大化时的旧偏移，窗口「跳一下」才跟手。
+                    onDragFromMaximized = { anchor ->
+                        val (limits, s) = currentLimits()
+                        val (savedPos, savedSize) = savedToPx(savedRect, s)
+                        val (restored, _) = dragFromMaximizedPlan(
+                            savedPosition = savedPos,
+                            savedSize = savedSize,
+                            limits = limits,
+                            anchorX = anchor.first,
+                            anchorY = anchor.second
+                        )
+                        val px = WindowGeometry(
+                            restored.x, restored.y, restored.width, restored.height
+                        )
+                        maximized = false
+                        applyGeometry(px, s)
+                        px
                     },
                     onClose = { handleCloseRequest() }
                 )

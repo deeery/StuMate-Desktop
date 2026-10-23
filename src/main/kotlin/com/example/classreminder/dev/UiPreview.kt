@@ -46,11 +46,22 @@ import com.example.classreminder.ui.fluent.LocalWindowChrome
 import com.example.classreminder.ui.fluent.MODE_REGISTER
 import com.example.classreminder.ui.fluent.ModifyPasswordDialog
 import com.example.classreminder.ui.fluent.OverlayWindow
+import com.example.classreminder.ui.fluent.SavedWindowRect
 import com.example.classreminder.ui.fluent.SetPasswordDialog
 import com.example.classreminder.ui.fluent.SettingsSection
 import com.example.classreminder.ui.fluent.ThemeMode
 import com.example.classreminder.ui.fluent.WindowChrome
+import com.example.classreminder.ui.fluent.WindowGeometry
+import com.example.classreminder.ui.fluent.WindowLimits
+import com.example.classreminder.ui.fluent.WindowResizeHandles
+import com.example.classreminder.ui.fluent.dragFromMaximizedPlan
+import com.example.classreminder.ui.fluent.minWindowSizePx
 import com.example.classreminder.ui.fluent.primaryWorkArea
+import com.example.classreminder.ui.fluent.restoreGeometry
+import com.example.classreminder.ui.fluent.savedToPx
+import com.example.classreminder.ui.fluent.uiScaleOf
+import com.example.classreminder.ui.fluent.workAreaOf
+import java.awt.Dimension
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -115,6 +126,12 @@ fun main() = application {
         ThemeMode.DARK
     }
     val viewModel = remember { MainViewModel() }
+    // `geometry` 场景：把真实的 8 向缩放热区挂到预览窗口上。
+    //
+    // 其它场景刻意不挂 —— 热区是 5dp 的边条，挂在截图验收窗口上会盖住
+    // 靠边的按钮的 hover 态，让既有截图变得不可比。只有做窗口几何验收时
+    // （tools/probe_window_geometry.py）才需要它。
+    val withResizeHandles = scenario == "geometry"
     // overlay 场景：主窗口铺满**工作区**，扮演「用户正在看的内容」。
     //
     // 提醒现在是右下角小窗（见 `OverlayWindow` 的 KDoc）。要验的是
@@ -157,16 +174,86 @@ fun main() = application {
         alwaysOnTop = true,
         state = windowState
     ) {
+        // 最小尺寸：和 Main.kt 里那句 `window.minimumSize = Dimension(900, 600)` 同款。
+        //
+        // 不设的话 `geometry` 场景会测出一个**假失败**：外部 SetWindowPos 缩到 300x200，
+        // 窗口就真的变成 300x200 —— 看着像「最小尺寸夹取失效」，
+        // 实际是预览窗口压根没声明最小值。这类假失败比不测更糟。
+        LaunchedEffect(Unit) {
+            window.minimumSize = Dimension(MIN_W_DP, MIN_H_DP)
+        }
+
+        // ── 窗口几何接线（`geometry` 场景专用）──────────────────────────
+        //
+        // 和 Main.kt 是同一批纯函数调用，一字不差 —— 探针验的就是生产路径。
+        // 其它场景这些变量不会被读，也不会改变窗口行为。
+        var geometryMaximized by remember { mutableStateOf(false) }
+        var savedRect by remember { mutableStateOf<SavedWindowRect?>(null) }
+
+        fun currentLimits(): Pair<WindowLimits, Double> {
+            val gc = window.graphicsConfiguration
+            val s = uiScaleOf(gc)
+            val (minW, minH) = minWindowSizePx(s)
+            // 预览窗口不套用 900×600 的最小尺寸：探针要测「缩到极小」这种极端路径，
+            // 生产的最小尺寸由 ABS_MIN 兜底，这里用同一个地板。
+            return WindowLimits(workAreaOf(gc), minW, minH) to s
+        }
+
+        fun applyGeometry(geom: WindowGeometry, scale: Double) {
+            windowState.size = DpSize((geom.width / scale).dp, (geom.height / scale).dp)
+            windowState.position = WindowPosition((geom.x / scale).dp, (geom.y / scale).dp)
+        }
+
         // 自绘标题栏要用到 window 与 windowState，和 Main.kt 里是同一套接线，
         // 这样截图里才会有「打开数据目录 / 最小化 / 最大化 / 关闭」那几个按钮
+        //
+        // `geometry` 场景把三个回调接成真的：最大化的矩形、还原、拖动都走
+        // WindowGeometry 里那批纯函数（和 Main.kt 完全同款调用）。
+        // 不接真的话，探针脚本按在标题栏上拖，窗口纹丝不动，
+        // 看起来像「拖动逻辑坏了」，其实只是预览把回调写成了空实现。
         val chrome = remember(window) {
             WindowChrome(
                 window = window,
                 windowState = windowState,
-                isMaximized = { false },
+                isMaximized = { geometryMaximized },
                 onMinimize = {},
-                onToggleMaximize = {},
-                onClose = {}
+                onToggleMaximize = {
+                    if (geometryMaximized) {
+                        val (limits, s) = currentLimits()
+                        val (pos, size) = savedToPx(savedRect, s)
+                        val geom = restoreGeometry(pos, size, limits)
+                        applyGeometry(geom, s)
+                        geometryMaximized = false
+                    } else {
+                        val s = uiScaleOf(window.graphicsConfiguration)
+                        savedRect = SavedWindowRect(
+                            xDp = window.x.toFloat() / s.toFloat(),
+                            yDp = window.y.toFloat() / s.toFloat(),
+                            widthDp = window.width.toFloat() / s.toFloat(),
+                            heightDp = window.height.toFloat() / s.toFloat()
+                        )
+                        val area = workAreaOf(window)
+                        windowState.position = WindowPosition(area.x.dp, area.y.dp)
+                        windowState.size = DpSize(area.width.dp, area.height.dp)
+                        geometryMaximized = true
+                    }
+                },
+                onDragFromMaximized = { anchor ->
+                    val (limits, s) = currentLimits()
+                    val (pos, size) = savedToPx(savedRect, s)
+                    val (restored, _) = dragFromMaximizedPlan(
+                        savedPosition = pos,
+                        savedSize = size,
+                        limits = limits,
+                        anchorX = anchor.first,
+                        anchorY = anchor.second
+                    )
+                    val px = WindowGeometry(restored.x, restored.y, restored.width, restored.height)
+                    geometryMaximized = false
+                    applyGeometry(px, s)
+                    px
+                },
+                onClose = ::exitApplication
             )
         }
 
@@ -180,7 +267,6 @@ fun main() = application {
                 // 登录是异步的，对话框必须等 user 真的落到会话里才组合。
                 // 直接读 StateFlow.value 不订阅，登录完成时不会触发重组，对话框永远出不来。
                 val previewUser by AccountSession.user.collectAsState()
-
                 // 「目标状态已就绪」的信号：截图脚本轮询窗口标题，而不是死等固定秒数。
                 // 死等会有假阴性 —— 浅色首帧慢 / 网络慢时登录还没回来就截图，
                 // 截出来一张「未登录」，看起来像功能没做，实际只是没等够。
@@ -359,6 +445,11 @@ fun main() = application {
                 }
             }
         }
+        // 8 向缩放热区。只在 geometry 场景挂：它是叠在最上层的 5dp 边条，
+        // 常规截图场景挂上去会让靠边的控件的 hover 态拍不出来。
+        if (withResizeHandles) {
+            WindowResizeHandles(chrome, windowState)
+        }
     }
 
     // ── 置顶提醒卡片（overlay 场景）────────────────────────────────
@@ -390,6 +481,10 @@ fun main() = application {
 }
 
 private const val WINDOW_TITLE = "StuMatePreview"
+
+/** 预览窗口最小尺寸 dp。与 Main.kt 里 `Dimension(900, 600)` 保持一致 */
+private const val MIN_W_DP = 900
+private const val MIN_H_DP = 600
 
 /**
  * 把 `-Psync=<状态>` 翻译成一个 [SyncState]。

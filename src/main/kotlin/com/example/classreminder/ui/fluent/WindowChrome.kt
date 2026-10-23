@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
@@ -38,6 +37,7 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.awt.ComposeWindow
 import com.example.classreminder.platform.WindowEffects
 import kotlinx.coroutines.delay
+import java.awt.GraphicsConfiguration
 import java.awt.GraphicsEnvironment
 import java.awt.MouseInfo
 import java.awt.Point
@@ -100,6 +100,14 @@ class WindowChrome(
     val isMaximized: () -> Boolean,
     val onMinimize: () -> Unit,
     val onToggleMaximize: () -> Unit,
+    /**
+     * 最大化状态下按住标题栏拖动：先还原、再让窗口跟着光标走。
+     *
+     * 参数是光标在**最大化时**窗口内的相对位置（0..1，x/y），还原后按同样比例映射到
+     * 还原后的窗口上，光标就落在标题栏同一相对高度 —— 与原生窗口的观感一致。
+     * 返回还原后的窗口矩形（物理像素），让拖动方立刻重算抓取偏移。
+     */
+    val onDragFromMaximized: (Pair<Float, Float>) -> WindowGeometry? = { null },
     val onClose: () -> Unit
 ) {
     /**
@@ -113,9 +121,33 @@ class WindowChrome(
      */
     fun moveTo(xPx: Int, yPx: Int) {
         window.location = Point(xPx, yPx)
-        val scale = window.graphicsConfiguration?.defaultTransform?.scaleX ?: 1.0
+        val scale = uiScaleOf(window.graphicsConfiguration)
         windowState.position = WindowPosition((xPx / scale).dp, (yPx / scale).dp)
     }
+
+    /**
+     * 目标光标位置所在显示器的边界条件。
+     *
+     * 每次拖动都重新取，而不是在 `onDragStart` 时算一次 —— 窗口可以被拖到**另一块
+     * 显示器**上，两块的缩放比与工作区都不一样。取一次的话，拖到 4K 副屏上
+     * 会继续用 1080p 主屏的最小尺寸与工作区，夹取结果就是错的。
+     */
+    fun limitsAt(cursorX: Int, cursorY: Int): WindowLimits {
+        val gc = deviceForPoint(window, cursorX, cursorY)
+        val scale = uiScaleOf(gc)
+        val (minW, minH) = minWindowSizePx(scale)
+        val area: Rectangle = workAreaOf(gc)
+        return WindowLimits(area, minW, minH)
+    }
+
+    /** 标题栏高度（物理像素），纵向拖动夹取时用来保证标题栏始终可点 */
+    fun captionHeightPx(): Int = chromeCaptionPx(uiScaleOf(window.graphicsConfiguration))
+}
+
+/** 标题栏高度（物理像素）。拖动夹取时用来保证标题栏始终留在屏幕内 */
+fun chromeCaptionPx(uiScale: Double): Int {
+    val s = if (uiScale > 0.0) uiScale else 1.0
+    return (CAPTION_BUTTON_HEIGHT.value * s).roundToInt().coerceAtLeast(1)
 }
 
 val LocalWindowChrome = staticCompositionLocalOf<WindowChrome?> { null }
@@ -147,7 +179,7 @@ fun ApplyWindowCorners(window: ComposeWindow) {
 }
 
 /**
- * 窗口所在显示器的**工作区**（屏幕减去任务栏 / 停靠栏）。
+ * 某块显示器的工作区（屏幕减去任务栏 / 停靠栏）。
  *
  * 无边框窗口不能用 `WindowPlacement.Maximized`：那个走的是 AWT 的
  * `MAXIMIZED_BOTH`，对没有边框的窗口会把任务栏一起盖掉（实测 2560×1440 全屏，
@@ -160,9 +192,8 @@ fun ApplyWindowCorners(window: ComposeWindow) {
  * `gcBounds=1400x636`、`insets.bottom=48`，物理屏幕实为 2800x1272。
  * 曾经这里被外面除过一次 density，结果「最大化」只铺满左上四分之一屏。
  */
-fun workAreaOf(window: ComposeWindow): Rectangle {
+fun workAreaOf(gc: GraphicsConfiguration?): Rectangle {
     val toolkit = Toolkit.getDefaultToolkit()
-    val gc = window.graphicsConfiguration
     if (gc == null) {
         val size = toolkit.screenSize
         return Rectangle(0, 0, size.width, size.height)
@@ -175,6 +206,41 @@ fun workAreaOf(window: ComposeWindow): Rectangle {
         bounds.width - insets.left - insets.right,
         bounds.height - insets.top - insets.bottom
     )
+}
+
+/** 窗口当前所在显示器的工作区。等价于 `workAreaOf(window.graphicsConfiguration)` */
+fun workAreaOf(window: ComposeWindow): Rectangle = workAreaOf(window.graphicsConfiguration)
+
+/**
+ * 找出**屏幕坐标 `(x, y)` 落在哪块显示器**上，返回那块屏的 GraphicsConfiguration。
+ *
+ * 拖动时用它来换工作区与缩放比：多显示器下把窗口从 100% 主屏拖到 200% 副屏，
+ * 最小尺寸、最大化矩形、坐标换算全都要换一套参数，沿用主屏那套必然算错。
+ * 找不到（点在所有屏幕之外，或设备枚举失败）时退回窗口自己那块。
+ */
+fun deviceForPoint(window: ComposeWindow, x: Int, y: Int): GraphicsConfiguration? {
+    val own = window.graphicsConfiguration
+    val devices = runCatching {
+        GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+    }.getOrNull() ?: return own
+    // 按「包含该点」直接命中；命中不了再按最近的一块算（光标刚好在两屏缝隙里）
+    val hit = devices.firstOrNull { it.defaultConfiguration.bounds.contains(x, y) }
+    if (hit != null) return hit.defaultConfiguration
+    val nearest = devices.minByOrNull { d ->
+        val b = d.defaultConfiguration.bounds
+        val dx = when {
+            x < b.x -> b.x - x
+            x > b.x + b.width -> x - (b.x + b.width)
+            else -> 0
+        }
+        val dy = when {
+            y < b.y -> b.y - y
+            y > b.y + b.height -> y - (b.y + b.height)
+            else -> 0
+        }
+        dx + dy
+    }
+    return nearest?.defaultConfiguration ?: own
 }
 
 /**
@@ -356,27 +422,79 @@ fun Modifier.windowDragArea(chrome: WindowChrome?): Modifier {
     return this
         .pointerInput(window) {
             // 按下瞬间「光标 − 窗口左上角」的偏移，整个拖拽过程保持不变
-            var grab = Point(0, 0)
+            var grab = 0 to 0
+            var draggingFromMaximized = false
+            // 按下点在窗口内的**相对位置**（0..1）。最大化状态下拖动还原时，
+            // 按同一相对位置映射到还原后的窗口上，光标才不会「从脚底被抽走」
+            var anchor = 0.5f to 0f
+            // 是否已经越过「可能是双击」的门槛。双击的第一下也会走 onDragStart，
+            // 若一上来就搬窗口，快速双击最大化时窗口会先抖一下
+            var armed = false
+
             detectDragGestures(
                 onDragStart = {
                     val cursor = MouseInfo.getPointerInfo()?.location
-                    grab = if (cursor != null) Point(cursor.x - window.x, cursor.y - window.y)
-                    else Point(0, 0)
+                    draggingFromMaximized = chrome.isMaximized()
+                    armed = false
+                    grab = if (cursor != null && !draggingFromMaximized) {
+                        val (dx, dy) = grabOffset(
+                            cursor.x, cursor.y, window.x, window.y, window.width, window.height
+                        )
+                        dx to dy
+                    } else {
+                        0 to 0
+                    }
+                    anchor = if (cursor != null && window.width > 0 && window.height > 0) {
+                        ((cursor.x - window.x).toFloat() / window.width).coerceIn(0f, 1f) to
+                            ((cursor.y - window.y).toFloat() / window.height).coerceIn(0f, 1f)
+                    } else {
+                        0.5f to 0f
+                    }
                 },
                 onDrag = { change, drag ->
                     change.consume()
-                    // 最大化状态下不响应拖动：否则窗口会跟着鼠标"跑出"屏幕
-                    if (chrome.isMaximized()) return@detectDragGestures
-                    val cursor = MouseInfo.getPointerInfo()?.location
-                    if (cursor != null) {
-                        chrome.moveTo(cursor.x - grab.x, cursor.y - grab.y)
-                    } else {
-                        // 兜底：读不到光标（远程会话/无显示器）时退回增量法
-                        chrome.moveTo(
-                            window.x + drag.x.roundToInt(),
-                            window.y + drag.y.roundToInt()
+                    // 位移非零才算真拖动；双击的抖动不搬窗口
+                    if (!armed && (drag.x != 0f || drag.y != 0f)) armed = true
+                    if (!armed) return@detectDragGestures
+
+                    val cursor = MouseInfo.getPointerInfo()?.location ?: return@detectDragGestures
+
+                    if (draggingFromMaximized) {
+                        // 最大化时拖标题栏 = 「还原并跟随光标」，这是 Windows 的既定行为。
+                        // 原实现在这里直接 return，用户会觉得窗口「粘死」在最大化状态，
+                        // 只能去点还原按钮 —— 而原生窗口是允许直接拖下来的。
+                        val restored = chrome.onDragFromMaximized(anchor)
+                        if (restored == null) return@detectDragGestures
+                        draggingFromMaximized = false
+                        val (dx, dy) = grabOffset(
+                            cursor.x, cursor.y, restored.x, restored.y, restored.width, restored.height
                         )
+                        grab = dx to dy
+                        // 关键：这一帧不能只还原不移动。还原后立刻按新偏移摆一次，
+                        // 否则窗口会停在还原位置、等下一次 onDrag 才突然跳到光标下
+                        val limits = chrome.limitsAt(cursor.x, cursor.y)
+                        val (x, y) = clampDragPosition(
+                            targetX = cursor.x - grab.first,
+                            targetY = cursor.y - grab.second,
+                            width = restored.width,
+                            height = restored.height,
+                            limits = limits,
+                            captionHeightPx = chrome.captionHeightPx()
+                        )
+                        chrome.moveTo(x, y)
+                        return@detectDragGestures
                     }
+
+                    val limits = chrome.limitsAt(cursor.x, cursor.y)
+                    val (x, y) = clampDragPosition(
+                        targetX = cursor.x - grab.first,
+                        targetY = cursor.y - grab.second,
+                        width = window.width,
+                        height = window.height,
+                        limits = limits,
+                        captionHeightPx = chrome.captionHeightPx()
+                    )
+                    chrome.moveTo(x, y)
                 }
             )
         }
@@ -387,20 +505,9 @@ fun Modifier.windowDragArea(chrome: WindowChrome?): Modifier {
 
 // ── 缩放热区 ────────────────────────────────────────────────────
 
-private enum class ResizeDir(val west: Boolean, val east: Boolean, val north: Boolean, val south: Boolean) {
-    N(false, false, true, false),
-    S(false, false, false, true),
-    W(true, false, false, false),
-    E(false, true, false, false),
-    NW(true, false, true, false),
-    NE(false, true, true, false),
-    SW(true, false, false, true),
-    SE(false, true, false, true)
-}
-
-/** 最小窗口尺寸，与 `ComposeWindow.minimumSize` 保持一致 */
-private val MIN_WINDOW_WIDTH = 900.dp
-private val MIN_WINDOW_HEIGHT = 600.dp
+/** 最小窗口尺寸，与 `ComposeWindow.minimumSize` 保持一致（换算见 [minWindowSizePx]） */
+private val MIN_WINDOW_WIDTH = MIN_WINDOW_WIDTH_DP.dp
+private val MIN_WINDOW_HEIGHT = MIN_WINDOW_HEIGHT_DP.dp
 
 /**
  * 8 向缩放热区。叠在内容最上层，但只在最外侧 [RESIZE_BORDER] 宽的一圈里响应指针，
@@ -408,14 +515,20 @@ private val MIN_WINDOW_HEIGHT = 600.dp
  *
  * 四条边铺满整条边（会盖住角），**角放在最后绘制** —— Box 里后加的兄弟节点既在上层，
  * 也先拿到指针事件，于是角上的 10×10 区域自然优先判给角，不必给边做裁剪。
+ *
+ * ⚠️ 最大化状态下整层**不响应指针**：窗口已经铺满工作区，此时还能拖边的话
+ * 会把最大化矩形改掉，而 `maximized` 标记仍是 true，接下来点「还原」会跳到一个
+ * 尺寸对不上的历史值。原生窗口在最大化时也是禁止缩放的。
  */
 @Composable
 fun WindowResizeHandles(chrome: WindowChrome?, state: WindowState) {
     if (chrome == null) return
+    val maximized = chrome.isMaximized()
     val b = RESIZE_BORDER
     val corner = RESIZE_BORDER * 2
 
     Box(Modifier.fillMaxSize()) {
+        if (maximized) return@Box
         Handle(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(b), ResizeDir.N, chrome, state)
         Handle(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(b), ResizeDir.S, chrome, state)
         Handle(Modifier.align(Alignment.CenterStart).width(b).fillMaxHeight(), ResizeDir.W, chrome, state)
@@ -428,6 +541,20 @@ fun WindowResizeHandles(chrome: WindowChrome?, state: WindowState) {
     }
 }
 
+/**
+ * 单个缩放把手。
+ *
+ * ## 三个必须在极端情况下才对得上的点
+ *
+ * 1. **起点冻结、每帧重算**。`start` 是按下瞬间的窗口矩形，之后每帧都用
+ *    「起点 + 累计位移」重算，而不是在上一帧结果上累加。累加会在夹到最小尺寸后
+ *    产生「死区」：缩到 900 再往回拖，窗口要等光标退回 300px 才动。
+ * 2. **换算用的是窗口所在屏的缩放，不是光标位置那块屏的**。缩放过程中窗口还没
+ *    跨屏，光标可能已经先一步到了另一块屏上（两块屏 DPI 不同），此时切缩放会把
+ *    窗口尺寸整体跳一档。
+ * 3. **西/北方向按右/下边固定**。左上角跟着光标走，而不是「先算尺寸再把位置往前推」——
+ *    后者在夹到最小尺寸时会把窗口整体推走。
+ */
 @Composable
 private fun Handle(
     modifier: Modifier,
@@ -435,56 +562,33 @@ private fun Handle(
     chrome: WindowChrome,
     state: WindowState
 ) {
-    val density = LocalDensity.current
     val window = chrome.window
     Box(
         modifier = modifier.pointerInput(dir, window) {
-            var startWidth = 0f
-            var startHeight = 0f
-            var startX = 0
-            var startY = 0
+            var start = WindowGeometry(0, 0, 0, 0)
             var total = Offset.Zero
+            // 按下时窗口所在屏的参数，整个手势内保持不变
+            var limits = WindowLimits(Rectangle(0, 0, 0, 0))
+            var scale = 1.0
 
             detectDragGestures(
                 onDragStart = {
-                    startWidth = window.width.toFloat()
-                    startHeight = window.height.toFloat()
-                    startX = window.x
-                    startY = window.y
+                    start = WindowGeometry(window.x, window.y, window.width, window.height)
                     total = Offset.Zero
+                    val gc = window.graphicsConfiguration
+                    scale = uiScaleOf(gc)
+                    val (minW, minH) = minWindowSizePx(scale)
+                    limits = WindowLimits(workAreaOf(gc), minW, minH)
                 },
                 onDrag = { change, drag ->
                     change.consume()
-                    // 最大化状态下不缩放：先把窗口还原成浮动尺寸再说
-                    if (chrome.isMaximized()) return@detectDragGestures
                     total += drag
-
-                    val scale = density.density
-                    val minW = MIN_WINDOW_WIDTH.value * scale
-                    val minH = MIN_WINDOW_HEIGHT.value * scale
-
-                    var x = startX.toFloat()
-                    var y = startY.toFloat()
-                    var w = startWidth
-                    var h = startHeight
-
-                    if (dir.west) {
-                        val next = (w - total.x).coerceAtLeast(minW)
-                        x = startX + (w - next)
-                        w = next
-                    }
-                    if (dir.east) w = (w + total.x).coerceAtLeast(minW)
-                    if (dir.north) {
-                        val next = (h - total.y).coerceAtLeast(minH)
-                        y = startY + (h - next)
-                        h = next
-                    }
-                    if (dir.south) h = (h + total.y).coerceAtLeast(minH)
-
-                    state.size = DpSize((w / scale).dp, (h / scale).dp)
-                    state.position = WindowPosition((x / scale).dp, (y / scale).dp)
+                    val geom = resizeGeometry(start, dir, total.x, total.y, limits)
+                    state.size = DpSize((geom.width / scale).dp, (geom.height / scale).dp)
+                    state.position = WindowPosition((geom.x / scale).dp, (geom.y / scale).dp)
                 }
             )
         }
     )
 }
+
