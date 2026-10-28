@@ -1,0 +1,225 @@
+[
+  {
+    "page": "week",
+    "ref": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 52.0,
+      "card_left": 229.0,
+      "gutter": 18.0,
+      "bg": [
+        20,
+        20,
+        20
+      ],
+      "sidebar": [
+        39,
+        39,
+        39
+      ]
+    },
+    "lite": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 51.0,
+      "card_left": 229.0,
+      "gutter": 18.0,
+      "bg": [
+        20,
+        20,
+        20
+      ],
+      "sidebar": [
+        39,
+        39,
+        39
+      ]
+    }
+  },
+  {
+    "page": "notes",
+    "ref": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 52.0,
+      "card_left": 229.0,
+      "gutter": 18.0,
+      "bg": [
+        20,
+        20,
+        20
+      ],
+      "sidebar": [
+        39,
+        39,
+        39
+      ]
+    },
+    "lite": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 51.0,
+      "card_left": 230.0,
+      "gutter": 19.0,
+      "bg": [
+        20,
+        20,
+        20
+      ],
+      "sidebar": [
+        39,
+        39,
+        39
+      ]
+    }
+  },
+  {
+    "page": "knowledge",
+    "ref": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 52.0,
+      "card_left": null,
+      "bg": [
+        20,
+        20,
+        20
+      ],
+      "sidebar": [
+        39,
+        39,
+        39
+      ]
+    },
+    "lite": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 51.0,
+      "card_left": null,
+      "bg": [
+        20,
+        20,
+        20
+      ],
+      "sidebar": [
+        39,
+        39,
+        39
+      ]
+    }
+  },
+  {
+    "page": "week(light)",
+    "ref": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 52.0,
+      "card_left": 230.0,
+      "gutter": 19.0,
+      "bg": [
+        243,
+        243,
+        243
+      ],
+      "sidebar": [
+        235,
+        235,
+        235
+      ]
+    },
+    "lite": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 51.0,
+      "card_left": 229.0,
+      "gutter": 18.0,
+      "bg": [
+        243,
+        243,
+        243
+      ],
+      "sidebar": [
+        235,
+        235,
+        235
+      ]
+    }
+  },
+  {
+    "page": "notes(light)",
+    "ref": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 52.0,
+      "card_left": 230.0,
+      "gutter": 19.0,
+      "bg": [
+        243,
+        243,
+        243
+      ],
+      "sidebar": [
+        235,
+        235,
+        235
+      ]
+    },
+    "lite": {
+      "px": [
+        1200,
+        800
+      ],
+      "scale": 1.0,
+      "sidebar_end": 211.0,
+      "topbar_bottom": 51.0,
+      "card_left": 230.0,
+      "gutter": 19.0,
+      "bg": [
+        243,
+        243,
+        243
+      ],
+      "sidebar": [
+        235,
+        235,
+        235
+      ]
+    }
+  }
+]

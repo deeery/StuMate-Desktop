@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StuMate Lite</title>
+    <script>
+      /*
+       * 启动守卫。
+       *
+       * 白屏是这个应用最难诊断的故障形态：进程活着、窗口也起来了，但页面什么都没画，
+       * 界面上不给任何线索。之前为了查它，先怀疑 IPC、再怀疑截图方法，绕了很久 ——
+       * 真正的信息只需要「把错误显示出来」这一步。
+       *
+       * 这里兜住三类情况：模块加载失败、顶层同步抛错、React 挂载超时。任一发生就把
+       * 原因直接画进页面，同时列出判断环境必需的两条事实（UA、IPC 桥是否存在）。
+       */
+      (function () {
+        var errors = [];
+
+        function record(kind, detail) {
+          var line = kind + ": " + detail;
+          errors.push(line);
+          // 开发期回传：打到 dev server 的请求会被请求日志中间件记下来，
+          // 这是画面抓不到时唯一稳定的取证通道。生产环境是 tauri:// 协议，跳过。
+          try {
+            if (/^https?:$/.test(location.protocol) && navigator.sendBeacon) {
+              navigator.sendBeacon("/__boot?msg=" + encodeURIComponent(line.slice(0, 700)));
+            }
+          } catch (_) {}
+        }
+
+        window.addEventListener("error", function (e) {
+          // 资源加载失败时 e.message 是空的，靠 target 兜底
+          var t = e.target;
+          if (t && t !== window && (t.src || t.href)) {
+            record("资源加载失败", (t.src || t.href) + "");
+          } else {
+            record("脚本错误", (e.message || "") + (e.filename ? " @ " + e.filename + ":" + e.lineno : ""));
+          }
+        }, true);
+
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e.reason;
+          record("未处理的 Promise 拒绝", r && r.stack ? r.stack : String(r));
+        });
+
+        function paint() {
+          var root = document.getElementById("root");
+          if (!root) return;
+
+          var ipc = typeof window.__TAURI_INTERNALS__ !== "undefined";
+          var lines = errors.length ? errors : ["（没有捕获到异常，可能是渲染卡住或资源未返回）"];
+
+          var box = document.createElement("div");
+          box.setAttribute("data-boot-guard", "1");
+          box.style.cssText = [
+            "position:fixed", "inset:0", "z-index:2147483647",
+            "background:#ffffff", "color:#1a1a1a", "overflow:auto",
+            "padding:24px 28px", "box-sizing:border-box",
+            "font:12.5px/1.7 ui-monospace,Consolas,monospace",
+          ].join(";");
+
+          var h = document.createElement("div");
+          h.style.cssText = "font:600 15px/1.5 system-ui,sans-serif;color:#c42b1c;margin-bottom:14px";
+          h.textContent = "StuMate Lite 没能渲染界面";
+          box.appendChild(h);
+
+          var meta = document.createElement("div");
+          meta.style.cssText = "margin-bottom:14px;color:#5f5f5f;font-family:system-ui,sans-serif";
+          meta.textContent = "IPC 桥 " + (ipc ? "存在" : "缺失") + " · " + navigator.userAgent;
+          box.appendChild(meta);
+
+          var pre = document.createElement("pre");
+          pre.style.cssText = "margin:0;white-space:pre-wrap;word-break:break-word";
+          pre.textContent = lines.join("\n\n");
+          box.appendChild(pre);
+
+          root.textContent = "";
+          root.appendChild(box);
+        }
+
+        setTimeout(function () {
+          var root = document.getElementById("root");
+          if (root && root.childElementCount > 0) return;
+          if (!errors.length) record("挂载超时", "2.5s 内 #root 仍为空，且没有捕获到异常");
+          paint();
+        }, 2500);
+
+        window.__bootGuardPaint = paint;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

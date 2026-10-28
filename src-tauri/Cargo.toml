@@ -1,0 +1,56 @@
+[package]
+name = "stumate-lite"
+version = "1.7.7"
+description = "StuMate Lite —— Stumate 桌面端的 Tauri 重构版"
+authors = ["StuMate"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "stumate_lite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+# 生产构建的开关：打开它才会把 dist/ 内嵌进二进制、用 tauri://localhost 加载，
+# 而不是去连 build.devUrl（http://localhost:5173）。
+# `tauri build` 会自动带上这个 feature；手动 `cargo build --release` 必须自己加：
+#   cargo build --release --features custom-protocol
+# 忘了加的症状很隐蔽：release 版双击打开是一张 "localhost 拒绝连接" 的 Edge 错误页。
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+# tray-icon：系统托盘。原版靠 Compose 的 `Tray` 实现，Lite 走 Tauri 的托盘实现，
+# 两版互不影响（托盘图标、菜单都各自独立）。
+# image-png：托盘图标用 `include_bytes!` 在编译期内嵌，不依赖运行期能否找到图标文件。
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+rfd = "0.15"
+open = "5"
+# 开机自启直接调注册表 API。
+#
+# 原版用 `reg.exe` 是因为它在 JVM 里没有更省事的办法（`java.util.prefs` 写的位置
+# 系统不认）。Rust 这边没必要跟着绕：`reg.exe` 是控制台程序，从 GUI 进程
+# （windows_subsystem="windows"）启动会**闪一下黑框**，而且每次打开设置页都要
+# spawn 一个进程。更关键的是它可能被企业策略/安全软件拦掉 —— 实测本机沙箱就禁了。
+# 直接写注册表没有这些副作用，也更快。
+winreg = "0.52"
+
+# 提醒卡要「显示但不抢焦点」：Tauri 的 `show()` 走 SW_SHOW 会激活窗口，
+# 没有暴露 SW_SHOWNOACTIVATE 的封装，只能自己调一次 Win32。
+# 版本与 tauri 自己依赖的那份对齐（0.59），不额外拉新副本。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

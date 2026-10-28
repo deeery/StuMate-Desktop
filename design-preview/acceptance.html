@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StuMate Lite v1.7.6 验收截图</title>
+    <style>
+      :root {
+        --bg: #f7f7f8;
+        --surface: #ffffff;
+        --line: #e3e3e6;
+        --text: #1a1a1a;
+        --dim: #6b6b73;
+        --accent: #0067c0;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 40px 32px 72px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif;
+      }
+      .wrap { max-width: 1320px; margin: 0 auto; }
+      header { margin-bottom: 34px; }
+      h1 { font-size: 26px; font-weight: 600; margin: 0 0 10px; letter-spacing: -0.01em; }
+      .sub { color: var(--dim); font-size: 13px; }
+      .facts {
+        display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px;
+      }
+      .fact {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--dim);
+      }
+      .fact b { color: var(--text); font-weight: 600; }
+      h2 {
+        font-size: 15px; font-weight: 600; margin: 42px 0 16px;
+        padding-bottom: 9px; border-bottom: 1px solid var(--line);
+        display: flex; align-items: baseline; gap: 10px;
+      }
+      h2 span { font-size: 12.5px; font-weight: 400; color: var(--dim); }
+      .grid {
+        display: grid; gap: 22px;
+        grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+      }
+      figure {
+        margin: 0; background: var(--surface); border: 1px solid var(--line);
+        border-radius: 10px; overflow: hidden;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      figure img { display: block; width: 100%; height: auto; }
+      figcaption {
+        padding: 11px 14px; font-size: 12.5px; color: var(--dim);
+        border-top: 1px solid var(--line);
+        display: flex; justify-content: space-between; gap: 10px;
+      }
+      figcaption b { color: var(--text); font-weight: 600; }
+      footer {
+        margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--line);
+        font-size: 12.5px; color: var(--dim);
+      }
+      code {
+        font: 12px ui-monospace, Consolas, monospace;
+        background: #ececef; padding: 1px 5px; border-radius: 4px; color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>StuMate Lite v1.7.6 · 界面验收</h1>
+        <div class="sub">
+          Tauri 2 + React 重构版。以下截图取自 <b>release 二进制本身</b>（前端内嵌，走
+          <code>tauri://localhost</code>），不是浏览器预览，也不是设计稿。
+        </div>
+        <div class="facts">
+          <div class="fact">数据源 <b>原版同一个 SQLite</b></div>
+          <div class="fact">schema <b>v10</b></div>
+          <div class="fact">课程 <b>16</b></div>
+          <div class="fact">便签 <b>2</b></div>
+          <div class="fact">知识条目 <b>2</b></div>
+          <div class="fact">第 1 周 <b>2026/09/28</b></div>
+          <div class="fact">窗口 <b>1216×809</b></div>
+        </div>
+      </header>
+
+      <h2>深色主题 <span>跟随系统 / themeMode 2</span></h2>
+      <div class="grid">
+        <figure>
+          <img src="acceptance/dark-today.png" alt="今日" />
+          <figcaption><b>今日</b><span>Hero 卡 · 今日课程 · 今日截止</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/dark-week.png" alt="课表" />
+          <figcaption><b>课表</b><span>第 5 周 · 时间轴 · 重叠分栏</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/dark-notes.png" alt="便签" />
+          <figcaption><b>便签</b><span>类型筛选 · 截止倒计时 · 拖拽排序</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/dark-knowledge-list.png" alt="知识库列表" />
+          <figcaption><b>知识库 · 列表</b><span>按科目分组 · 附件</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/dark-knowledge-map.png" alt="知识库导图" />
+          <figcaption><b>知识库 · 导图</b><span>从知识库派生 · 可拖拽改层级</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/dark-settings.png" alt="设置" />
+          <figcaption><b>设置</b><span>外观 / 提醒 / 周次校准 / 数据</span></figcaption>
+        </figure>
+      </div>
+
+      <h2>浅色主题 <span>themeMode 1</span></h2>
+      <div class="grid">
+        <figure>
+          <img src="acceptance/light-today.png" alt="今日" />
+          <figcaption><b>今日</b><span>Fluent 浅色配色</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/light-week.png" alt="课表" />
+          <figcaption><b>课表</b><span>斑马纹按时间轴锚定</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/light-notes.png" alt="便签" />
+          <figcaption><b>便签</b><span>8 色卡条</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/light-knowledge-list.png" alt="知识库列表" />
+          <figcaption><b>知识库 · 列表</b><span>条目计数</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/light-knowledge-map.png" alt="知识库导图" />
+          <figcaption><b>知识库 · 导图</b><span>根节点为常量，不入库</span></figcaption>
+        </figure>
+        <figure>
+          <img src="acceptance/light-settings.png" alt="设置" />
+          <figcaption><b>设置</b><span>备份导出 / 导入</span></figcaption>
+        </figure>
+      </div>
+
+      <h2>副屏（窄窗口）<span>STUMATE_LITE_SCREEN=2 · 752×800 逻辑像素</span></h2>
+      <div class="grid">
+        <figure>
+          <img src="acceptance/secondary-week.png" alt="副屏课表" />
+          <figcaption>
+            <b>课表 · 副屏</b><span>800×1280 竖屏下自动收窄，7 列仍在</span>
+          </figcaption>
+        </figure>
+      </div>
+
+      <footer>
+        截图由 <code>tools/shoot_all.py</code> 生成：每个视图单独启动一次应用，页面与主题由
+        <code>STUMATE_LITE_PAGE</code> / <code>VIEW</code> / <code>THEME</code> 指定，
+        关窗口走 <code>WM_CLOSE</code> 而不是强杀，避免在 Crashpad 里留下假的崩溃转储。
+        <br />
+        副屏那张用 <code>STUMATE_LITE_SCREEN=2</code>：窗口在创建时就按目标屏的<em>逻辑</em>尺寸
+        夹好再定位，不是建完再 <code>set_size</code>（实测那条路返回 Ok 却不生效）。
+        窄窗口下课程标题会省略号截断 —— 这是当前宽度下的预期行为，不是布局错乱。
+      </footer>
+    </div>
+  </body>
+</html>

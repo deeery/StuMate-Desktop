@@ -1,0 +1,15 @@
+# 依赖与构建产物（体积大、可再生，不进版本库也不进 RAR）
+node_modules/
+dist/
+src-tauri/target/
+
+# 本地溯源清单（见根 README 第一节第 4 条）
+VERSION-INFO.txt
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db
+
+# 打包暂存区（若误建在目录内）
+.rar-stage/

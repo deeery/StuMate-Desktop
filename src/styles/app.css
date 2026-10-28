@@ -1,0 +1,1242 @@
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  color: var(--on-surface);
+  background: var(--bg);
+  /* 桌面应用不该有网页那种「选中一片文字」的随手感，只有正文区单独放开 */
+  user-select: none;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--outline-strong);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--on-surface-faint);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── 窗口骨架 ─────────────────────────────────────────────────── */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+
+/* 品牌行。属于侧栏，不属于标题栏 —— 原版把标识放在通高侧栏的顶部，
+   页头（52dp）只铺在侧栏右侧，窗口按钮贴在页头最右端。
+   这里的黑线高度（26 标识 + 8 上 + 16 下 = 50）是与原版截图量出来的值对齐的。 */
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px 16px;
+  flex: 0 0 auto;
+}
+
+.sidebar.rail .brand-row {
+  padding-left: 0;
+  padding-right: 0;
+  justify-content: center;
+}
+
+.brand-row .brand {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+}
+
+/* LITE 标记：与版本号同规格的灰字。
+   原先是一枚带色描边的胶囊，权重比页面标题还高，和原版那条极简品牌区不是一套语言；
+   但它不能去掉 —— 两版共用同一个数据库、能同时开着，没有这行字就分不清点的是哪个窗口。 */
+.brand-row .brand-tag {
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.4px;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+}
+
+.brand-row .brand-version {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+}
+
+.sidebar.rail .brand-tag,
+.sidebar.rail .brand-version {
+  display: none;
+}
+
+/* 窗口按钮：46×32、在 52 高的页头里垂直居中（原版 CAPTION_BUTTON_* 的取值） */
+.win-controls {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.win-controls button {
+  width: 46px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  color: var(--on-surface-variant);
+  transition: background var(--dur-fast) var(--ease-fluent);
+}
+
+.win-controls button:hover {
+  background: var(--hover);
+  color: var(--on-surface);
+}
+
+.win-controls button.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ── 侧栏 ─────────────────────────────────────────────────────── */
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex: 0 0 var(--sidebar-width);
+  background: var(--surface2);
+  /* 不加 border-right：原版靠 surface2 与 bg 的色差分层，多一条线反而像被框住 */
+  display: flex;
+  flex-direction: column;
+  /* 纵向 10px 内边距、横向 0 —— 导航项要整条通宽，选中底色才像 Fluent 的 NavigationView */
+  padding: 10px 0;
+  transition: width var(--dur-normal) var(--ease-fluent),
+    flex-basis var(--dur-normal) var(--ease-fluent);
+  overflow: hidden;
+}
+
+.sidebar.rail {
+  width: var(--sidebar-rail);
+  flex-basis: var(--sidebar-rail);
+  align-items: center;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 16px;
+  /* 直角通宽：原版的选中底是整条矩形，带圆角和内缩会看出「卡片」而不是「导航项」 */
+  color: var(--on-surface-variant);
+  font-size: 13.5px;
+  white-space: nowrap;
+  position: relative;
+  transition: background var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+
+.nav-item:hover {
+  background: var(--hover);
+  color: var(--on-surface);
+}
+
+.nav-item.active {
+  background: var(--accent-tint);
+  color: var(--on-surface);
+  font-weight: 600;
+}
+
+.nav-label {
+  flex: 1;
+  text-align: left;
+}
+
+/* 条数徽标：胶囊底 surface3、11px、右端（原版只在便签项上出现） */
+.nav-badge {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--surface3);
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  font-weight: 400;
+  text-align: center;
+}
+
+/* 选中项左侧的强调条：Fluent 的 NavigationView 就是这个形态 */
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.sidebar.rail .nav-item {
+  width: 48px;
+  justify-content: center;
+  padding: 0;
+  gap: 0;
+}
+
+.sidebar.rail .nav-label,
+.sidebar.rail .nav-badge {
+  display: none;
+}
+
+.sidebar .grow {
+  flex: 1;
+}
+
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  color: var(--on-surface-variant);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar.rail .sidebar-foot {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  flex: 0 0 7px;
+}
+
+/* ── 页面容器 ─────────────────────────────────────────────────── */
+
+.page {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.page-topbar {
+  height: var(--topbar-height);
+  flex: 0 0 var(--topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* 左侧 20px 是原版标题的缩进；右侧 0 —— 窗口按钮要贴死右边缘，像系统标题栏那样 */
+  padding: 0 0 0 20px;
+  background: var(--bg);
+  /* 页头与内容之间的 1px 分隔线（原版 PageTopBar 末尾的 FlDivider） */
+  border-bottom: 1px solid var(--outline);
+  -webkit-app-region: drag;
+}
+
+.page-topbar > * {
+  -webkit-app-region: no-drag;
+}
+
+/* 标题区吃满空白：它同时是拖动把手，也把页面操作稳定推到右端（四个页面同一水平位置） */
+.page-topbar .page-title-area {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  -webkit-app-region: drag;
+}
+
+.page-topbar .page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+  flex: 0 0 auto;
+}
+
+.page-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+}
+
+.page-sub {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--page-padding);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-card);
+}
+
+/* ── 通用控件 ─────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--outline-strong);
+  background: var(--surface);
+  color: var(--on-surface);
+  font-size: 12px;
+  transition: background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent);
+}
+
+.btn:hover {
+  background: var(--surface3);
+}
+
+.btn:active {
+  background: var(--press);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.btn.primary:hover {
+  filter: brightness(1.06);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.ghost:hover {
+  background: var(--hover);
+}
+
+.btn.danger {
+  color: var(--error);
+  border-color: var(--outline-strong);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  color: var(--on-surface-variant);
+}
+
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--on-surface);
+}
+
+.input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--outline-strong);
+  background: var(--surface);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-fluent);
+  user-select: text;
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.input::placeholder {
+  color: var(--on-surface-faint);
+}
+
+textarea.input {
+  height: auto;
+  padding: 8px 10px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  font-size: var(--fs-caption);
+  background: var(--surface3);
+  color: var(--on-surface-variant);
+}
+
+.divider {
+  height: 1px;
+  background: var(--outline);
+  margin: 8px 0;
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 48px 0;
+  color: var(--on-surface-faint);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ── 浮层 ─────────────────────────────────────────────────────── */
+
+.flyout-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: grid;
+  place-items: center;
+  z-index: 60;
+  animation: fade-in var(--dur-fast) var(--ease-fluent);
+}
+
+.dialog {
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  box-shadow: var(--shadow-flyout);
+  padding: 18px 20px 16px;
+  animation: pop-in var(--dur-normal) var(--ease-fluent);
+}
+
+.dialog h3 {
+  margin: 0 0 4px;
+  font-size: var(--fs-subtitle);
+  font-weight: 600;
+}
+
+.dialog .dialog-sub {
+  color: var(--on-surface-faint);
+  font-size: var(--fs-caption);
+  margin-bottom: 14px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.field > label {
+  font-size: var(--fs-caption);
+  color: var(--on-surface-variant);
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(4px);
+  }
+}
+
+/* ── 分段控件（列表 / 导图）───────────────────────────────────────
+ * 原版是 Fluent 的 SegmentedControl：一个浅色槽，选中的那格浮起来（surface3 + 描边）。
+ * 用图标按钮表达「两个视图」不够准确 —— 用户得悬停才知道另一边是什么。 */
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+  -webkit-app-region: no-drag;
+}
+
+.segmented button {
+  height: 26px;
+  padding: 0 14px;
+  border-radius: 3px;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  transition: background var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+
+.segmented button:hover {
+  color: var(--on-surface);
+}
+
+.segmented button.on {
+  background: var(--surface3);
+  border: 1px solid var(--border-rest);
+  color: var(--on-surface);
+  font-weight: 600;
+}
+
+/* ── 课表工具条（周次步进 / 日期区间 / 表格-列表）─────────────────
+ * 原版把这一行留在内容区顶部，而不是顶栏：顶栏是「页面级动作」，
+ * 这一行是「视图级操作」。数值按原版实测 —— 按钮 28×28（surface 填充 +
+ * outlineStrong 描边），整行高 28，与下方网格卡片间隔 16。 */
+.week-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin-bottom: 16px;
+  flex: 0 0 auto;
+}
+
+.step-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--outline-strong);
+  background: var(--surface);
+  color: var(--on-surface);
+  transition: background var(--dur-fast) var(--ease-fluent);
+}
+
+.step-btn:hover {
+  background: var(--surface3);
+}
+
+.week-label {
+  min-width: 58px;
+  text-align: center;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.week-range {
+  margin-left: 6px;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+/* 未校准时的提示：只是一行说明，不要再套一张卡片 ——
+ * 原版没有这一态，多一张卡片会把网格整体往下推 44dp，验收时被判成骨架不一致。 */
+.week-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -8px 0 8px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+/* ── 便签页的筛选行（搜索 / 分类 / 排序）───────────────────────────
+ * 原版把这三样放在表格卡片内部的顶部一行，而不是页顶栏：它们只作用于这张表。
+ * 高度对齐表格行的节奏（行 38、输入框 30），右侧排序是一个文字按钮 ——
+ * 原版是行内链接式的「按截止时间排序」，不是下拉。 */
+.notes-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex: 0 0 auto;
+}
+
+.notes-sort {
+  margin-left: auto;
+  padding: 0 4px;
+  height: 24px;
+  font-size: 12.5px;
+  color: var(--accent);
+  border-radius: var(--radius-control);
+}
+
+.notes-sort:hover {
+  background: var(--hover);
+}
+
+/* ── 今日课程表（时间 / 课程 / 教室 / 教师）─────────────────────────
+ * 数值照抄原版 `TodayPage.kt`：表头 h16 v8、行高 34、列宽 126/1fr/150/90 + 72 尾列。
+ * 表头铺 surface、行铺页面底色 —— 只有表头是「实心面」，行靠分隔线分条，
+ * 所以整块不能再套卡片，否则行与卡片之间会多出一层描边阴影。 */
+.today-table-head {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--outline);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--on-surface-faint);
+}
+
+.today-row {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--outline);
+}
+
+.today-row:hover {
+  background: var(--hover);
+}
+
+.today-time {
+  width: 126px;
+  flex: 0 0 126px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.today-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-room,
+.today-teacher {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.today-room {
+  width: 150px;
+}
+
+.today-teacher {
+  width: 90px;
+}
+
+.today-chip-cell {
+  width: 72px;
+  flex: 0 0 72px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── 知识库：资源管理器 + 编辑器 ─────────────────────────────────
+ *
+ * 这一页刻意**不用卡片**：两块面板直接铺满内容区、中间一条 1px 分隔线。
+ * 理由和 Obsidian 一样 —— 文件树是「导航」，不是「内容」。给它套一个圆角卡片，
+ * 视觉上会和旁边的正文卡平级，而它们其实是「目录 / 这一页」的关系。
+ * 所以这一页的 `.page-content` 内边距被压成 0（页面里内联），树贴左上角。
+ */
+
+.kb-split {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.kb-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── 左：资源管理器 ── */
+
+.kb-tree {
+  width: 240px;
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--outline);
+  background: var(--surface);
+}
+
+.kb-tree-head {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 34px;
+  padding: 0 6px 0 12px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--outline);
+}
+
+.kb-tree-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+/* 工具按钮比页面上其它图标按钮更小：这一行要放五个 */
+.kb-tool {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  color: var(--on-surface-variant);
+}
+
+.kb-tool:hover {
+  background: var(--hover);
+  color: var(--on-surface);
+}
+
+.kb-tree-body {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0 10px;
+  min-height: 0;
+}
+
+.kb-tree-foot {
+  flex: 0 0 auto;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-top: 1px solid var(--outline);
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 树行：24 高、整行可点、无圆角（缩进已经表达了层级，圆角再加一层就是噪音） */
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding-right: 8px;
+  width: 100%;
+  font-size: 13px;
+  color: var(--on-surface);
+  cursor: default;
+  user-select: none;
+}
+
+.kb-row:hover {
+  background: var(--hover);
+}
+
+.kb-row.on {
+  background: var(--accent-tint);
+  color: var(--on-surface);
+}
+
+.kb-caret {
+  width: 12px;
+  flex: 0 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--on-surface-faint);
+}
+
+.kb-glyph {
+  display: flex;
+  align-items: center;
+  color: var(--on-surface-variant);
+  flex: 0 0 auto;
+}
+
+.kb-row.on .kb-glyph {
+  color: var(--accent);
+}
+
+.kb-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.kb-rename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--on-surface);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-small);
+  outline: none;
+}
+
+.kb-empty {
+  padding: 20px 16px;
+  font-size: 12px;
+  color: var(--on-surface-faint);
+  line-height: 1.6;
+}
+
+/* ── 左：搜索结果（搜索框有内容时替换掉树）── */
+
+.kb-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 12px 6px;
+  border-bottom: 1px solid var(--outline);
+}
+
+.kb-hit:hover {
+  background: var(--hover);
+}
+
+.kb-hit.on {
+  background: var(--accent-tint);
+}
+
+.kb-hit-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--on-surface);
+}
+
+.kb-hit-count {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--on-surface-faint);
+}
+
+.kb-hit-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── 右：编辑器 ── */
+
+.kb-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.kb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  height: 40px;
+  flex: 0 0 40px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--outline);
+}
+
+.kb-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--on-surface);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  line-height: 40px;
+}
+
+.kb-path {
+  font-size: 11.5px;
+  color: var(--on-surface-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+
+.kb-state {
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  flex: 0 0 auto;
+}
+
+.kb-state.bad {
+  color: var(--error);
+}
+
+.kb-textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 16px 20px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.75;
+  user-select: text;
+}
+
+.kb-textarea::placeholder {
+  color: var(--on-surface-faint);
+}
+
+.kb-foot {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0 16px;
+  border-top: 1px solid var(--outline);
+  font-size: 11px;
+  color: var(--on-surface-faint);
+}
+
+/* 冲突条：只在「磁盘被改过」时出现，所以可以做得显眼一点 */
+.kb-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--on-surface);
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg));
+  border-bottom: 1px solid var(--outline);
+}
+
+.kb-banner .btn {
+  flex: 0 0 auto;
+  height: 26px;
+}
+
+/* 收起面板后留在左缘的一条窄把手 */
+.kb-unfold {
+  width: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--outline);
+  color: var(--on-surface-faint);
+  background: var(--surface);
+}
+
+.kb-unfold:hover {
+  color: var(--on-surface);
+  background: var(--hover);
+}
+
+/* ── 首次使用的引导 ── */
+
+.kb-setup {
+  max-width: 560px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kb-setup h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.kb-setup p {
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+
+.kb-setup code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: var(--radius-small);
+  background: var(--surface2);
+}
+
+.kb-setup-note {
+  color: var(--on-surface-faint) !important;
+}
+
+/* ── 右键菜单 ── */
+
+.kb-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 150px;
+  padding: 4px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--outline-strong);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.kb-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  font-size: 12.5px;
+  color: var(--on-surface);
+}
+
+.kb-menu button:hover {
+  background: var(--hover);
+}
+
+.kb-menu button.danger {
+  color: var(--error);
+}
+
+.kb-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--outline);
+}
+
+/* ── 移动到… ── */
+
+.kb-move-list {
+  max-height: 260px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-move-row {
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius-control);
+  font-size: 12.5px;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-move-row:hover {
+  background: var(--hover);
+}
+
+/* ── 错误条（不打断操作，点掉即可）── */
+
+.kb-error {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 70;
+  max-width: 70%;
+  padding: 8px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--error);
+  background: var(--surface);
+  color: var(--error);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ── Ctrl+P 快速切换 ── */
+
+.qo-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+}
+
+.qo {
+  width: 520px;
+  max-width: 84vw;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--outline-strong);
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.qo-input {
+  height: 40px;
+  flex: 0 0 40px;
+  padding: 0 14px;
+  border: none;
+  border-bottom: 1px solid var(--outline);
+  outline: none;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-size: 13.5px;
+}
+
+.qo-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px;
+}
+
+.qo-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-control);
+}
+
+.qo-row.on {
+  background: var(--accent-tint);
+}
+
+.qo-name {
+  font-size: 13px;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qo-path {
+  margin-left: auto;
+  flex: 0 0 auto;
+  max-width: 55%;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qo-none {
+  padding: 18px 10px;
+  font-size: 12px;
+  color: var(--on-surface-faint);
+  text-align: center;
+}
+
+/* 搜索框的放大镜 */
+.kb-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.kb-search-icon {
+  position: absolute;
+  left: 8px;
+  display: flex;
+  color: var(--on-surface-faint);
+  pointer-events: none;
+}

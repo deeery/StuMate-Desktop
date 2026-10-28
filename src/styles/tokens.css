@@ -1,0 +1,106 @@
+/* ────────────────────────────────────────────────────────────────
+ * 设计令牌：从原版 ui/fluent/FluentTokens.kt 逐条搬过来。
+ *
+ * 皮肤是 Windows 11 Fluent，不是 Material：
+ *   - 强调色用系统蓝（浅 #0067C0 / 深 #60CDFF）
+ *   - 控件圆角 4px、卡片 6px
+ *   - 分层靠「底色 + 1px 描边」，不靠阴影
+ *   - 正文 13px，行高收到 34px —— 桌面一屏要装更多信息
+ *
+ * 变量名与原版字段一一对应（bg / surface / surface2 / surface3 / onSurface…），
+ * 这样对着 Kotlin 改样式时不用做二次翻译。
+ * ──────────────────────────────────────────────────────────────── */
+
+:root {
+  --radius-card: 6px;
+  --radius-control: 4px;
+  --radius-small: 3px;
+  --row-height: 34px;
+  --sidebar-width: 212px;
+  --sidebar-rail: 48px;
+  --topbar-height: 52px;
+  --titlebar-height: 40px;
+  --page-padding: 16px;
+
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI",
+    "PingFang SC", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  --fs-caption: 11px;
+  --fs-body: 13px;
+  --fs-subtitle: 14px;
+  --fs-title: 18px;
+  --fs-display: 26px;
+
+  --ease-fluent: cubic-bezier(0.33, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-normal: 200ms;
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f3f3;
+  --surface: #ffffff;
+  --surface2: #ebebeb;
+  --surface3: #e0e0e0;
+  --on-surface: #1a1a1a;
+  --on-surface-variant: #5c5c5c;
+  --on-surface-faint: #8a8a8a;
+  --outline: #e5e5e5;
+  --outline-strong: #c8c8c8;
+  --border-rest: #d2d2d2;
+  --grid-line: #e8e8e8;
+  --grid-zebra: rgba(0, 0, 0, 0.04);
+  --accent: #0067c0;
+  --on-accent: #ffffff;
+  --accent-tint: rgba(0, 103, 192, 0.09);
+  --accent-hover: rgba(0, 103, 192, 0.06);
+  --error: #c42b1c;
+  --warning: #9d5d00;
+  --success: #0f7b0f;
+  --hover: rgba(0, 0, 0, 0.035);
+  --press: rgba(0, 0, 0, 0.06);
+  --shadow-flyout: 0 8px 24px rgba(0, 0, 0, 0.14);
+  --scrim: rgba(0, 0, 0, 0.28);
+  --note-0: #0067c0;
+  --note-1: #038387;
+  --note-2: #0f7b0f;
+  --note-3: #c07800;
+  --note-4: #ca5010;
+  --note-5: #c42b1c;
+  --note-6: #8430ce;
+  --note-7: #5c5c5c;
+}
+
+:root[data-theme="dark"] {
+  --bg: #141414;
+  --surface: #2b2b2b;
+  --surface2: #272727;
+  --surface3: #333333;
+  --on-surface: #ffffff;
+  --on-surface-variant: #c5c5c5;
+  --on-surface-faint: #8a8a8a;
+  --outline: #3a3a3a;
+  --outline-strong: #4a4a4a;
+  --border-rest: #404040;
+  --grid-line: #363636;
+  --grid-zebra: rgba(255, 255, 255, 0.03);
+  --accent: #60cdff;
+  --on-accent: #003a5c;
+  --accent-tint: rgba(96, 205, 255, 0.12);
+  --accent-hover: rgba(96, 205, 255, 0.07);
+  --error: #ff99a4;
+  --warning: #fce100;
+  --success: #6ccb5f;
+  --hover: rgba(255, 255, 255, 0.055);
+  --press: rgba(255, 255, 255, 0.086);
+  --shadow-flyout: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.45);
+  --note-0: #60cdff;
+  --note-1: #4cc2c4;
+  --note-2: #6ccb5f;
+  --note-3: #fce100;
+  --note-4: #f7630c;
+  --note-5: #ff99a4;
+  --note-6: #c586c0;
+  --note-7: #9a9a9a;
+}
