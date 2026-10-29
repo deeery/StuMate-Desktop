@@ -22,8 +22,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * select 必须在这里一起重置。
+ *
+ * 之前只写了 input / textarea，漏掉 select —— 而 select 的文字色不走 inherited
+ * 那一套，它默认拿 UA 的 fieldtext（黑色）。深色主题里背景是 --surface(#2b2b2b)、
+ * 字是纯黑，选中值基本看不见（知识库的「全部科目」、设置页的下拉都是这个症状）。
+ * 凡是新增原生表单控件，都要先确认它在这条规则里。
+ */
 input,
-textarea {
+textarea,
+select {
   font-family: inherit;
   font-size: inherit;
   color: inherit;
@@ -414,9 +423,17 @@ button {
   border-radius: var(--radius-control);
   border: 1px solid var(--outline-strong);
   background: var(--surface);
+  /* 显式给色，不依赖 body 继承 —— 少一层就得靠「表单控件都写了 inherit」这个约定兜着 */
+  color: var(--on-surface);
   outline: none;
   transition: border-color var(--dur-fast) var(--ease-fluent);
   user-select: text;
+}
+
+/* 下拉展开的那一层是原生弹层（不在 DOM 里），能控制的只有 option 本身 */
+.input option {
+  background: var(--surface);
+  color: var(--on-surface);
 }
 
 .input:focus {

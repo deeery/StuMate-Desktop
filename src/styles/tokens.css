@@ -38,6 +38,13 @@
 }
 
 :root[data-theme="light"] {
+  /*
+   * color-scheme 决定「浏览器自己画的那部分」用哪套配色：下拉箭头、日历选择器图标、
+   * option 弹层、原生滚动条、自动填充底色、文本框默认光标。不声明它，即便页面
+   * 已经全黑，这些零件仍按 light 渲染 —— 深色主题下日历图标是黑的、几乎看不见。
+   * 它不是 CSS 变量的替代品，是变量管不到那块地方时唯一的开关。
+   */
+  color-scheme: light;
   --bg: #f3f3f3;
   --surface: #ffffff;
   --surface2: #ebebeb;
@@ -72,6 +79,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #141414;
   --surface: #2b2b2b;
   --surface2: #272727;
