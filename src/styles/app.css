@@ -646,11 +646,13 @@ textarea.input {
  * 原版把这三样放在表格卡片内部的顶部一行，而不是页顶栏：它们只作用于这张表。
  * 高度对齐表格行的节奏（行 38、输入框 30），右侧排序是一个文字按钮 ——
  * 原版是行内链接式的「按截止时间排序」，不是下拉。 */
-.notes-filters {
+/* 工具行在卡片**外面**、表格上方（原版版式）。v1.7.11 之前这些控件是塞在
+ * 卡片顶部的，读起来像「表头的一部分」，也不符合原版的留白节奏。 */
+.notes-toolrow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 10px;
+  padding-bottom: 12px;
   flex: 0 0 auto;
 }
 
@@ -665,6 +667,71 @@ textarea.input {
 
 .notes-sort:hover {
   background: var(--hover);
+}
+
+/* ── 便签表格行（v1.7.11 起与原版对齐）──────────────────────────
+ * 悬停用 --hover（3.5% 黑 / 5.5% 白），选中用 --accent-tint（9% 强调色）。
+ * 两档刻意分得很开：悬停只是「鼠标在这」，选中是「右边面板正在编这条」。
+ * 之前没有悬停态，选中态也没有 —— 点了就弹窗，用户没法在表里看出「现在在改哪条」。
+ * 顺序有讲究：`.on` 必须写在 `:hover` 之后，选中行悬停时才不会被压淡。 */
+.note-row {
+  cursor: default;
+  transition: background var(--dur-fast) var(--ease-fluent);
+}
+
+.note-row:hover {
+  background: var(--hover);
+}
+
+.note-row.on,
+.note-row.on:hover {
+  background: var(--accent-tint);
+}
+
+/* 行内动作：只在悬停/选中时出现，但**占位宽度恒定** 64px。
+ * 常驻会让 10 行排出 10 组图标（远看像错误列表）；
+ * 占位不固定会让整行文字随悬停左右抖动。 */
+.note-row-actions {
+  width: 64px;
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-fluent);
+}
+
+.note-row:hover .note-row-actions,
+.note-row.on .note-row-actions {
+  opacity: 1;
+}
+
+/* 右侧编辑面板（原版 340dp 裸列，不画背景）。
+ * 入场只动 opacity + translateX —— 宽度/边距动画会让整张表格每帧重排。 */
+.note-panel {
+  width: 340px;
+  flex: 0 0 340px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: notePanelIn var(--dur-normal) var(--ease-fluent);
+}
+
+@keyframes notePanelIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 面板里的滚动条不要顶到内容边缘：贴边会显得正文被裁掉一截 */
+.note-panel-body {
+  padding-right: 4px;
 }
 
 /* ── 今日课程表（时间 / 课程 / 教室 / 教师）─────────────────────────

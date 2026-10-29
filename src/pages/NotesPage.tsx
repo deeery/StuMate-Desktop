@@ -1,5 +1,9 @@
 /**
- * 便签页：搜索 / 分类筛选 / 拖动排序 / 编辑。
+ * 便签页：左侧表格 + 右侧编辑面板（与原版 `NotesPage.kt` 同一套版式）。
+ *
+ * 这一页在 v1.7.11 之前是「表格 + 弹窗」：点一行弹一个居中对话框。原版不是这样 ——
+ * 原版点行只是**选中**，编辑发生在右列那块 340dp 的面板里，表格本身一直是可见的。
+ * 差别不只是好看：弹窗盖住表格后没法对照上下条，也看不到「刚才那行现在什么状态」。
  *
  * 拖动排序的几何全部走 `model/notes.ts`（v1.7.5 把那段从 Compose 闭包里抽出来
  * 修掉了三个缺陷：冻结的 index、拿自己行高当步长、筛选下标喂给全量列表）。
@@ -11,8 +15,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
-import { Dialog, Field, Select } from "../components/ui";
-import { IconPlus, IconSearch, IconTrash } from "../components/Icons";
+import { Select } from "../components/ui";
+import { IconEdit, IconPlus, IconSearch, IconTrash } from "../components/Icons";
 import type { NoteEntity } from "../model/types";
 import { EMPTY_NOTE } from "../model/types";
 import {
@@ -33,11 +37,27 @@ import { api, errorText } from "../api";
 
 type SortMode = "manual" | "deadline";
 
+/**
+ * 列宽。**表头与行必须共用同一组常量** —— 分开写死两份数值，改一边就会悄悄错位，
+ * 而这种错位在截图里只表现为「表头文字没对齐」，很容易被当成字体问题查半天。
+ * 数值照抄原版 `NotesPage.kt` 的五个 dp 常量。
+ */
+const COL_GRIP = 26;
+const COL_COLOR = 20;
+const COL_TYPE = 96;
+const COL_DEADLINE = 168;
+const COL_ACTION = 64;
+
+/** 「分类」下拉里代表「全部」的取值。用字符串是为了和 `typeFilter === null` 区分开 */
+const ALL_TYPES = "__all__";
+
 export function NotesPage({ ctx }: { ctx: AppContextValue }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortMode>("manual");
-  const [editing, setEditing] = useState<NoteEntity | null>(null);
+  /** 右列面板当前编辑哪一条；`null` 且 `creating` 为假时面板收起 */
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -65,11 +85,36 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
   // 截止排序下禁止手动拖：位置是算出来的，拖了也不会保留
   const canDrag = sort === "manual";
 
+  const selected = ctx.notes.find((n) => n.id === selectedId) ?? null;
+
+  // 选中的那条被删掉 / 被筛掉时，面板跟着收起。
+  // ⚠️ 区分「被筛掉」和「库里还没有」：首帧 notes 是空数组，那时不能判成删除。
+  useEffect(() => {
+    if (selectedId === null) return;
+    if (ctx.notes.length === 0) return;
+    if (!visible.some((n) => n.id === selectedId)) setSelectedId(null);
+  }, [visible, selectedId, ctx.notes.length]);
+
+  const select = (note: NoteEntity) => {
+    setCreating(false);
+    setSelectedId(note.id);
+  };
+
+  const startCreate = () => {
+    setSelectedId(null);
+    setCreating(true);
+  };
+
+  const closePanel = () => {
+    setCreating(false);
+    setSelectedId(null);
+  };
+
   const save = async (entity: NoteEntity) => {
     try {
       await api.saveNote(entity);
       await ctx.reloadNotes();
-      setEditing(null);
+      closePanel();
       ctx.toast("已保存");
     } catch (err) {
       ctx.toast(errorText(err), "error");
@@ -80,7 +125,7 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
     try {
       await api.deleteNote(id);
       await ctx.reloadNotes();
-      setEditing(null);
+      closePanel();
       ctx.toast("已删除");
     } catch (err) {
       ctx.toast(errorText(err), "error");
@@ -100,6 +145,7 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
   );
 
   const deadlineCount = ctx.notes.filter(hasDeadline).length;
+  const panelOpen = creating || selected !== null;
 
   return (
     <>
@@ -111,25 +157,20 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
             : `共 ${ctx.notes.length} 条`
         }
       >
-        {/* 顶栏只留「新建便签」一个动作（原版顶栏是「撤销 + 新建便签」）。
-            搜索框与分类筛选不属于页面级动作，它们只作用于下面这张表，
-            所以放进卡片顶部那一行 —— 放在顶栏里会让人以为它们过滤的是整个应用。 */}
-        <button className="btn primary" onClick={() => setEditing({ ...EMPTY_NOTE })}>
+        <button className="btn primary" onClick={startCreate}>
           <IconPlus size={14} /> 新建便签
         </button>
       </PageTopBar>
 
-      <div className="page-content" style={{ overflow: "hidden" }}>
-        <div
-          className="card"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-            overflow: "hidden",
-          }}
-        >
-          <div className="notes-filters">
+      <div
+        className="page-content"
+        style={{ overflow: "hidden", display: "flex", gap: 16 }}
+      >
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          {/* ── 工具行 ──
+              原版把它放在卡片**外面**、表格上方，并用 Spacer 把排序按钮推到最右。
+              v1.7.11 之前这几件控件是塞在卡片顶部的，读起来像「表头的一部分」。 */}
+          <div className="notes-toolrow">
             <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
               <span
                 style={{
@@ -143,7 +184,7 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
               </span>
               <input
                 className="input"
-                style={{ width: 200, paddingLeft: 28 }}
+                style={{ width: 260, paddingLeft: 28 }}
                 placeholder="搜索便签..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -159,6 +200,7 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
               ]}
               onChange={(v) => setTypeFilter(v === ALL_TYPES ? null : Number(v))}
             />
+            <span style={{ flex: 1 }} />
             {/* 排序在原版里是右对齐的一行文字按钮（不是下拉）：
                 「按截止时间排序」。手动排序是默认态，所以按钮文字表示「点下去做什么」。 */}
             <button
@@ -168,45 +210,52 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
               {sort === "deadline" ? "按手动顺序" : "按截止时间排序"}
             </button>
           </div>
-          <NoteTableHeader />
-          <NoteList
-            notes={visible}
-            all={ctx.notes}
-            now={now}
-            canDrag={canDrag}
-            onEdit={setEditing}
-            onReorder={commitOrder}
-          />
-        </div>
-      </div>
 
-      {editing ? (
-        <NoteDialog
-          entity={editing}
-          isNew={editing.id === 0}
-          onClose={() => setEditing(null)}
-          onSave={save}
-          onDelete={remove}
-        />
-      ) : null}
+          {/* ── 表格卡片 ── */}
+          <div
+            className="card"
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            <NoteTableHeader />
+            <NoteList
+              notes={visible}
+              all={ctx.notes}
+              now={now}
+              canDrag={canDrag}
+              selectedId={creating ? null : selectedId}
+              onSelect={select}
+              onEdit={select}
+              onDelete={remove}
+              onReorder={commitOrder}
+            />
+          </div>
+        </div>
+
+        {/* ── 右侧编辑面板 ──
+            和原版一样宽 340、与表格间隔 16。收起时**整块不渲染**（不是 display:none）：
+            这样面板里的输入状态不会在后台偷偷留着，下次选中新条目时不会看到上一条的残留。 */}
+        {panelOpen ? (
+          <NoteEditorPanel
+            key={creating ? "creating" : `edit-${selectedId}`}
+            entity={creating ? { ...EMPTY_NOTE } : (selected as NoteEntity)}
+            isNew={creating}
+            onSave={save}
+            onDelete={remove}
+            onCancel={closePanel}
+          />
+        ) : null}
+      </div>
     </>
   );
 }
 
-/**
- * 便签表头的列宽。**必须与行里的格子共用同一组常量** ——
- * 分开写死两份数值，改一边就会悄悄错位，而这种错位在截图里只表现为
- * 「表头文字没对齐」，很容易被当成字体问题查半天。
- */
-const COL_GRIP = 26;
-const COL_COLOR = 20;
-const COL_TYPE = 96;
-const COL_DEADLINE = 168;
-
-/** 「分类」下拉里代表「全部」的取值。用字符串是为了和 `typeFilter === null` 区分开 */
-const ALL_TYPES = "__all__";
-
-/** 表头：标题 / 内容 ｜ 分类 ｜ 截止（与原版 `NoteTableHeader` 同列宽、同字号） */
+/** 表头：标题 / 内容 ｜ 分类 ｜ 截止 ｜ 操作（与原版 `NoteTableHeader` 同列宽、同字号） */
 function NoteTableHeader() {
   const cell: React.CSSProperties = {
     fontSize: 11.5,
@@ -220,6 +269,7 @@ function NoteTableHeader() {
         alignItems: "center",
         background: "var(--surface2)",
         padding: "9px 12px",
+        flex: "0 0 auto",
       }}
     >
       <span style={{ width: COL_GRIP, flex: `0 0 ${COL_GRIP}px` }} />
@@ -227,6 +277,7 @@ function NoteTableHeader() {
       <span style={{ flex: 1, minWidth: 0, ...cell }}>标题 / 内容</span>
       <span style={{ width: COL_TYPE, flex: `0 0 ${COL_TYPE}px`, ...cell }}>分类</span>
       <span style={{ width: COL_DEADLINE, flex: `0 0 ${COL_DEADLINE}px`, ...cell }}>截止</span>
+      <span style={{ width: COL_ACTION, flex: `0 0 ${COL_ACTION}px` }} />
     </div>
   );
 }
@@ -245,14 +296,20 @@ function NoteList({
   all,
   now,
   canDrag,
+  selectedId,
+  onSelect,
   onEdit,
+  onDelete,
   onReorder,
 }: {
   notes: NoteEntity[];
   all: NoteEntity[];
   now: number;
   canDrag: boolean;
+  selectedId: number | null;
+  onSelect: (n: NoteEntity) => void;
   onEdit: (n: NoteEntity) => void;
+  onDelete: (id: number) => void;
   onReorder: (nextFull: NoteEntity[]) => void;
 }) {
   const rowRefs = useRef(new Map<number, HTMLDivElement>());
@@ -269,6 +326,9 @@ function NoteList({
     if (!canDrag) return;
     // 只认主键，右键/中键不拖
     if (e.button !== 0) return;
+    // 把手不会顺带选中那一行：拖动和「选中看详情」是两件事，
+    // 混在一起会让「想调顺序」变成「右侧面板跳来跳去」。
+    e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
     const { heights, tops } = measure();
     const state: DragState = {
@@ -286,6 +346,7 @@ function NoteList({
   const onPointerMove = (e: React.PointerEvent) => {
     const state = dragRef.current;
     if (!state) return;
+    e.stopPropagation();
     const offset = clampOffset(e.clientY - state.pointerY, state.tops, state.startIndex);
     const next = { ...state, offset };
     dragRef.current = next;
@@ -320,24 +381,30 @@ function NoteList({
     onReorder(moveInFullOrder(all, notes, dragged, target));
   };
 
+  const targetIndex = drag ? resolveDropIndex(drag.tops, drag.startIndex, drag.offset) : -1;
+
   return (
     <div
       ref={scrollRef}
-      className="card"
-      style={{ flex: 1, overflow: "auto", position: "relative" }}
+      style={{ flex: 1, minHeight: 0, overflow: "auto", position: "relative" }}
     >
       {notes.length === 0 ? (
         <div className="empty">
-          {all.length === 0 ? "还没有便签，点右上角新建一条" : "没有匹配的便签"}
+          <div>{all.length === 0 ? "还没有便签" : "没有匹配的便签"}</div>
+          <div style={{ fontSize: 12, color: "var(--on-surface-faint)", marginTop: 6 }}>
+            {all.length === 0 ? "点右上角「新建便签」随手记一条" : "换个关键词，或把分类筛选改回「全部」"}
+          </div>
         </div>
       ) : null}
 
       {notes.map((note, index) => {
         const active = drag?.id === note.id;
-        const target = drag ? resolveDropIndex(drag.tops, drag.startIndex, drag.offset) : -1;
-        const shift = drag ? shiftFor(index, drag.startIndex, target, drag.heights[drag.startIndex] ?? 40) : 0;
+        const dropTarget = drag !== null && targetIndex !== drag.startIndex && targetIndex === index;
+        const shift = drag ? shiftFor(index, drag.startIndex, targetIndex, drag.heights[drag.startIndex] ?? 40) : 0;
         const translate = active ? drag?.offset ?? 0 : shift;
         const color = `var(--note-${((note.colorIndex % 8) + 8) % 8})`;
+        const sel = !active && note.id === selectedId;
+
         return (
           <div
             key={note.id}
@@ -350,17 +417,25 @@ function NoteList({
               transform: `translateY(${translate}px)`,
               transition: active ? "none" : "transform 140ms cubic-bezier(0.33,0,0,1)",
               zIndex: active ? 5 : 1,
-              background: active ? "var(--surface3)" : undefined,
+              // 三种底色共用一个属性：被拖动 > 落点 > 选中 > 悬停。
+              // 拖行必须有**不透明**底（accent-tint 只有 9%，铺上去会透出下面那一行），
+              // 所以它用 surface3，其余两态交给 CSS 类。
+              background: active
+                ? "var(--surface3)"
+                : dropTarget
+                  ? "var(--accent-hover)"
+                  : undefined,
               boxShadow: active ? "var(--shadow-flyout)" : undefined,
+              outline: active ? "1.5px solid var(--accent)" : undefined,
               borderRadius: active ? 4 : 0,
-              opacity: active ? 0.96 : 1,
             }}
           >
             <div
+              className={`note-row${sel ? " on" : ""}`}
+              onClick={() => onSelect(note)}
               style={{
                 display: "flex",
                 alignItems: "stretch",
-                gap: 0,
                 borderBottom: "1px solid var(--outline)",
                 minHeight: 38,
                 padding: "0 12px",
@@ -403,47 +478,35 @@ function NoteList({
               >
                 <div style={{ width: 3, height: "100%", background: color, opacity: 0.9 }} />
               </div>
-              <button
-                onClick={() => onEdit(note)}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  textAlign: "left",
-                  padding: "6px 8px 6px 0",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span
+              {/* 标题 + 正文摘要两行。正文为空时第二行**整行不占位** ——
+                  否则只有标题的便签下面会挂一段空白，行高忽高忽低。 */}
+              <div style={{ flex: 1, minWidth: 0, padding: "6px 8px 6px 0" }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    color: "var(--on-surface)",
+                  }}
+                >
+                  {note.title}
+                </div>
+                {note.content ? (
+                  <div
                     style={{
-                      display: "block",
-                      fontSize: 13,
+                      fontSize: 11.5,
+                      color: "var(--on-surface-variant)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
+                      marginTop: 1,
                     }}
                   >
-                    {note.title}
-                  </span>
-                  {note.content ? (
-                    <span
-                      style={{
-                        display: "block",
-                        fontSize: 11,
-                        color: "var(--on-surface-faint)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        marginTop: 1,
-                      }}
-                    >
-                      {note.content.replace(/\s+/g, " ").slice(0, 90)}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
+                    {note.content.replace(/\s+/g, " ")}
+                  </div>
+                ) : null}
+              </div>
               <div
                 style={{
                   width: COL_TYPE,
@@ -473,7 +536,7 @@ function NoteList({
                   flex: `0 0 ${COL_DEADLINE}px`,
                   display: "flex",
                   alignItems: "center",
-                  fontSize: 11,
+                  fontSize: 12,
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   color: hasDeadline(note) && note.deadlineAt < now
@@ -483,7 +546,33 @@ function NoteList({
               >
                 {hasDeadline(note)
                   ? `${deadlineTimeLabel(note.deadlineAt, now)} · ${deadlineCountdown(note.deadlineAt, now)}`
-                  : ""}
+                  : "—"}
+              </div>
+              {/* 行内动作：只在悬停/选中时出现，但**占位宽度恒定** 64px ——
+                  常驻会让 10 行排出 10 组图标（远看像错误列表），占位不固定会让整行文字随悬停左右抖动。 */}
+              <div className="note-row-actions">
+                <button
+                  className="icon-btn"
+                  style={{ width: 24, height: 24 }}
+                  title="编辑便签"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(note);
+                  }}
+                >
+                  <IconEdit size={13} />
+                </button>
+                <button
+                  className="icon-btn"
+                  style={{ width: 24, height: 24, color: "var(--error)" }}
+                  title="删除便签"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(note.id);
+                  }}
+                >
+                  <IconTrash size={13} />
+                </button>
               </div>
             </div>
           </div>
@@ -493,74 +582,75 @@ function NoteList({
   );
 }
 
-function NoteDialog({
+/**
+ * 右侧编辑面板（原版 `NoteEditorPanel`）。
+ *
+ * 三个约束是踩出来的，别改回去：
+ * - 表单区**必须可滚**。选「Deadline」+「自定义」时字段从 4 组涨到 6 组，
+ *   600dp 高的窗口装不下，溢出后保存按钮会被挤出可视区（点不到）。
+ * - 所以按钮固定贴在底部，不能靠 `flex` 把 spacer 撑开 —— 内容一长 spacer 先归零。
+ * - 宽度固定 340，与表格之间靠父级 16px gap 分隔，面板自己不画背景（原版也是裸列）。
+ */
+function NoteEditorPanel({
   entity,
   isNew,
-  onClose,
   onSave,
   onDelete,
+  onCancel,
 }: {
   entity: NoteEntity;
   isNew: boolean;
-  onClose: () => void;
   onSave: (n: NoteEntity) => void;
   onDelete: (id: number) => void;
+  onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<NoteEntity>(entity);
-  const [error, setError] = useState("");
   const patch = (p: Partial<NoteEntity>) => setDraft((d) => ({ ...d, ...p }));
 
   const type = NOTE_TYPES[draft.typeIndex] ?? NOTE_TYPES[0];
+  const isDeadline = type.kind === "deadline";
+  // 编辑已有便签时永远可保存：标题留空会保留原标题，所以「清空标题」不是非法输入，
+  // 用户可能只是想改个颜色。新建则必须给个标题。
+  const canSave = draft.title.trim().length > 0 || !isNew;
 
   const submit = () => {
-    if (!draft.title.trim()) {
-      setError("标题不能为空");
-      return;
-    }
-    onSave({ ...draft, title: draft.title.trim() });
+    const next: NoteEntity = {
+      ...draft,
+      title: draft.title.trim() || entity.title,
+      // 「哪些类型才有标签 / 截止时间」只有面板知道，提交前统一归一化，
+      // 否则切到别的分类再切回来会看到一个不显示的孤儿时间戳
+      customLabel: type.editableLabel ? draft.customLabel : "",
+      deadlineAt: isDeadline ? draft.deadlineAt : 0,
+    };
+    onSave(next);
   };
 
   return (
-    <Dialog
-      title={isNew ? "新建便签" : "编辑便签"}
-      onClose={onClose}
-      width={520}
-      actions={
-        <>
-          {!isNew ? (
-            <button className="btn danger" style={{ marginRight: "auto" }} onClick={() => onDelete(entity.id)}>
-              <IconTrash size={13} /> 删除
-            </button>
-          ) : null}
-          <button className="btn" onClick={onClose}>
-            取消
-          </button>
-          <button className="btn primary" onClick={submit}>
-            保存
-          </button>
-        </>
-      }
-    >
-      <Field label="标题">
+    <div className="note-panel">
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--on-surface)", paddingBottom: 14 }}>
+        {isNew ? "新建便签" : "编辑便签"}
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }} className="note-panel-body">
+        <PanelLabel>标题</PanelLabel>
         <input
           className="input"
-          autoFocus
+          autoFocus={isNew}
           value={draft.title}
           onChange={(e) => patch({ title: e.target.value })}
-          placeholder="一句话说清这条便签是什么"
+          placeholder="一句话说清这条便签"
         />
-      </Field>
-      <Field label="正文">
+
+        <PanelLabel top>内容</PanelLabel>
         <textarea
           className="input"
-          rows={6}
+          style={{ minHeight: 72, resize: "vertical" }}
           value={draft.content}
           onChange={(e) => patch({ content: e.target.value })}
-          placeholder="可以留空"
+          placeholder="补充细节，可留空"
         />
-      </Field>
 
-      <Field label="颜色">
+        <PanelLabel top>颜色</PanelLabel>
         <div style={{ display: "flex", gap: 8 }}>
           {Array.from({ length: 8 }).map((_, i) => (
             <button
@@ -568,67 +658,106 @@ function NoteDialog({
               onClick={() => patch({ colorIndex: i })}
               title={`色号 ${i}`}
               style={{
-                width: 22,
-                height: 22,
-                borderRadius: 11,
+                width: 26,
+                height: 26,
+                borderRadius: 4,
                 background: `var(--note-${i})`,
                 outline: draft.colorIndex === i ? "2px solid var(--on-surface)" : "none",
-                outlineOffset: 2,
+                outlineOffset: 1,
               }}
             />
           ))}
         </div>
-      </Field>
 
-      <div className="field-row">
-        <div style={{ flex: 1 }}>
-          <Field label="分类">
-            <Select<number>
-              value={draft.typeIndex}
-              options={NOTE_TYPES.map((t, i) => ({ value: i, label: t.label }))}
-              onChange={(v) =>
-                patch({
-                  typeIndex: v,
-                  // 从 Deadline 切走时清掉时间，否则会留下一个不显示的孤儿时间戳
-                  deadlineAt: NOTE_TYPES[v]?.kind === "deadline" ? draft.deadlineAt : 0,
-                })
-              }
-            />
-          </Field>
-        </div>
+        <PanelLabel top>分类</PanelLabel>
+        <Select<number>
+          value={draft.typeIndex}
+          options={NOTE_TYPES.map((t, i) => ({ value: i, label: t.label }))}
+          onChange={(v) =>
+            patch({
+              typeIndex: v,
+              // 从 Deadline 切走时清掉时间，否则会留下一个不显示的孤儿时间戳
+              deadlineAt: NOTE_TYPES[v]?.kind === "deadline" ? draft.deadlineAt : 0,
+            })
+          }
+        />
+
         {type.editableLabel ? (
-          <div style={{ flex: 1 }}>
-            <Field label="分类名">
-              <input
-                className="input"
-                value={draft.customLabel}
-                onChange={(e) => patch({ customLabel: e.target.value })}
-                placeholder={type.label}
-              />
-            </Field>
+          <>
+            <PanelLabel top>分类名</PanelLabel>
+            <input
+              className="input"
+              value={draft.customLabel}
+              onChange={(e) => patch({ customLabel: e.target.value })}
+              placeholder={type.kind === "deadline" ? "例如「期末论文」" : "例如「科研」"}
+            />
+          </>
+        ) : null}
+
+        {isDeadline ? (
+          <>
+            <PanelLabel top>截止时间</PanelLabel>
+            <input
+              className="input"
+              type="datetime-local"
+              value={toLocalInput(draft.deadlineAt)}
+              onChange={(e) => {
+                const v = e.target.value;
+                patch({ deadlineAt: v ? new Date(v).getTime() : 0 });
+              }}
+            />
+            {draft.deadlineAt ? (
+              <div style={{ fontSize: 12, color: "var(--error)", marginTop: 8 }}>
+                {deadlineTimeLabel(draft.deadlineAt, Date.now())} ·{" "}
+                {deadlineCountdown(draft.deadlineAt, Date.now())}
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: "var(--on-surface-faint)", marginTop: 8 }}>
+                留空也能存，只是不显示倒计时
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {draft.typeIndex === NOTE_TYPE_DEADLINE && !draft.deadlineAt ? (
+          <div style={{ fontSize: 11, color: "var(--warning)", marginTop: 8 }}>
+            选了 Deadline 但没填时间
           </div>
         ) : null}
       </div>
 
-      {type.kind === "deadline" ? (
-        <Field label="截止时间" hint="留空也能存，只是不显示倒计时">
-          <input
-            className="input"
-            type="datetime-local"
-            value={toLocalInput(draft.deadlineAt)}
-            onChange={(e) => {
-              const v = e.target.value;
-              patch({ deadlineAt: v ? new Date(v).getTime() : 0 });
-            }}
-          />
-        </Field>
-      ) : null}
+      <div className="divider" style={{ margin: "12px 0" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 4 }}>
+        {!isNew ? (
+          <button className="btn danger" onClick={() => onDelete(entity.id)}>
+            删除
+          </button>
+        ) : null}
+        <span style={{ flex: 1 }} />
+        <button className="btn ghost" onClick={onCancel}>
+          取消
+        </button>
+        <button className="btn primary" onClick={submit} disabled={!canSave}>
+          保存
+        </button>
+      </div>
+    </div>
+  );
+}
 
-      {draft.typeIndex === NOTE_TYPE_DEADLINE && !draft.deadlineAt ? (
-        <div style={{ fontSize: 11, color: "var(--warning)" }}>选了 Deadline 但没填时间</div>
-      ) : null}
-      {error ? <div style={{ color: "var(--error)", fontSize: 12 }}>{error}</div> : null}
-    </Dialog>
+function PanelLabel({ children, top }: { children: React.ReactNode; top?: boolean }) {
+  return (
+    <div
+      style={{
+        fontSize: 11.5,
+        fontWeight: 600,
+        color: "var(--on-surface-faint)",
+        marginTop: top ? 14 : 0,
+        marginBottom: 6,
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
