@@ -150,6 +150,15 @@ export const api = {
     invoke<GrepHitWire[]>("vault_grep", { base, needle }),
   /** 同进程再开一个「只有知识库」的窗口（`?page=knowledge&solo=1`）。已开则聚焦 */
   openKnowledgeWindow: () => invoke<void>("open_knowledge_window"),
+  /**
+   * 另开一个 Markdowner 窗口编辑某篇笔记。
+   *
+   * 它不是「把内容传进去再传回来」，而是**直接读写库里的那个 .md 文件**
+   * （见 `public/markdowner/stumate-bridge.js`）。所以这边不需要接收返回内容，
+   * 写完由 `onVaultChanged` 通知刷新。
+   */
+  openMarkdownWindow: (base: string, rel: string) =>
+    invoke<void>("open_markdown_window", { base, rel }),
 
   // 系统
   openDataDir: () => invoke<void>("open_data_dir"),  openExternal: (target: string) => invoke<void>("open_external", { target }),
@@ -188,6 +197,20 @@ export function onOverlayUpdate(handler: (alert: ReminderAlert) => void): Promis
 /** 托盘菜单「立即检查一次」 */
 export function onCheckNow(handler: () => void): Promise<UnlistenFn> {
   return listen("stumate://check-now", () => handler());
+}
+
+/**
+ * Markdowner 子窗口把某篇笔记写回磁盘了。
+ *
+ * 主窗口必须知道这件事：它的外部变更检测是「磁盘 mtime 比上次保存的更新就弹冲突」，
+ * 不加这条，用户每在 Markdowner 里敲一次，主窗口就会误报一次「文件被别处改过」。
+ */
+export function onVaultChanged(
+  handler: (payload: { rel: string; mtime: number }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ rel: string; mtime: number }>("stumate://vault-changed", (e) =>
+    handler(e.payload),
+  );
 }
 
 /**

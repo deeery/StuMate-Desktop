@@ -1,0 +1,827 @@
+/* ============================================================================
+ * MarkDowner — Rendered document typography
+ * Editorial long-form styles: generous measure (45–75ch), clear hierarchy,
+ * print-inspired details. Flat design — hierarchy comes from type and rules,
+ * never from drop shadows.
+ * ========================================================================= */
+
+.preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-2xl) var(--space-xl) var(--space-4xl);
+  background: var(--surface-canvas);
+  scroll-behavior: smooth;
+}
+
+.preview__doc {
+  max-width: var(--reading-measure);
+  margin: 0 auto;
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+}
+
+/* Coarse pointers / small screens: shrink padding so the measure survives */
+@media (max-width: 900px) {
+  .preview {
+    padding: var(--space-xl) var(--space-lg) var(--space-3xl);
+  }
+}
+
+@media (max-width: 640px) {
+  .preview {
+    padding: var(--space-lg) var(--space-md) var(--space-2xl);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1. Headings — Libre Bodoni display face, tightened tracking
+ * ------------------------------------------------------------------------ */
+.preview__doc h1,
+.preview__doc h2,
+.preview__doc h3,
+.preview__doc h4,
+.preview__doc h5,
+.preview__doc h6 {
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--text-primary);
+  scroll-margin-top: var(--space-lg);
+  position: relative;
+}
+
+.preview__doc h1 {
+  font-size: var(--font-size-4xl);
+  margin: 0 0 var(--space-lg);
+  padding-bottom: var(--space-sm);
+  border-bottom: 2px solid var(--text-primary);
+}
+
+.preview__doc h2 {
+  font-size: var(--font-size-3xl);
+  margin: var(--space-2xl) 0 var(--space-md);
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.preview__doc h3 {
+  font-size: var(--font-size-2xl);
+  margin: var(--space-xl) 0 var(--space-sm);
+}
+
+.preview__doc h4 {
+  font-size: var(--font-size-xl);
+  margin: var(--space-lg) 0 var(--space-xs);
+}
+
+.preview__doc h5 {
+  font-size: var(--font-size-lg);
+  margin: var(--space-md) 0 var(--space-xs);
+  font-family: var(--font-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.preview__doc h6 {
+  font-size: var(--font-size-base);
+  margin: var(--space-md) 0 var(--space-xs);
+  font-family: var(--font-body);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.preview__doc > h1:first-child,
+.preview__doc > h2:first-child,
+.preview__doc > h3:first-child {
+  margin-top: 0;
+}
+
+/* Heading anchor link, revealed on hover */
+.preview__doc .heading-anchor {
+  position: absolute;
+  left: -1.25em;
+  width: 1em;
+  color: var(--text-disabled);
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+  font-family: var(--font-body);
+  font-weight: var(--font-weight-regular);
+}
+
+.preview__doc :is(h1, h2, h3, h4, h5, h6):hover .heading-anchor,
+.preview__doc .heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.preview__doc .heading-anchor:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Body copy
+ * ------------------------------------------------------------------------ */
+.preview__doc p {
+  margin: 0 0 var(--space-md);
+}
+
+.preview__doc strong {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.preview__doc em {
+  font-style: italic;
+}
+
+.preview__doc del {
+  color: var(--text-subtle);
+}
+
+.preview__doc mark {
+  background: var(--md-mark);
+  color: var(--md-mark-text);
+  padding: 0 var(--space-3xs);
+  border-radius: var(--radius-xs);
+}
+
+.preview__doc abbr[title] {
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+.preview__doc small {
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+}
+
+.preview__doc sup,
+.preview__doc sub {
+  font-size: 0.72em;
+  line-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Links — underline always (not colour alone: WCAG 1.4.1)
+ * ------------------------------------------------------------------------ */
+.preview__doc a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.preview__doc a:hover {
+  color: var(--accent-hover);
+  text-decoration-thickness: 2px;
+}
+
+/* External links get a subtle marker */
+.preview__doc a[data-external='true']::after {
+  content: '↗';
+  display: inline-block;
+  margin-left: 2px;
+  font-size: 0.8em;
+  vertical-align: super;
+  opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Lists
+ * ------------------------------------------------------------------------ */
+.preview__doc ul,
+.preview__doc ol {
+  margin: 0 0 var(--space-md);
+  padding-left: var(--space-lg);
+}
+
+.preview__doc ul {
+  list-style: disc;
+}
+
+.preview__doc ul ul {
+  list-style: circle;
+}
+
+.preview__doc ul ul ul {
+  list-style: square;
+}
+
+.preview__doc ol {
+  list-style: decimal;
+}
+
+.preview__doc li {
+  margin-bottom: var(--space-2xs);
+  padding-left: var(--space-2xs);
+}
+
+.preview__doc li > ul,
+.preview__doc li > ol {
+  margin-top: var(--space-2xs);
+  margin-bottom: 0;
+}
+
+.preview__doc li::marker {
+  color: var(--accent);
+}
+
+.preview__doc li > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Task lists */
+.preview__doc li.task-list-item {
+  list-style: none;
+  margin-left: calc(var(--space-lg) * -1);
+  padding-left: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+
+.preview__doc li.task-list-item input[type='checkbox'] {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 6px;
+  flex: none;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-raised);
+  cursor: pointer;
+  position: relative;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.preview__doc li.task-list-item input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.preview__doc li.task-list-item input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--text-on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.preview__doc li.task-list-item:has(input:checked) > *:not(input) {
+  color: var(--text-subtle);
+  text-decoration: line-through;
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Blockquotes — editorial pull-quote treatment
+ * ------------------------------------------------------------------------ */
+.preview__doc blockquote {
+  margin: var(--space-lg) 0;
+  padding: var(--space-2xs) 0 var(--space-2xs) var(--space-lg);
+  border-left: 3px solid var(--accent);
+  color: var(--md-blockquote-text);
+  font-size: 1.05em;
+}
+
+.preview__doc blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.preview__doc blockquote blockquote {
+  margin: var(--space-md) 0;
+  border-left-color: var(--border-strong);
+  font-size: 0.96em;
+}
+
+/* Callouts: > [!NOTE] / [!TIP] / [!WARNING] / [!IMPORTANT] / [!CAUTION] */
+.preview__doc .callout {
+  margin: var(--space-lg) 0;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--info);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--info-surface);
+}
+
+.preview__doc .callout__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-2xs);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-base);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--info);
+}
+
+.preview__doc .callout__body > *:last-child {
+  margin-bottom: 0;
+}
+
+.preview__doc .callout--tip {
+  border-left-color: var(--success);
+  background: var(--success-surface);
+}
+.preview__doc .callout--tip .callout__title {
+  color: var(--success);
+}
+
+.preview__doc .callout--warning,
+.preview__doc .callout--caution {
+  border-left-color: var(--warning);
+  background: var(--warning-surface);
+}
+.preview__doc .callout--warning .callout__title,
+.preview__doc .callout--caution .callout__title {
+  color: var(--warning);
+}
+
+.preview__doc .callout--important {
+  border-left-color: var(--danger);
+  background: var(--danger-surface);
+}
+.preview__doc .callout--important .callout__title {
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Code
+ * ------------------------------------------------------------------------ */
+.preview__doc code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  font-variant-ligatures: none;
+}
+
+/* Inline code */
+.preview__doc :not(pre) > code {
+  padding: 0.15em 0.35em;
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
+  border-radius: var(--radius-xs);
+  overflow-wrap: break-word;
+}
+
+.preview__doc pre {
+  position: relative;
+  margin: var(--space-lg) 0;
+  padding: var(--space-md);
+  overflow-x: auto;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-md);
+  line-height: var(--line-height-normal);
+  tab-size: 2;
+}
+
+.preview__doc pre code {
+  display: block;
+  color: var(--code-text);
+  background: none;
+  padding: 0;
+  font-size: var(--font-size-base);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* Language badge + copy button, injected by the app */
+.preview__doc pre[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  background: var(--surface-inset);
+  border-left: 1px solid var(--code-border);
+  border-bottom: 1px solid var(--code-border);
+  border-radius: 0 var(--radius-md) 0 var(--radius-sm);
+  pointer-events: none;
+}
+
+.code-copy {
+  position: absolute;
+  top: var(--space-2xs);
+  right: var(--space-2xs);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  height: 26px;
+  padding: 0 var(--space-xs);
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-muted);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.preview__doc pre:hover .code-copy,
+.code-copy:focus-visible {
+  opacity: 1;
+}
+
+.code-copy:hover {
+  color: var(--text-primary);
+}
+
+.code-copy[data-copied='true'] {
+  color: var(--success);
+  opacity: 1;
+}
+
+/* With a language badge present, move the copy button clear of it */
+.preview__doc pre[data-lang] .code-copy {
+  top: calc(var(--space-2xs) + 20px);
+}
+
+@media (pointer: coarse) {
+  .code-copy {
+    opacity: 1;
+    height: 34px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Syntax highlighting — token-driven, so light/dark both stay legible
+ * ------------------------------------------------------------------------ */
+.preview__doc .hljs-comment,
+.preview__doc .hljs-quote {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+.preview__doc .hljs-keyword,
+.preview__doc .hljs-selector-tag,
+.preview__doc .hljs-literal,
+.preview__doc .hljs-doctag,
+.preview__doc .hljs-name {
+  color: var(--syn-keyword);
+  font-weight: var(--font-weight-medium);
+}
+
+.preview__doc .hljs-string,
+.preview__doc .hljs-regexp,
+.preview__doc .hljs-addition,
+.preview__doc .hljs-attribute,
+.preview__doc .hljs-meta .hljs-string {
+  color: var(--syn-string);
+}
+
+.preview__doc .hljs-number,
+.preview__doc .hljs-symbol,
+.preview__doc .hljs-bullet,
+.preview__doc .hljs-link,
+.preview__doc .hljs-selector-attr,
+.preview__doc .hljs-selector-pseudo {
+  color: var(--syn-number);
+}
+
+.preview__doc .hljs-title,
+.preview__doc .hljs-title.function_,
+.preview__doc .hljs-section,
+.preview__doc .hljs-selector-id,
+.preview__doc .hljs-selector-class {
+  color: var(--syn-function);
+}
+
+.preview__doc .hljs-variable,
+.preview__doc .hljs-template-variable,
+.preview__doc .hljs-params,
+.preview__doc .hljs-attr,
+.preview__doc .hljs-property {
+  color: var(--syn-variable);
+}
+
+.preview__doc .hljs-type,
+.preview__doc .hljs-class .hljs-title,
+.preview__doc .hljs-title.class_,
+.preview__doc .hljs-built_in,
+.preview__doc .hljs-tag {
+  color: var(--syn-type);
+}
+
+.preview__doc .hljs-operator,
+.preview__doc .hljs-meta,
+.preview__doc .hljs-selector-tag {
+  color: var(--syn-operator);
+}
+
+.preview__doc .hljs-punctuation,
+.preview__doc .hljs-subst {
+  color: var(--syn-punctuation);
+}
+
+.preview__doc .hljs-deletion {
+  color: var(--danger);
+}
+
+.preview__doc .hljs-emphasis {
+  font-style: italic;
+}
+
+.preview__doc .hljs-strong {
+  font-weight: var(--font-weight-bold);
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. Tables
+ * ------------------------------------------------------------------------ */
+.preview__doc .table-scroll {
+  margin: var(--space-lg) 0;
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.preview__doc table {
+  width: 100%;
+  font-size: var(--font-size-md);
+  border-collapse: collapse;
+}
+
+.preview__doc thead {
+  background: var(--md-table-head);
+}
+
+.preview__doc th {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.preview__doc td {
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+
+.preview__doc tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.preview__doc tbody tr:nth-child(even) {
+  background: var(--md-table-stripe);
+}
+
+.preview__doc th[align='center'],
+.preview__doc td[align='center'] {
+  text-align: center;
+}
+
+.preview__doc th[align='right'],
+.preview__doc td[align='right'] {
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------------------
+ * 9. Rules, images, figures
+ * ------------------------------------------------------------------------ */
+.preview__doc hr {
+  margin: var(--space-2xl) 0;
+  border: none;
+  border-top: 1px solid var(--md-rule);
+}
+
+.preview__doc hr::after {
+  content: '§';
+  display: block;
+  width: fit-content;
+  margin: -0.75em auto 0;
+  padding: 0 var(--space-xs);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  color: var(--text-disabled);
+  background: var(--surface-canvas);
+}
+
+.preview__doc img {
+  max-width: 100%;
+  height: auto;
+  margin: var(--space-md) 0;
+  border-radius: var(--radius-md);
+}
+
+.preview__doc figure {
+  margin: var(--space-lg) 0;
+}
+
+.preview__doc figcaption {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Broken images get a visible, actionable placeholder */
+.preview__doc img[data-broken='true'] {
+  display: block;
+  min-height: 60px;
+  padding: var(--space-sm);
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-inset);
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. Keyboard keys, footnotes, definitions
+ * ------------------------------------------------------------------------ */
+.preview__doc kbd {
+  padding: 1px var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--text-secondary);
+  background: var(--md-kbd-bg);
+  border: 1px solid var(--md-kbd-border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+}
+
+.preview__doc .footnotes {
+  margin-top: var(--space-2xl);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-default);
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+.preview__doc .footnotes h2 {
+  font-size: var(--font-size-base);
+  font-family: var(--font-body);
+  border: none;
+  margin: 0 0 var(--space-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-caps);
+  color: var(--text-subtle);
+}
+
+.preview__doc .footnotes ol {
+  padding-left: var(--space-lg);
+}
+
+.preview__doc dl {
+  margin: var(--space-md) 0;
+}
+
+.preview__doc dt {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.preview__doc dd {
+  margin: 0 0 var(--space-xs) var(--space-lg);
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+ * 11. Math (KaTeX)
+ * ------------------------------------------------------------------------ */
+.preview__doc .katex {
+  font-size: 1.05em;
+}
+
+.preview__doc .katex-display {
+  margin: var(--space-lg) 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--space-2xs) 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 12. In-document search highlight
+ * ------------------------------------------------------------------------ */
+.preview__doc .md-hit {
+  background: var(--warning-surface);
+  box-shadow: inset 0 -2px 0 var(--warning);
+  border-radius: var(--radius-xs);
+}
+
+.preview__doc .md-hit--current {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  box-shadow: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 13. Empty preview state
+ * ------------------------------------------------------------------------ */
+.preview__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  height: 100%;
+  padding: var(--space-2xl);
+  text-align: center;
+  color: var(--text-subtle);
+}
+
+.preview__placeholder-icon {
+  color: var(--text-disabled);
+}
+
+.preview__placeholder-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  color: var(--text-muted);
+}
+
+.preview__placeholder-text {
+  max-width: 40ch;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+/* ---------------------------------------------------------------------------
+ * 14. Scroll-spy sync flash — briefly marks the block matching the caret
+ * ------------------------------------------------------------------------ */
+.preview__doc [data-sync-flash='true'] {
+  animation: sync-flash var(--duration-slow) var(--ease-standard);
+}
+
+@keyframes sync-flash {
+  from {
+    background: var(--accent-surface);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 15. Print quality
+ * ------------------------------------------------------------------------ */
+@media print {
+  .preview__doc {
+    max-width: none;
+    font-size: 11pt;
+    color: #000;
+  }
+
+  .preview__doc a {
+    color: #000;
+    text-decoration: underline;
+  }
+
+  .preview__doc a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 9pt;
+    color: #444;
+    word-break: break-all;
+  }
+
+  .preview__doc pre {
+    border: 1px solid #ccc;
+    background: #f8f8f8;
+    page-break-inside: avoid;
+  }
+
+  .code-copy,
+  .heading-anchor {
+    display: none !important;
+  }
+
+  .preview__doc h1,
+  .preview__doc h2,
+  .preview__doc h3 {
+    page-break-after: avoid;
+  }
+
+  .preview__doc img,
+  .preview__doc table,
+  .preview__doc blockquote {
+    page-break-inside: avoid;
+  }
+}

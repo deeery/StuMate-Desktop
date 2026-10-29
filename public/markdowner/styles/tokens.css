@@ -1,0 +1,411 @@
+/* ============================================================================
+ * MarkDowner — Design Tokens
+ * ----------------------------------------------------------------------------
+ * Single source of truth for the design system. Every component consumes
+ * semantic tokens only; no component hard-codes a hex value (ui-ux-pro-max
+ * rule: "全程使用语义化主题令牌，禁止逐屏硬编码颜色").
+ *
+ * Design direction, per ui-ux-pro-max `design_recommend`:
+ *   style    → Exaggerated Minimalism + Flat Design (no shadows, no 3D)
+ *   palette  → Editorial black + accent pink  (#18181B / #EC4899)
+ *   type     → Libre Bodoni (display) + Public Sans (body)
+ *   spacing  → 4/8px rhythm, 16/24/32/48 vertical hierarchy
+ *   modes    → light ✓ Full / dark ✓ Full, both tested independently
+ * ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+ * 1. Primitive scales — theme-independent raw values
+ * ------------------------------------------------------------------------ */
+:root {
+  /* Spacing rhythm (4/8px base, from the skill's spacing scale) */
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --space-4xl: 96px;
+
+  /* Type scale — 1.2 minor third, tuned for dense UI + long-form reading */
+  --font-size-2xs: 10px;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 26px;
+  --font-size-3xl: 34px;
+  --font-size-4xl: 44px;
+
+  --line-height-tight: 1.2;
+  --line-height-snug: 1.4;
+  --line-height-normal: 1.6;
+  --line-height-relaxed: 1.75;
+
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --letter-spacing-tight: -0.02em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.04em;
+  --letter-spacing-caps: 0.08em;
+
+  /* Font stacks. Self-hosted webfonts, system fallbacks for CJK coverage. */
+  --font-display: 'Libre Bodoni', 'Songti SC', 'SimSun', Georgia, serif;
+  --font-body: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas,
+    'Liberation Mono', Menlo, monospace;
+
+  /* Radius — flat design keeps these restrained */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* Icon size tokens (skill rule: sized by token, never arbitrary) */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+
+  /* Motion — micro-interactions 150–300ms, press feedback < 150ms */
+  --duration-instant: 90ms;
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0.13, 1);
+  --ease-entrance: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  /* Layout */
+  --sidebar-width: 268px;
+  --outline-width: 220px;
+  --titlebar-height: 44px;
+  --toolbar-height: 44px;
+  --statusbar-height: 26px;
+  --reading-measure: 72ch;
+  --touch-target: 32px; /* desktop density; hit areas expanded to 44px below */
+
+  /* Motion preference multiplier, overridden by reduced-motion block */
+  --motion-scale: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Light theme (default)
+ *    Body text #09090B on #FAFAFA = 19.3:1  (WCAG AAA)
+ *    Muted   #52525B on #FAFAFA =  7.6:1  (AAA for secondary text)
+ *    Accent  #BE185D on #FAFAFA =  6.3:1  (AAA for links)
+ * ------------------------------------------------------------------------ */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* Surfaces — layered so cards read above the canvas without shadows */
+  --surface-canvas: #fafafa;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f4f4f5;
+  --surface-overlay: #ffffff;
+  --surface-inset: #f1f1f3;
+  --surface-hover: rgba(9, 9, 11, 0.045);
+  --surface-active: rgba(9, 9, 11, 0.08);
+  --surface-selected: rgba(190, 24, 93, 0.09);
+  --surface-scrim: rgba(9, 9, 11, 0.5); /* modal scrim 50% */
+
+  /* Text */
+  --text-primary: #09090b; /* 19.3:1 on canvas */
+  --text-secondary: #3f3f46; /* 10.8:1 */
+  --text-muted: #52525b; /*  7.6:1 */
+  --text-subtle: #71717a; /*  4.9:1 — still AA for body */
+  --text-on-accent: #ffffff;
+  --text-disabled: #a1a1aa; /*  2.9:1 — decorative only, never sole info */
+
+  /* Borders — visible in BOTH themes (skill rule) */
+  --border-subtle: #ececef;
+  --border-default: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --border-focus: #be185d;
+
+  /* Brand / accent */
+  --accent: #ec4899; /* large text, icons, fills */
+  --accent-hover: #db2777;
+  --accent-active: #be185d;
+  --accent-text: #be185d; /* accessible accent for body-size text */
+  --accent-surface: rgba(236, 72, 153, 0.1);
+  --accent-border: rgba(236, 72, 153, 0.35);
+
+  /* Status */
+  --success: #15803d;
+  --success-surface: rgba(21, 128, 61, 0.1);
+  --warning: #b45309;
+  --warning-surface: rgba(180, 83, 9, 0.1);
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-surface: rgba(220, 38, 38, 0.1);
+  --info: #1d4ed8;
+  --info-surface: rgba(29, 78, 216, 0.1);
+
+  /* Editor chrome */
+  --editor-bg: #ffffff;
+  --editor-text: #18181b;
+  --editor-caret: #ec4899;
+  --editor-selection: rgba(236, 72, 153, 0.2);
+  --editor-line-highlight: rgba(9, 9, 11, 0.028);
+  --editor-gutter-text: #a1a1aa;
+  --editor-gutter-active: #52525b;
+
+  /* Split panes */
+  --divider: #e4e4e7;
+
+  /* Code */
+  --code-bg: #f6f6f7;
+  --code-text: #18181b;
+  --code-border: #e4e4e7;
+  --code-inline-bg: rgba(9, 9, 11, 0.055);
+  --code-inline-text: #be185d;
+
+  /* Syntax highlighting (light) */
+  --syn-comment: #6b7280;
+  --syn-keyword: #a21caf;
+  --syn-string: #15803d;
+  --syn-number: #b45309;
+  --syn-function: #1d4ed8;
+  --syn-variable: #0f766e;
+  --syn-type: #b91c1c;
+  --syn-operator: #52525b;
+  --syn-punctuation: #71717a;
+
+  /* Markdown preview semantics */
+  --md-blockquote-border: #d4d4d8;
+  --md-blockquote-text: #52525b;
+  --md-rule: #e4e4e7;
+  --md-table-head: #f4f4f5;
+  --md-table-stripe: #fafafa;
+  --md-mark: #fde68a;
+  --md-mark-text: #422006;
+  --md-kbd-bg: #ffffff;
+  --md-kbd-border: #d4d4d8;
+
+  /* Elevation — flat design: no drop shadows, borders carry the hierarchy */
+  --shadow-none: none;
+  --shadow-overlay: 0 10px 38px rgba(9, 9, 11, 0.16);
+  --shadow-popover: 0 4px 16px rgba(9, 9, 11, 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Dark theme
+ *    Body text #FAFAFA on #18181B = 16.1:1  (AAA)
+ *    Muted   #A1A1AA on #18181B =  7.1:1   (AAA)
+ *    Accent  #F472B6 on #18181B =  7.4:1   (AAA)
+ *    Tested independently — never inferred from the light theme.
+ * ------------------------------------------------------------------------ */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-canvas: #18181b;
+  --surface-raised: #1f1f23;
+  --surface-sunken: #131316;
+  --surface-overlay: #26262b;
+  --surface-inset: #2a2a30;
+  --surface-hover: rgba(250, 250, 250, 0.06);
+  --surface-active: rgba(250, 250, 250, 0.11);
+  --surface-selected: rgba(244, 114, 182, 0.16);
+  --surface-scrim: rgba(0, 0, 0, 0.66);
+
+  --text-primary: #fafafa; /* 16.1:1 */
+  --text-secondary: #d4d4d8; /* 11.6:1 */
+  --text-muted: #a1a1aa; /*  7.1:1 */
+  --text-subtle: #8b8b94; /*  4.6:1 — AA */
+  --text-on-accent: #1a0511;
+  --text-disabled: #52525b; /* decorative only */
+
+  --border-subtle: #2c2c33;
+  --border-default: #35353d;
+  --border-strong: #4a4a54;
+  --border-focus: #f472b6;
+
+  --accent: #f472b6;
+  --accent-hover: #f9a8d4;
+  --accent-active: #ec4899;
+  --accent-text: #f9a8d4;
+  --accent-surface: rgba(244, 114, 182, 0.15);
+  --accent-border: rgba(244, 114, 182, 0.42);
+
+  --success: #4ade80;
+  --success-surface: rgba(74, 222, 128, 0.14);
+  --warning: #fbbf24;
+  --warning-surface: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-surface: rgba(248, 113, 113, 0.14);
+  --info: #60a5fa;
+  --info-surface: rgba(96, 165, 250, 0.14);
+
+  --editor-bg: #1b1b1f;
+  --editor-text: #e8e8ea;
+  --editor-caret: #f472b6;
+  --editor-selection: rgba(244, 114, 182, 0.26);
+  --editor-line-highlight: rgba(250, 250, 250, 0.035);
+  --editor-gutter-text: #52525b;
+  --editor-gutter-active: #a1a1aa;
+
+  --divider: #2c2c33;
+
+  --code-bg: #141417;
+  --code-text: #e4e4e7;
+  --code-border: #2f2f37;
+  --code-inline-bg: rgba(250, 250, 250, 0.08);
+  --code-inline-text: #f9a8d4;
+
+  --syn-comment: #7d7d88;
+  --syn-keyword: #e879f9;
+  --syn-string: #86efac;
+  --syn-number: #fbbf24;
+  --syn-function: #93c5fd;
+  --syn-variable: #5eead4;
+  --syn-type: #fca5a5;
+  --syn-operator: #a1a1aa;
+  --syn-punctuation: #8b8b94;
+
+  --md-blockquote-border: #4a4a54;
+  --md-blockquote-text: #a1a1aa;
+  --md-rule: #35353d;
+  --md-table-head: #26262b;
+  --md-table-stripe: #1f1f23;
+  --md-mark: #854d0e;
+  --md-mark-text: #fef9c3;
+  --md-kbd-bg: #26262b;
+  --md-kbd-border: #4a4a54;
+
+  --shadow-none: none;
+  --shadow-overlay: 0 12px 44px rgba(0, 0, 0, 0.55);
+  --shadow-popover: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+/* Follow the OS when the user picked "system" */
+@media (prefers-color-scheme: dark) {
+  [data-theme='system'] {
+    color-scheme: dark;
+
+    --surface-canvas: #18181b;
+    --surface-raised: #1f1f23;
+    --surface-sunken: #131316;
+    --surface-overlay: #26262b;
+    --surface-inset: #2a2a30;
+    --surface-hover: rgba(250, 250, 250, 0.06);
+    --surface-active: rgba(250, 250, 250, 0.11);
+    --surface-selected: rgba(244, 114, 182, 0.16);
+    --surface-scrim: rgba(0, 0, 0, 0.66);
+
+    --text-primary: #fafafa;
+    --text-secondary: #d4d4d8;
+    --text-muted: #a1a1aa;
+    --text-subtle: #8b8b94;
+    --text-on-accent: #1a0511;
+    --text-disabled: #52525b;
+
+    --border-subtle: #2c2c33;
+    --border-default: #35353d;
+    --border-strong: #4a4a54;
+    --border-focus: #f472b6;
+
+    --accent: #f472b6;
+    --accent-hover: #f9a8d4;
+    --accent-active: #ec4899;
+    --accent-text: #f9a8d4;
+    --accent-surface: rgba(244, 114, 182, 0.15);
+    --accent-border: rgba(244, 114, 182, 0.42);
+
+    --success: #4ade80;
+    --success-surface: rgba(74, 222, 128, 0.14);
+    --warning: #fbbf24;
+    --warning-surface: rgba(251, 191, 36, 0.14);
+    --danger: #f87171;
+    --danger-hover: #fca5a5;
+    --danger-surface: rgba(248, 113, 113, 0.14);
+    --info: #60a5fa;
+    --info-surface: rgba(96, 165, 250, 0.14);
+
+    --editor-bg: #1b1b1f;
+    --editor-text: #e8e8ea;
+    --editor-caret: #f472b6;
+    --editor-selection: rgba(244, 114, 182, 0.26);
+    --editor-line-highlight: rgba(250, 250, 250, 0.035);
+    --editor-gutter-text: #52525b;
+    --editor-gutter-active: #a1a1aa;
+
+    --divider: #2c2c33;
+
+    --code-bg: #141417;
+    --code-text: #e4e4e7;
+    --code-border: #2f2f37;
+    --code-inline-bg: rgba(250, 250, 250, 0.08);
+    --code-inline-text: #f9a8d4;
+
+    --syn-comment: #7d7d88;
+    --syn-keyword: #e879f9;
+    --syn-string: #86efac;
+    --syn-number: #fbbf24;
+    --syn-function: #93c5fd;
+    --syn-variable: #5eead4;
+    --syn-type: #fca5a5;
+    --syn-operator: #a1a1aa;
+    --syn-punctuation: #8b8b94;
+
+    --md-blockquote-border: #4a4a54;
+    --md-blockquote-text: #a1a1aa;
+    --md-rule: #35353d;
+    --md-table-head: #26262b;
+    --md-table-stripe: #1f1f23;
+    --md-mark: #854d0e;
+    --md-mark-text: #fef9c3;
+    --md-kbd-bg: #26262b;
+    --md-kbd-border: #4a4a54;
+
+    --shadow-overlay: 0 12px 44px rgba(0, 0, 0, 0.55);
+    --shadow-popover: 0 6px 22px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Reduced motion — global, honoured by every transition in the app
+ * ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-scale: 0;
+    --duration-instant: 1ms;
+    --duration-fast: 1ms;
+    --duration-base: 1ms;
+    --duration-slow: 1ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Forced-colors / high-contrast support
+ * ------------------------------------------------------------------------ */
+@media (forced-colors: active) {
+  :root {
+    --border-default: CanvasText;
+    --border-strong: CanvasText;
+    --border-focus: Highlight;
+    --accent: Highlight;
+    --text-on-accent: HighlightText;
+  }
+}

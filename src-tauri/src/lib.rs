@@ -438,7 +438,7 @@ fn vault_grep(base: String, needle: String) -> Result<Vec<vault::GrepHit>, Strin
 /// 同一进程而不是第二个可执行文件：两个窗口共用同一份 `AppState`（库路径、偏好），
 /// 也就不会出现「两个实例同时读写同一份设置」的问题。知识库本身不碰 SQLite，
 /// 所以这里连数据库竞争都不存在。
-#[tauri::command]
+#[tauri::command(async)]
 fn open_knowledge_window(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -446,7 +446,7 @@ fn open_knowledge_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = existing.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         &app,
         "knowledge",
         WebviewUrl::App("index.html?page=knowledge&solo=1".into()),
@@ -454,10 +454,128 @@ fn open_knowledge_window(app: tauri::AppHandle) -> Result<(), String> {
     .title("StuMate 知识库")
     .inner_size(1100.0, 760.0)
     .min_inner_size(760.0, 520.0)
-    .decorations(false)
-    .build()
-    .map(|_| ())
-    .map_err(|e| format!("打开知识库窗口失败：{e}"))
+    .decorations(false);
+
+    // 必须和主窗口用同一份浏览器参数。WebView2 的「环境」是按
+    // `用户数据目录 + 浏览器参数` 缓存的，参数不同会去建第二个环境，
+    // 而一个数据目录只能有一个 —— 第二个窗口会**建出来但一片空白**。
+    let args = browser_args();
+    if !args.is_empty() {
+        builder = builder.additional_browser_args(&args);
+    }
+
+    builder
+        .build()
+        .map(|_| ())
+        .map_err(|e| format!("打开知识库窗口失败：{e}"))
+}
+
+/// 用 Markdowner 编辑某篇笔记：另开一个 WebView 窗口，指向打包进来的 Markdowner 静态资源。
+///
+/// 为什么不是「在知识库页里自己实现高亮和预览」：Markdowner 已经是功能完整的编辑器
+/// （语法高亮、实时预览、KaTeX 公式、查找替换、大纲、命令面板），重写一遍只会得到
+/// 一个更弱的版本。这里只负责把它接到文件上 —— 读写走 `vault_read` / `vault_write`，
+/// 由 `public/markdowner/stumate-bridge.js` 接管它的持久化路径。
+///
+/// 窗口用系统装饰（`decorations` 默认 true）：Markdowner 的标题栏是应用内工具条，
+/// 没有最小化/关闭键，去掉系统装饰就会变成一个关不掉的窗口。
+#[tauri::command(async)]
+fn open_markdown_window(app: tauri::AppHandle, base: String, rel: String) -> Result<(), String> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
+    // 窗口标题带上完整相对路径，不只是文件名：它同时充当「当前开的是哪一篇」的凭据
+    // （下面用它判断要不要重建窗口），不同目录下的同名文件靠这个区分开。
+    let wanted_title = format!("Markdowner — {rel}");
+
+    // 已经开着就先看是不是同一篇：是就只聚焦，不是就换掉 ——
+    // WebView 建好之后 URL 改不了，只能重建窗口。
+    if let Some(existing) = app.get_webview_window("markdowner") {
+        let same = existing
+            .title()
+            .map(|t| t == wanted_title)
+            .unwrap_or(false);
+        if same {
+            let _ = existing.set_focus();
+            return Ok(());
+        }
+        // close 是异步的：它只是往事件循环投一条消息。紧接着用同一个 label 建窗口
+        // 会撞上 "a webview with label `markdowner` already exists"，所以这里等它真的消失。
+        let _ = existing.close();
+        for _ in 0..80 {
+            if app.get_webview_window("markdowner").is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    // release 版是 windows_subsystem="windows"，`eprintln!` 没有控制台可写，
+    // 所以诊断走 `trace`（`STUMATE_LITE_TRACE=1` 时才落盘）。
+    let trace_dir = std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .map(|p| p.join("StuMate"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    trace(&trace_dir, &format!("open_markdown_window 进入 base={base} rel={rel}"));
+
+    // 参数不走 URL query，走 initialization_script。
+    //
+    // 原因：`WebviewUrl::App("...index.html?base=...&rel=...")` 在这里会导航失败
+    // （窗口建出来停在 about:blank）—— asset 协议那边把整个字符串当成了文件路径。
+    // 初始化脚本在页面任何脚本之前执行，比 query 更可靠，也不用操心百分号编码。
+    let payload = format!(
+        "window.__STUMATE_ARGS = {{ base: {}, rel: {} }};",
+        serde_json::to_string(&base).map_err(|e| e.to_string())?,
+        serde_json::to_string(&rel).map_err(|e| e.to_string())?,
+    );
+
+    let mut builder = WebviewWindowBuilder::new(
+        &app,
+        "markdowner",
+        WebviewUrl::App("markdowner/index.html".into()),
+    )
+    .title(&wanted_title)
+    .inner_size(1180.0, 800.0)
+    .min_inner_size(720.0, 480.0)
+    .initialization_script(&payload)
+    .on_page_load(|_wv, p| {
+        let dir = std::env::var("APPDATA")
+            .map(std::path::PathBuf::from)
+            .map(|d| d.join("StuMate"))
+            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        trace(&dir, &format!("page_load {:?} {}", p.event(), p.url()));
+    });
+
+    // 同 `open_knowledge_window`：参数必须与主窗口一致，否则 WebView2 会去建
+    // 第二个环境（同一数据目录只允许一个），窗口能建出来但内容一片空白。
+    let args = browser_args();
+    trace(&trace_dir, &format!("browser_args={args:?}"));
+    if !args.is_empty() {
+        builder = builder.additional_browser_args(&args);
+    }
+
+    let win = match builder.build() {
+        Ok(w) => {
+            trace(&trace_dir, "build 成功");
+            w
+        }
+        Err(e) => {
+            trace(&trace_dir, &format!("build 失败：{e}"));
+            return Err(format!("打开 Markdowner 窗口失败：{e}"));
+        }
+    };
+
+    // 建完之后再看一次 URL：Tauri 的导航投递到事件循环，build 返回时可能还是
+    // about:blank。留一小段让它落定，仅用于诊断。
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    match win.url() {
+        Ok(u) => trace(&trace_dir, &format!("静置后 url={u}")),
+        Err(e) => trace(&trace_dir, &format!("读 url 失败：{e}")),
+    }
+    trace(
+        &trace_dir,
+        &format!("窗口可见={:?}", win.is_visible().unwrap_or(false)),
+    );
+    Ok(())
 }
 
 // ── 关闭行为 / 开机自启 ───────────────────────────────────────────
@@ -744,6 +862,7 @@ pub fn run() {
             vault_trash,
             vault_grep,
             open_knowledge_window,
+            open_markdown_window,
             read_file_bytes,
             pick_pdf_path,
             close_resolve,

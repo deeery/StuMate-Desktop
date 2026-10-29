@@ -31,12 +31,13 @@ import {
   IconChevronLeft,
   IconCollapse,
   IconEdit,
+  IconExternal,
   IconFolder,
   IconPlus,
   IconSearch,
   IconSort,
 } from "../components/Icons";
-import { api, type GrepHitWire, type VaultEntryWire } from "../api";
+import { api, onVaultChanged, type GrepHitWire, type VaultEntryWire } from "../api";
 import { buildVaultFiles, sanitizeSegment } from "../model/vault";
 import { composeNote, parseNote, type NoteMeta } from "../model/vaultNote";
 import {
@@ -177,6 +178,39 @@ export function KnowledgePage({
     const timer = window.setTimeout(() => void save(), AUTOSAVE_MS);
     return () => window.clearTimeout(timer);
   }, [draft, open, dirty, conflict, save]);
+
+  /**
+   * 跳到 Markdowner 子窗口编辑。
+   *
+   * **必须先落盘再跳**：Markdowner 读的是磁盘上的那个 `.md`，不是内存里的 draft。
+   * 不先保存，用户刚敲的内容在子窗口里就是空白的，看着像丢稿。
+   */
+  const openInMarkdowner = useCallback(async () => {
+    if (!base || !open) return;
+    if (dirty) await save();
+    try {
+      await api.openMarkdownWindow(base, open);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [base, open, dirty, save]);
+
+  /**
+   * Markdowner 写回磁盘后立刻刷新一次树。
+   *
+   * 不加这条也不会错 —— 2 秒轮询会兜住 —— 但用户从子窗口切回来时，
+   * 左边树的修改时间还在显示旧值，像是没保存成功。
+   */
+  useEffect(() => {
+    let alive = true;
+    const pending = onVaultChanged(() => {
+      if (alive) void refresh();
+    });
+    return () => {
+      alive = false;
+      void pending.then((off) => off());
+    };
+  }, [refresh]);
 
   // ── 打开 / 关掉一篇 ─────────────────────────────────────────────
 
@@ -612,6 +646,13 @@ export function KnowledgePage({
                   </span>
                   <span className="kb-path">{parentOf(open) || "根目录"}</span>
                   <span className="kb-grow" />
+                  <button
+                    className="kb-tool kb-head-tool"
+                    title="用 Markdowner 编辑（语法高亮 / 实时预览 / 公式）"
+                    onClick={() => void openInMarkdowner()}
+                  >
+                    <IconExternal size={14} />
+                  </button>
                   <span className={`kb-state${conflict ? " bad" : ""}`}>{stateText}</span>
                 </div>
 

@@ -953,6 +953,13 @@ textarea.input {
   border-bottom: 1px solid var(--outline);
 }
 
+/* 头部是基线对齐（标题、路径、状态都在同一条基线上），
+   24px 的图标按钮混进去会把它往下拽，所以单独拉回垂直居中 */
+.kb-head-tool {
+  align-self: center;
+  flex: 0 0 auto;
+}
+
 .kb-title {
   font-size: 15px;
   font-weight: 600;

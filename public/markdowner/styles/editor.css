@@ -1,0 +1,409 @@
+/* ============================================================================
+ * MarkDowner — Editor surface
+ * The writing canvas: a real <textarea> overlaid on a syntax-highlighted
+ * backdrop, plus gutter, search highlights and focus mode.
+ *
+ * Why a textarea + backdrop instead of a rich editor?
+ *   - native caret, IME/CJK composition, undo stack and OS text services work
+ *     correctly with zero custom code (critical for Chinese input)
+ *   - no contenteditable pathologies (broken undo, paste HTML, caret drift)
+ *   - the highlight backdrop is scrolled in lockstep, so rendering stays cheap
+ * ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+ * 1. Surface
+ * ------------------------------------------------------------------------ */
+.editor {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+.editor__scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* The inner canvas is sized by content; both layers live inside it so they
+ * can never drift apart when one of them scrolls.
+ *
+ * The row-grid metrics live HERE rather than on .editor__layer because the
+ * line-number gutter is a SIBLING of the layer, not a descendant of it, and
+ * custom properties only inherit down the tree. Defined on the layer they were
+ * invisible to the gutter, so `height: var(--editor-line-height-px)` on
+ * .editor__line-no resolved to nothing, the numerals fell back to the gutter's
+ * own 12px/1.6 line box (19.2px instead of 24.5px), and the number column
+ * drifted a further 5.3px away from the text with every line. */
+.editor__canvas {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 100%;
+  min-width: 100%;
+  width: max-content;
+  --editor-line-height: var(--line-height-relaxed);
+  --editor-line-height-px: calc(var(--editor-font-size) * var(--editor-line-height));
+  --editor-font-size: 14px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Gutter — line numbers
+ * ------------------------------------------------------------------------ */
+.editor__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  padding: var(--space-md) var(--space-xs) var(--space-md) var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--editor-line-height);
+  text-align: right;
+  color: var(--editor-gutter-text);
+  background: var(--editor-bg);
+  border-right: 1px solid var(--border-subtle);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.editor__line-no {
+  display: block;
+  height: var(--editor-line-height-px);
+  white-space: pre;
+}
+
+.editor__line-no[data-active='true'] {
+  color: var(--editor-gutter-active);
+  font-weight: var(--font-weight-medium);
+}
+
+.editor__gutter[hidden] {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Text layers
+ *    .editor__highlight and .editor__input share identical box metrics so the
+ *    caret lands exactly on the painted glyphs.
+ * ------------------------------------------------------------------------ */
+.editor__layer {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* The row-grid metrics (--editor-font-size, --editor-line-height,
+   * --editor-line-height-px) are declared on .editor__canvas so the sibling
+   * gutter can see them too. Re-declaring them here would shadow the canvas
+   * value for this subtree, and because the data-* knobs are applied to the
+   * canvas, the editor text would silently ignore the user's font-size and
+   * line-height choices while the gutter honoured them. */
+  --editor-pad-y: var(--space-md);
+  --editor-pad-x: var(--space-lg);
+}
+
+.editor__highlight,
+.editor__input {
+  margin: 0;
+  padding: var(--editor-pad-y) var(--editor-pad-x);
+  font-family: var(--font-mono);
+  font-size: var(--editor-font-size);
+  line-height: var(--editor-line-height);
+  letter-spacing: 0;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* Backdrop: painted, never interactive */
+.editor__highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 100%;
+  min-height: 100%;
+  color: var(--editor-text);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Each source line is its own block. Without this the <span> line wrappers stay
+ * inline and every line of the document runs together into one wrapped blob.
+ * min-height keeps blank lines exactly as tall as they are in the textarea —
+ * an empty block element would otherwise collapse to zero height and the
+ * backdrop would drift out of alignment with the caret from the first blank
+ * line onward. `white-space: pre-wrap` is inherited but re-stated here because
+ * it must survive on the block itself for wrapped lines to break correctly. */
+.editor__highlight > .ln {
+  display: block;
+  min-height: var(--editor-line-height-px);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Input: transparent text with a visible caret riding on top of the backdrop */
+.editor__input {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  min-height: 100%;
+  color: transparent;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden; /* the ancestor .editor__scroll owns scrolling */
+  caret-color: var(--editor-caret);
+}
+
+/* Placeholder shown when the document is empty */
+.editor__input::placeholder {
+  color: var(--text-subtle);
+  opacity: 0.75;
+}
+
+/* The one case where we must see the raw glyphs: selection.
+ * Selection background is painted by the browser; keep the text itself
+ * transparent so the backdrop's colours still show through consistently. */
+.editor__input::selection {
+  background: var(--editor-selection);
+}
+
+.editor--plain .editor__highlight {
+  display: none;
+}
+
+.editor--plain .editor__input {
+  color: var(--editor-text);
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Markdown syntax colours (consumed only by the highlight backdrop)
+ * ------------------------------------------------------------------------ */
+.tok-heading {
+  color: var(--accent-text);
+  font-weight: var(--font-weight-bold);
+}
+
+.tok-heading-mark {
+  color: var(--text-disabled);
+  font-weight: var(--font-weight-regular);
+}
+
+.tok-strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.tok-em {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.tok-strike {
+  text-decoration: line-through;
+  color: var(--text-subtle);
+}
+
+.tok-mark {
+  color: var(--md-mark-text);
+  background: var(--md-mark);
+  border-radius: var(--radius-xs);
+}
+
+.tok-code {
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
+  border-radius: var(--radius-xs);
+}
+
+.tok-fence {
+  color: var(--text-subtle);
+}
+
+.tok-fence-info {
+  color: var(--syn-keyword);
+}
+
+.tok-quote {
+  color: var(--md-blockquote-text);
+  font-style: italic;
+}
+
+.tok-quote-mark {
+  color: var(--accent);
+  font-weight: var(--font-weight-bold);
+}
+
+.tok-list-mark {
+  color: var(--accent);
+  font-weight: var(--font-weight-bold);
+}
+
+.tok-task {
+  color: var(--text-subtle);
+}
+
+.tok-link-text {
+  color: var(--syn-function);
+}
+
+.tok-link-url {
+  color: var(--syn-string);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tok-link-mark {
+  color: var(--text-disabled);
+}
+
+.tok-image {
+  color: var(--syn-variable);
+}
+
+.tok-rule {
+  color: var(--border-strong);
+  font-weight: var(--font-weight-bold);
+}
+
+.tok-table {
+  color: var(--syn-type);
+}
+
+.tok-table-mark {
+  color: var(--text-disabled);
+}
+
+.tok-html {
+  color: var(--syn-comment);
+}
+
+.tok-math {
+  color: var(--syn-variable);
+}
+
+.tok-escape {
+  color: var(--syn-number);
+}
+
+.tok-footnote {
+  color: var(--syn-function);
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Search match highlighting
+ *    Painted into the backdrop layer so it scrolls with the text.
+ * ------------------------------------------------------------------------ */
+.search-hit {
+  background: var(--warning-surface);
+  box-shadow: inset 0 -2px 0 var(--warning);
+  border-radius: var(--radius-xs);
+}
+
+.search-hit--current {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  box-shadow: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Focus mode — dim everything but the active paragraph
+ * ------------------------------------------------------------------------ */
+.editor--focus .editor__highlight > * {
+  opacity: 0.32;
+  transition: opacity var(--duration-slow) var(--ease-standard);
+}
+
+.editor--focus .editor__highlight > .is-focus-line {
+  opacity: 1;
+}
+
+/* In focus mode the input text becomes visible so the active line reads
+ * normally while the backdrop dims the rest. */
+.editor--focus .editor__input {
+  color: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Typewriter mode — active line vertically centred
+ * ------------------------------------------------------------------------ */
+.editor--typewriter .editor__highlight,
+.editor--typewriter .editor__input {
+  padding-bottom: 45vh;
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. Hide the backdrop entirely when the user turns off highlighting
+ * ------------------------------------------------------------------------ */
+.editor--nohl .editor__highlight {
+  display: none;
+}
+
+.editor--nohl .editor__input {
+  color: var(--editor-text);
+}
+
+/* ---------------------------------------------------------------------------
+ * 9. Editor settings-driven knobs (set on .editor__canvas by the app)
+ *    These hang off the canvas rather than the layer so that the row-grid
+ *    variables they redefine are visible to both the layer and the gutter.
+ * ------------------------------------------------------------------------ */
+.editor__canvas[data-font-size='12'] { --editor-font-size: 12px; }
+.editor__canvas[data-font-size='13'] { --editor-font-size: 13px; }
+.editor__canvas[data-font-size='14'] { --editor-font-size: 14px; }
+.editor__canvas[data-font-size='15'] { --editor-font-size: 15px; }
+.editor__canvas[data-font-size='16'] { --editor-font-size: 16px; }
+.editor__canvas[data-font-size='18'] { --editor-font-size: 18px; }
+.editor__canvas[data-font-size='20'] { --editor-font-size: 20px; }
+.editor__canvas[data-font-size='22'] { --editor-font-size: 22px; }
+
+.editor__canvas[data-line-height='compact'] { --editor-line-height: 1.5; }
+.editor__canvas[data-line-height='normal'] { --editor-line-height: 1.75; }
+.editor__canvas[data-line-height='relaxed'] { --editor-line-height: 2; }
+
+.editor__canvas[data-wrap='off'] .editor__highlight,
+.editor__canvas[data-wrap='off'] .editor__input {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. Drag-over affordance
+ * ------------------------------------------------------------------------ */
+.editor[data-drop='true']::after {
+  content: '';
+  position: absolute;
+  inset: var(--space-xs);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ---------------------------------------------------------------------------
+ * 11. Small screens — tighter gutters, min 16px to avoid iOS zoom-on-focus
+ * ------------------------------------------------------------------------ */
+@media (max-width: 640px) {
+  .editor__layer {
+    --editor-pad-x: var(--space-md);
+  }
+
+  .editor__input,
+  .editor__highlight {
+    font-size: max(16px, var(--editor-font-size));
+  }
+
+  .editor__gutter {
+    display: none;
+  }
+}

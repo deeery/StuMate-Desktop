@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="MarkDowner —— 开箱即用的 Markdown 编辑器，支持实时预览、语法高亮、数学公式与亮暗双主题。">
+<title>MarkDowner</title>
+
+<!-- Inline favicon. A data URI keeps the single-file build at exactly zero
+     network requests — a file:// page must never chase a missing favicon.ico. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2318181b'/%3E%3Ctext x='12' y='17' font-family='Georgia,serif' font-size='13' font-weight='700' fill='%23ec4899' text-anchor='middle'%3EM%3C/text%3E%3C/svg%3E">
+
+<!-- Self-hosted fonts: the app must render identically with no network. -->
+<link rel="stylesheet" href="assets/fonts/fonts.css">
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/layout.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/editor.css">
+<link rel="stylesheet" href="styles/preview.css">
+<link rel="stylesheet" href="vendor/katex.min.css">
+
+<!-- Theme is applied before first paint so there is no flash of the wrong
+     colour scheme while the scripts are still parsing. -->
+<script>
+(function () {
+  try {
+    var raw = localStorage.getItem('markdowner.v1.settings');
+    var theme = raw ? (JSON.parse(raw) || {}).theme : null;
+    if (theme !== 'light' && theme !== 'dark' && theme !== 'system') theme = 'system';
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch (err) {
+    document.documentElement.setAttribute('data-theme', 'system');
+  }
+})();
+</script>
+</head>
+
+<body>
+<a class="skip-link" href="#editor-pane">跳到编辑器</a>
+
+<div id="app">
+
+  <!-- ==================================================================
+       Title bar — brand, document title, view switch, global actions
+       ================================================================== -->
+  <header class="titlebar">
+    <div class="titlebar__left">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">M</span>
+        <span class="brand__name">MarkDowner</span>
+      </div>
+
+      <div class="doc-title">
+        <input
+          class="doc-title__input"
+          id="doc-title"
+          type="text"
+          value=""
+          placeholder="未命名文档"
+          aria-label="文档标题"
+          autocomplete="off"
+          spellcheck="false">
+        <span class="doc-title__dirty" id="doc-dirty" data-dirty="false" aria-hidden="true">&#9679;</span>
+      </div>
+    </div>
+
+    <div class="titlebar__center">
+      <div class="segmented" role="group" aria-label="视图模式">
+        <button class="segmented__item" type="button" data-view-mode="editor"
+                aria-pressed="false" title="仅编辑">
+          <span class="segmented__label">编辑</span>
+        </button>
+        <button class="segmented__item" type="button" data-view-mode="split"
+                aria-pressed="true" title="分栏">
+          <span class="segmented__label">分栏</span>
+        </button>
+        <button class="segmented__item" type="button" data-view-mode="preview"
+                aria-pressed="false" title="仅预览">
+          <span class="segmented__label">预览</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="titlebar__right">
+      <button class="btn btn--icon btn--ghost" type="button" id="btn-sidebar"
+              aria-pressed="true" title="文档库">
+        <span class="sr-only">切换文档库</span>
+      </button>
+      <button class="btn btn--icon btn--ghost" type="button" id="btn-outline"
+              aria-pressed="true" title="大纲">
+        <span class="sr-only">切换大纲</span>
+      </button>
+      <button class="btn btn--icon btn--ghost" type="button" id="btn-palette"
+              title="命令面板">
+        <span class="sr-only">打开命令面板</span>
+      </button>
+      <button class="btn btn--icon btn--ghost" type="button" id="btn-theme"
+              title="切换主题">
+        <span class="sr-only">切换主题</span>
+      </button>
+      <button class="btn btn--icon btn--ghost" type="button" id="btn-settings"
+              title="设置">
+        <span class="sr-only">设置</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================================================================
+       Workspace — library | editor+preview | outline
+       ================================================================== -->
+  <div class="workspace">
+
+    <aside class="sidebar" id="sidebar" aria-label="文档库">
+      <div class="sidebar__head">
+        <h2 class="sidebar__title">文档库</h2>
+        <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-new-doc"
+                title="新建文档">
+          <span class="sr-only">新建文档</span>
+        </button>
+        <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-library-menu"
+                title="更多操作">
+          <span class="sr-only">文档库更多操作</span>
+        </button>
+      </div>
+
+      <div class="sidebar__search">
+        <div class="field">
+          <span class="field__icon" id="library-search-icon" aria-hidden="true"></span>
+          <label class="field__label" for="library-search">搜索文档</label>
+          <input class="field__input" id="library-search" type="search"
+                 placeholder="搜索文档…" autocomplete="off">
+        </div>
+      </div>
+
+      <!-- Deliberately NOT role="list": each section below owns its own list,
+           and nesting a list directly inside another list (with no listitem in
+           between) is an ARIA violation that also makes screen readers
+           announce every card twice. This element is a plain grouping box. -->
+      <div class="sidebar__scroll" id="library-list" role="group" aria-label="文档列表"></div>
+    </aside>
+
+    <div class="resizer" id="resizer-sidebar" role="separator" aria-orientation="vertical"
+         aria-label="调整文档库宽度" tabindex="0"></div>
+
+    <div class="main-col">
+
+      <!-- Formatting toolbar -->
+      <div class="toolbar" id="toolbar" role="toolbar" aria-label="格式工具栏"></div>
+
+      <!-- Find & replace -->
+      <div class="findbar" id="findbar" hidden>
+        <div class="field findbar__field">
+          <label class="field__label" for="find-input">查找</label>
+          <input class="field__input" id="find-input" type="text" placeholder="查找…"
+                 autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field findbar__field">
+          <label class="field__label" for="replace-input">替换为</label>
+          <input class="field__input" id="replace-input" type="text" placeholder="替换为…"
+                 autocomplete="off" spellcheck="false">
+        </div>
+        <span class="findbar__count" id="find-count" role="status">0 / 0</span>
+        <button class="btn btn--icon btn--ghost btn--sm" type="button" id="find-prev"
+                title="上一个">
+          <span class="sr-only">上一个匹配</span>
+        </button>
+        <button class="btn btn--icon btn--ghost btn--sm" type="button" id="find-next"
+                title="下一个">
+          <span class="sr-only">下一个匹配</span>
+        </button>
+        <button class="btn btn--icon btn--ghost btn--sm" type="button" id="find-case"
+                title="区分大小写" aria-pressed="false">
+          <span class="sr-only">区分大小写</span>
+        </button>
+        <button class="btn btn--icon btn--ghost btn--sm" type="button" id="find-word"
+                title="全词匹配" aria-pressed="false">
+          <span class="sr-only">全词匹配</span>
+        </button>
+        <button class="btn btn--sm btn--outline" type="button" id="replace-one">替换</button>
+        <button class="btn btn--sm btn--outline" type="button" id="replace-all">全部替换</button>
+        <button class="btn btn--icon btn--ghost btn--sm" type="button" id="find-close"
+                title="关闭">
+          <span class="sr-only">关闭查找栏</span>
+        </button>
+      </div>
+
+      <!-- Editor / preview split -->
+      <div class="panes" id="panes" data-view="split">
+
+        <section class="pane pane--editor" id="editor-pane" aria-label="编辑器">
+          <div class="pane__head">
+            <span class="pane__label">
+              <span id="editor-label-icon" aria-hidden="true"></span>
+              编辑
+            </span>
+            <div class="pane__actions">
+              <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-focus-mode"
+                      title="专注模式" aria-pressed="false">
+                <span class="sr-only">专注模式</span>
+              </button>
+              <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-typewriter"
+                      title="打字机模式" aria-pressed="false">
+                <span class="sr-only">打字机模式</span>
+              </button>
+              <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-wrap"
+                      title="自动换行" aria-pressed="true">
+                <span class="sr-only">自动换行</span>
+              </button>
+            </div>
+          </div>
+          <div class="pane__body" id="editor-host"></div>
+        </section>
+
+        <div class="resizer resizer--split" id="resizer-split" role="separator"
+             aria-orientation="vertical" aria-label="调整编辑与预览宽度" tabindex="0"></div>
+
+        <section class="pane pane--preview" aria-label="预览">
+          <div class="pane__head">
+            <span class="pane__label">
+              <span id="preview-label-icon" aria-hidden="true"></span>
+              预览
+            </span>
+            <div class="pane__actions">
+              <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-sync-scroll"
+                      title="滚动同步" aria-pressed="true">
+                <span class="sr-only">滚动同步</span>
+              </button>
+              <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-copy-html"
+                      title="复制 HTML">
+                <span class="sr-only">复制渲染后的 HTML</span>
+              </button>
+              <button class="btn btn--icon btn--ghost btn--sm" type="button" id="btn-print"
+                      title="打印 / 导出 PDF">
+                <span class="sr-only">打印或导出 PDF</span>
+              </button>
+            </div>
+          </div>
+          <div class="pane__body" id="preview-host"></div>
+        </section>
+      </div>
+
+      <!-- Status bar -->
+      <footer class="statusbar">
+        <div class="statusbar__group statusbar__group--optional">
+          <span class="statusbar__item">
+            <span class="statusbar__dot" id="save-dot" data-state="idle"></span>
+            <span id="save-status">就绪</span>
+          </span>
+          <span class="statusbar__sep" aria-hidden="true"></span>
+          <span class="statusbar__item">
+            <span>行 <span class="statusbar__value" id="stat-line">1</span></span>
+            <span>列 <span class="statusbar__value" id="stat-col">1</span></span>
+          </span>
+          <span class="statusbar__sep" aria-hidden="true"></span>
+          <span class="statusbar__item" id="stat-selection-wrap" hidden>
+            <span>已选 <span class="statusbar__value" id="stat-selection">0</span> 字符</span>
+          </span>
+        </div>
+
+        <div class="statusbar__group statusbar__group--right">
+          <span class="statusbar__item">
+            <span class="statusbar__value" id="stat-words">0</span>
+            <span>词</span>
+          </span>
+          <span class="statusbar__sep" aria-hidden="true"></span>
+          <span class="statusbar__item">
+            <span class="statusbar__value" id="stat-chars">0</span>
+            <span>字符</span>
+          </span>
+          <span class="statusbar__sep" aria-hidden="true"></span>
+          <span class="statusbar__item">
+            <span class="statusbar__value" id="stat-reading">0 分钟</span>
+          </span>
+          <span class="statusbar__sep" aria-hidden="true"></span>
+          <span class="statusbar__item">
+            <span class="statusbar__value" id="stat-lines">1</span>
+            <span>行</span>
+          </span>
+        </div>
+      </footer>
+    </div>
+
+    <div class="resizer" id="resizer-outline" role="separator" aria-orientation="vertical"
+         aria-label="调整大纲宽度" tabindex="0"></div>
+
+    <aside class="outline" id="outline" aria-label="文档大纲">
+      <div class="outline__scroll" id="outline-list"></div>
+    </aside>
+  </div>
+</div>
+
+<!-- File drop target for the whole window -->
+<div class="dropzone" id="dropzone" hidden>
+  <div class="dropzone__inner">
+    <div class="dropzone__icon" id="dropzone-icon" aria-hidden="true"></div>
+    <p class="dropzone__title">松开以导入 Markdown 文件</p>
+    <p class="dropzone__hint">支持 .md / .markdown / .txt</p>
+  </div>
+</div>
+
+<!-- ====================================================================
+     Vendor libraries (classic scripts, no build step needed to run)
+     ==================================================================== -->
+<script src="vendor/marked.umd.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/hljs.js"></script>
+<script src="vendor/katex.min.js"></script>
+
+<!-- Application -->
+<script src="js/util.js"></script>
+<script src="js/icons.js"></script>
+<script src="js/syntax.js"></script>
+<script src="js/md.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/preview.js"></script>
+<script src="js/commands.js"></script>
+<script src="js/app.js"></script>
+
+<!-- StuMate 桥接：只有 URL 带 ?base=&rel= 时才接管（见 stumate-bridge.js） -->
+<script src="stumate-bridge.js"></script>
+
+</body>
+</html>

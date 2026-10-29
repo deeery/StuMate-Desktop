@@ -1,0 +1,572 @@
+/* ============================================================================
+ * MarkDowner — Layout
+ * App shell regions, pane system, resizers, responsive breakpoints.
+ * ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+ * 1. Title bar — app identity, document title, view switch, global actions
+ * ------------------------------------------------------------------------ */
+.titlebar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-md);
+  height: var(--titlebar-height);
+  padding: 0 var(--space-sm);
+  flex: none;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-default);
+  z-index: 30;
+}
+
+.titlebar__left,
+.titlebar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.titlebar__right {
+  justify-content: flex-end;
+}
+
+.titlebar__center {
+  display: flex;
+  justify-content: center;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding-left: var(--space-2xs);
+  flex: none;
+}
+
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--text-primary);
+  color: var(--surface-raised);
+  font-family: var(--font-display);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+  line-height: 1;
+  flex: none;
+}
+
+.brand__name {
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--text-primary);
+}
+
+/* Separator between brand cluster and document title */
+.brand + .doc-title::before {
+  content: '';
+  display: block;
+  width: 1px;
+  height: 18px;
+  margin-right: var(--space-xs);
+  background: var(--border-default);
+  flex: none;
+}
+
+.doc-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.doc-title__input {
+  width: 100%;
+  max-width: 340px;
+  padding: var(--space-2xs) var(--space-xs);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  text-overflow: ellipsis;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.doc-title__input:hover {
+  background: var(--surface-hover);
+}
+
+.doc-title__input:focus {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+}
+
+.doc-title__dirty {
+  width: 6px;
+  height: 6px;
+  margin-left: var(--space-xs);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.doc-title__dirty[data-dirty='true'] {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Workspace — the three-column shell
+ * ------------------------------------------------------------------------ */
+.workspace {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--surface-canvas);
+}
+
+.main-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Sidebar — document library
+ * ------------------------------------------------------------------------ */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--sidebar-width);
+  min-width: 0;
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--border-default);
+  overflow: hidden;
+  transition: width var(--duration-base) var(--ease-entrance);
+}
+
+.sidebar[hidden] {
+  display: none;
+}
+
+.sidebar__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  flex: none;
+}
+
+.sidebar__title {
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-caps);
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  flex: 1 1 auto;
+}
+
+.sidebar__search {
+  padding: 0 var(--space-sm) var(--space-xs);
+  flex: none;
+}
+
+.sidebar__scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 var(--space-xs) var(--space-lg);
+  /* Bottom padding so the last card is never hidden behind the status bar */
+  scroll-padding-bottom: var(--space-lg);
+}
+
+.sidebar__section {
+  margin-top: var(--space-md);
+}
+
+.sidebar__section:first-child {
+  margin-top: 0;
+}
+
+.sidebar__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs) var(--space-xs);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-caps);
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  user-select: none;
+}
+
+.sidebar__label-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  letter-spacing: 0;
+  color: var(--text-disabled);
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Panes — editor / preview split
+ * ------------------------------------------------------------------------ */
+.panes {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 50%;
+}
+
+.pane__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  height: 34px;
+  padding: 0 var(--space-sm);
+  flex: none;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+.pane__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+.pane__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.pane--editor {
+  background: var(--editor-bg);
+}
+
+.pane--preview {
+  background: var(--surface-canvas);
+}
+
+.pane__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+/* Visibility rules driven by the view-mode attribute on .panes */
+.panes[data-view='editor'] .pane--preview,
+.panes[data-view='editor'] .resizer--split {
+  display: none;
+}
+
+.panes[data-view='editor'] .pane--editor {
+  flex: 1 1 100%;
+}
+
+.panes[data-view='preview'] .pane--editor,
+.panes[data-view='preview'] .resizer--split {
+  display: none;
+}
+
+.panes[data-view='preview'] .pane--preview {
+  flex: 1 1 100%;
+}
+
+/* Hide the sidebar and outline on narrow viewports — they become overlays */
+@media (max-width: 900px) {
+  .titlebar__center {
+    display: none;
+  }
+
+  .brand__name {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .sidebar,
+  .outline {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 40;
+    box-shadow: var(--shadow-overlay);
+  }
+
+  .sidebar {
+    left: 0;
+  }
+
+  .outline {
+    right: 0;
+  }
+
+  .workspace {
+    position: relative;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Outline — table of contents rail
+ * ------------------------------------------------------------------------ */
+.outline {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--outline-width);
+  background: var(--surface-sunken);
+  border-left: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.outline[hidden] {
+  display: none;
+}
+
+.outline__scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-xs) var(--space-xs) var(--space-lg);
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Resizers — drag handles between regions
+ *    Hit area is 11px wide (exceeds the 44px touch guidance when combined with
+ *    the adjacent padded regions); the visible line stays 1px.
+ * ------------------------------------------------------------------------ */
+.resizer {
+  position: relative;
+  flex: none;
+  width: 11px;
+  margin: 0 -5px;
+  z-index: 20;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border-default);
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    width var(--duration-fast) var(--ease-standard);
+}
+
+.resizer:hover::after,
+.resizer:focus-visible::after,
+.resizer[data-dragging='true']::after {
+  width: 2px;
+  background: var(--accent);
+}
+
+.resizer[hidden] {
+  display: none;
+}
+
+.resizer--split {
+  cursor: col-resize;
+}
+
+/* Horizontal split (stacked layout on narrow screens) */
+@media (max-width: 640px) {
+  .panes {
+    flex-direction: column;
+  }
+
+  .resizer--split {
+    width: auto;
+    height: 11px;
+    margin: -5px 0;
+    cursor: row-resize;
+  }
+
+  .resizer--split::after {
+    top: 50%;
+    left: 0;
+    right: 0;
+    bottom: auto;
+    width: auto;
+    height: 1px;
+    transform: translateY(-50%);
+  }
+
+  .resizer--split:hover::after,
+  .resizer--split:focus-visible::after {
+    width: auto;
+    height: 2px;
+  }
+}
+
+/* During a drag: suppress text selection and lock the cursor everywhere */
+body[data-resizing='true'] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body[data-resizing='true'] * {
+  pointer-events: none;
+}
+
+body[data-resizing='true'] .resizer {
+  pointer-events: auto;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Status bar — document metrics, always-on diagnostics
+ * ------------------------------------------------------------------------ */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  height: var(--statusbar-height);
+  padding: 0 var(--space-sm);
+  flex: none;
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border-default);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  user-select: none;
+  overflow: hidden;
+}
+
+.statusbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+.statusbar__group--right {
+  margin-left: auto;
+}
+
+.statusbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.statusbar__value {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.statusbar__sep {
+  width: 1px;
+  height: 12px;
+  background: var(--border-default);
+  flex: none;
+}
+
+.statusbar__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--success);
+  flex: none;
+}
+
+.statusbar__dot[data-state='saving'] {
+  background: var(--warning);
+}
+
+.statusbar__dot[data-state='error'] {
+  background: var(--danger);
+}
+
+.statusbar__dot[data-state='idle'] {
+  background: var(--text-disabled);
+}
+
+@media (max-width: 720px) {
+  .statusbar__group--optional {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. Print — export-quality output
+ * ------------------------------------------------------------------------ */
+@media print {
+  .titlebar,
+  .toolbar,
+  .sidebar,
+  .outline,
+  .statusbar,
+  .resizer,
+  .pane--editor,
+  .pane__head,
+  .findbar,
+  .toast-region {
+    display: none !important;
+  }
+
+  html,
+  body,
+  #app {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  .workspace,
+  .panes,
+  .pane,
+  .pane__body {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .pane--preview {
+    width: 100%;
+  }
+
+  .preview {
+    max-width: none;
+    padding: 0;
+    overflow: visible;
+    height: auto;
+  }
+}
