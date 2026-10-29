@@ -816,6 +816,15 @@ pub fn run() {
         // 用户可能用任务栏右键「关闭」、Alt+F4，这些路径都不经过页面里的按钮。
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 这个回调是**应用级**的，所有窗口共用 —— 包括 Markdowner 子窗口。
+                // 而 `handle_close_request` 是给主窗口写的策略（收进托盘 / 退出应用），
+                // 套在子窗口上就变成「点一下子窗口的 ×，整个应用没了」。
+                //
+                // 子窗口的关闭语义很简单：关它自己。什么都不做就是默认行为，
+                // 主窗口和托盘都不受影响。
+                if window.label() != "main" {
+                    return;
+                }
                 tray::handle_close_request(window, api);
             }
         })

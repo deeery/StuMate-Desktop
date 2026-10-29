@@ -1,7 +1,7 @@
 {
   "name": "stumate-lite",
   "private": true,
-  "version": "1.7.9",
+  "version": "1.7.10",
   "description": "StuMate Lite —— Stumate 桌面端的 Tauri 重构版（与 Compose 原版同版本号并存）",
   "type": "module",
   "scripts": {
