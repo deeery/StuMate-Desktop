@@ -32,6 +32,7 @@ import {
   IconCollapse,
   IconEdit,
   IconExternal,
+  IconFile,
   IconFolder,
   IconPlus,
   IconSearch,
@@ -690,7 +691,15 @@ export function KnowledgePage({
               </>
             ) : (
               <div className="empty" style={{ flex: 1 }}>
-                {paneOpen ? "左边选一篇，或者新建一篇" : "展开资源管理器选一篇"}
+                <span className="empty-icon">
+                  <IconFile size={22} />
+                </span>
+                <span className="empty-title">
+                  {paneOpen ? "左边选一篇，或者新建一篇" : "展开资源管理器选一篇"}
+                </span>
+                <span className="empty-hint">
+                  笔记以 Markdown 存在库里的 Stumate/ 目录下，用别的编辑器打开同一份文件也不会冲突。
+                </span>
               </div>
             )}
           </section>

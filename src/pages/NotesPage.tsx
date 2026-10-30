@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Select } from "../components/ui";
-import { IconEdit, IconPlus, IconSearch, IconTrash } from "../components/Icons";
+import { IconEdit, IconNote, IconPlus, IconSearch, IconTrash } from "../components/Icons";
 import type { NoteEntity } from "../model/types";
 import { EMPTY_NOTE } from "../model/types";
 import {
@@ -386,14 +386,26 @@ function NoteList({
   return (
     <div
       ref={scrollRef}
-      style={{ flex: 1, minHeight: 0, overflow: "auto", position: "relative" }}
+      style={{
+        flex: 1,
+        minHeight: 0,
+        overflow: "auto",
+        position: "relative",
+        // 空态要能落在卡片中间，而不是贴着表头下面一小块：
+        // 列成 flex 柱子，空态占满剩下的高度（.empty 的 flex:1）
+        display: "flex",
+        flexDirection: "column",
+      }}
     >
       {notes.length === 0 ? (
         <div className="empty">
-          <div>{all.length === 0 ? "还没有便签" : "没有匹配的便签"}</div>
-          <div style={{ fontSize: 12, color: "var(--on-surface-faint)", marginTop: 6 }}>
+          <span className="empty-icon">
+            <IconNote size={22} />
+          </span>
+          <span className="empty-title">{all.length === 0 ? "还没有便签" : "没有匹配的便签"}</span>
+          <span className="empty-hint">
             {all.length === 0 ? "点右上角「新建便签」随手记一条" : "换个关键词，或把分类筛选改回「全部」"}
-          </div>
+          </span>
         </div>
       ) : null}
 
@@ -515,17 +527,11 @@ function NoteList({
                   alignItems: "center",
                 }}
               >
-                {/* 有截止时间的分类标签用 error 填充（原版 `FlChip(label, color = c.error, filled = true)`）：
-                    红底是为了让「这条有期限」在扫视时先跳出来，与截止时间列的红字呼应。 */}
+                {/* 有截止时间的分类标签走 .chip.danger：淡红底 + 红字 + 加粗。
+                    原来是实心红胶囊 —— 它是「类型」不是「错误」，实心色块会把整张表
+                    的视觉重心吸到这一列，标题反而没人看。该跳出来的仍然跳出来。 */}
                 {typeLabel(note) ? (
-                  <span
-                    className="chip"
-                    style={
-                      hasDeadline(note)
-                        ? { background: "var(--error)", color: "var(--on-accent)", fontWeight: 600 }
-                        : undefined
-                    }
-                  >
+                  <span className={hasDeadline(note) ? "chip danger" : "chip"}>
                     {typeLabel(note)}
                   </span>
                 ) : null}

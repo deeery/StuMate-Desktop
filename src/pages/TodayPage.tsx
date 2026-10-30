@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
-import { IconNote } from "../components/Icons";
+import { IconCheck, IconNote, IconToday } from "../components/Icons";
 import {
   greetingOf,
   humanDuration,
@@ -95,8 +95,16 @@ export function TodayPage({ ctx }: { ctx: AppContextValue }) {
               <span style={{ width: 72 }} />
             </div>
             {today.length === 0 ? (
-              <div className="empty" style={{ padding: "28px 0" }}>
-                今天没有课
+              // 空态不是「留白」，是这一页唯一能给下一步的地方：
+              // 说明为什么空、空的时候去哪 —— 原来只有一句 12px 灰字浮在中间
+              <div className="empty" style={{ padding: "24px 0" }}>
+                <span className="empty-icon">
+                  <IconToday size={22} />
+                </span>
+                <span className="empty-title">今天没有课</span>
+                <span className="empty-hint">
+                  在「课表」里添加课程后，这里会按时间顺序列出今天的安排；临时提醒也会出现在这里。
+                </span>
               </div>
             ) : (
               today.map((c) => (
@@ -108,8 +116,12 @@ export function TodayPage({ ctx }: { ctx: AppContextValue }) {
           <section className="card" style={{ padding: "14px 16px 10px" }}>
             <SectionTitle>今日截止</SectionTitle>
             {deadlines.length === 0 ? (
-              <div className="empty" style={{ padding: "28px 0" }}>
-                今天没有要交的东西
+              <div className="empty" style={{ padding: "24px 0" }}>
+                <span className="empty-icon">
+                  <IconCheck size={22} />
+                </span>
+                <span className="empty-title">今天没有要交的东西</span>
+                <span className="empty-hint">便签里带截止时间的项目到期当天会列在这里。</span>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -238,9 +250,15 @@ function HeroCard({
 
   // 「正在上课」时整张卡用强调色填充 —— 与原版同一处理：这一页最重要的是
   // 「现在有没有课、上到几点」，用整片色块而不是一个小色点来表达，扫一眼就够。
+  //
+  // v1.7.12：填充什么色交给令牌（--hero-*）。浅色主题仍是整片强调色，
+  // 深色主题换成「强调色洗进 surface」的低饱和底 —— 深色下一条 1160px 宽的
+  // 高亮青色亮带会把整页的眼压全吃走，而这页真正要读的是课程名和结束时间。
   const inClass = Boolean(ongoing);
-  const heroFg = inClass ? "var(--on-accent)" : "var(--on-surface)";
-  const heroSub = inClass ? "var(--on-accent)" : "var(--on-surface-variant)";
+  const heroFg = inClass ? "var(--hero-fg)" : "var(--on-surface)";
+  const heroSub = inClass ? "var(--hero-sub)" : "var(--on-surface-variant)";
+  // 状态点：所有「有状态」的形态都画，它是状态的可视锚点；纯空态不画
+  const showDot = Boolean(ongoing || next || allDone);
 
   return (
     <section
@@ -255,8 +273,8 @@ function HeroCard({
         alignItems: "flex-start",
         justifyContent: "space-between",
         gap: 18,
-        background: inClass ? "var(--accent)" : "var(--surface)",
-        borderColor: inClass ? "transparent" : undefined,
+        background: inClass ? "var(--hero-bg)" : "var(--surface)",
+        borderColor: inClass ? "var(--hero-border)" : undefined,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -268,11 +286,11 @@ function HeroCard({
             alignItems: "center",
             gap: 8,
             fontSize: 12,
-            color: inClass ? heroSub : tone,
+            color: inClass ? "var(--hero-kicker)" : tone,
             marginBottom: 8,
           }}
         >
-          {inClass ? (
+          {showDot ? (
             <span
               style={{
                 width: 7,
@@ -335,7 +353,7 @@ function TimelineRow({ item, now }: { item: TodayClass; now: number }) {
   const temporary = Boolean(item.entity.date);
   const time = `${item.entity.startTime} – ${item.entity.endTime}`;
   return (
-    <div className="today-row" style={{ opacity: done ? 0.45 : 1 }}>
+    <div className={`today-row${done ? " done" : ""}${active ? " active" : ""}`}>
       <span className="today-time">{time}</span>
       <span className="today-title" style={{ fontWeight: active ? 600 : 400 }}>
         {item.entity.title}
@@ -344,13 +362,9 @@ function TimelineRow({ item, now }: { item: TodayClass; now: number }) {
       <span className="today-teacher">{item.entity.teacher || "—"}</span>
       <span className="today-chip-cell">
         {active ? (
-          <span className="chip" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
-            进行中
-          </span>
+          <span className="chip accent">进行中</span>
         ) : temporary ? (
-          <span className="chip" style={{ background: "var(--warning)", color: "var(--on-accent)" }}>
-            临时
-          </span>
+          <span className="chip warn">临时</span>
         ) : null}
       </span>
     </div>

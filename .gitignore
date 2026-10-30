@@ -3,6 +3,10 @@ node_modules/
 dist/
 src-tauri/target/
 
+# 预览截图管线（v1.7.12 起）：dist-preview 是 dist 的临时副本，每次重建
+dist-preview/
+__pycache__/
+
 # 本地溯源清单（见根 README 第一节第 4 条）
 VERSION-INFO.txt
 

@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog, Field, Select } from "../components/ui";
 import {
@@ -35,6 +36,7 @@ import {
 } from "../model/timeAxis";
 import { currentWeek, mondayOf, weekContains, weekStart } from "../model/weekSchedule";
 import { DAY_NAMES, dateOf } from "../model/today";
+import { classColorOf } from "../model/classColor";
 import { api, errorText } from "../api";
 
 const DAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -93,6 +95,27 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
   const mapping = useMemo(() => mappingOf(span, focus), [span, focus]);
   const marks = useMemo(() => roundMarks(span, perRow * 60), [span, perRow]);
   const bands = useMemo(() => zebraBands(span), [span]);
+
+  /*
+   * 「现在到哪了」这根线要用当前时刻，但这一页本身不需要按分钟重渲染 ——
+   * 单独挂一个 60s 的时钟，只有 nowMs 变，网格不会跟着重算。
+   */
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // 今天落在这周的第几列（不在本周时为 -1），以及当前时刻在时间轴上的位置
+  const todayIndex = DAY_NAMES.findIndex(
+    (_, i) => dateOf(weekMonday + i * 24 * 60 * 60 * 1000) === dateOf(nowMs),
+  );
+  const nowClock = new Date(nowMs);
+  const nowMinute = nowClock.getHours() * 60 + nowClock.getMinutes();
+  const nowTop =
+    todayIndex >= 0 && nowMinute >= span.startMinute && nowMinute <= span.endMinute
+      ? mapping.fractionOf(nowMinute) * gridHeight
+      : null;
 
   useEffect(() => {
     if (!gridRef) return;
@@ -327,6 +350,13 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                       />
                     ))}
 
+                    {/* 当前时间线：只画在今天这一列。课表最常被问的是「现在到哪了」，
+                        原来只能靠列头强调色 + 自己数刻度。带节奏的 dashed 会干扰网格，
+                        所以是一条 1px 实线 + 起点圆点。 */}
+                    {isToday && nowTop !== null ? (
+                      <div className="now-line" style={{ top: nowTop }} aria-hidden />
+                    ) : null}
+
                     {placed.map((p) => {
                       const height = Math.max(p.heightFraction * gridHeight, 22);
                       const active = focus?.startMinute === minutesOf(p.cls.startTime);
@@ -336,11 +366,13 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                       const tall = height >= 58;
                       const showRoom = height >= 30 && Boolean(p.cls.room);
                       const showTime = height >= 76 && Boolean(p.cls.startTime);
-                      // 临时提醒（有具体日期）用警示色，常规课用强调色 —— 与原版 barColor 同一规则
-                      const barColor = p.cls.date ? "var(--warning)" : "var(--accent)";
+                      // 同一门课永远同一档身份色（按 id 哈希派生，不存库）；
+                      // 临时提醒（有具体日期）仍用警示色 —— 它和常规课不是一个语义
+                      const barColor = p.cls.date ? "var(--warning)" : classColorOf(p.cls.id);
                       return (
                         <button
                           key={p.cls.id}
+                          className="week-block"
                           onClick={(e) => {
                             e.stopPropagation();
                             const start = minutesOf(p.cls.startTime);
@@ -357,7 +389,8 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                             height: height - 2,
                             left: `calc(${p.leftFraction * 100}% + 3px)`,
                             width: `calc(${p.widthFraction * 100}% - 6px)`,
-                            background: "var(--surface3)",
+                            // 底色不在这里写死：.week-block 用它把身份色洗淡铺上去
+                            "--block-color": barColor,
                             border: `1px solid ${active ? "var(--accent)" : "var(--border-rest)"}`,
                             borderRadius: 4,
                             padding: "3px 6px 3px 9px",
@@ -368,7 +401,7 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                             gap: 0,
                             transition:
                               "top 180ms cubic-bezier(0.33,0,0,1), height 180ms cubic-bezier(0.33,0,0,1)",
-                          }}
+                          } as CSSProperties}
                         >
                           {/* 左侧色条：跟随块高（上下各留 4px），不是固定长度的小短杠。
                               它是「这一节课的身份标识」，扫一列时靠它把同一节连起来 */}

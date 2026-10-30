@@ -26,8 +26,20 @@
     "PingFang SC", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
 
-  --fs-caption: 11px;
-  --fs-body: 13px;
+  /*
+   * 字号阶梯：原版是每个页面直接写数值（9.5 / 10 / 10.5 / 11 / 11.5 / 12 …），
+   * 一屏里能数出十几种字号，收敛成 8 档 ——「同层级的东西字号必须一样」，
+   * 否则读者要靠猜来判断什么更重要。旧的五个名字保留成别名，免得改一处漏十处。
+   */
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 17px;
+  --fs-2xl: 22px;
+  --fs-caption: var(--fs-xs);
+  --fs-body: var(--fs-md);
   --fs-subtitle: 14px;
   --fs-title: 18px;
   --fs-display: 26px;
@@ -35,6 +47,16 @@
   --ease-fluent: cubic-bezier(0.33, 0, 0, 1);
   --dur-fast: 120ms;
   --dur-normal: 200ms;
+
+  /* 键盘焦点环：:focus-visible 专用（鼠标点击不画）。
+     全站原本只有输入框有 :focus 描边，Tab 到按钮、导航、表格行上完全没有位置提示。 */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* 课程块的身份色「洗色」强度：只染底不染字。
+     深浅两套的值不同（见下面各自的主题块），这里只放一个中性兜底 —— 
+     漏配主题时不至于变成「色块墙」。 */
+  --class-wash: 6%;
 }
 
 :root[data-theme="light"] {
@@ -51,7 +73,13 @@
   --surface3: #e0e0e0;
   --on-surface: #1a1a1a;
   --on-surface-variant: #5c5c5c;
-  --on-surface-faint: #8a8a8a;
+  /*
+   * 浅色下原值是 #8a8a8a：压在 #fff 上只有 3.45:1、压在 #f3f3f3 上 3.11:1 ——
+   * 而它是表头（11.5px）、课表刻度（10px）、次要副标题的实际颜色，
+   * 属于「正文级」用途，必须 ≥4.5:1。灰阶里的「淡」应该靠字号和字重表达，
+   * 不是靠把对比度压到读不清。#6f6f6f 在白底 5.1:1、在 #f3f3f3 上 4.6:1。
+   */
+  --on-surface-faint: #6f6f6f;
   --outline: #e5e5e5;
   --outline-strong: #c8c8c8;
   --border-rest: #d2d2d2;
@@ -61,6 +89,15 @@
   --on-accent: #ffffff;
   --accent-tint: rgba(0, 103, 192, 0.09);
   --accent-hover: rgba(0, 103, 192, 0.06);
+  /*
+   * 今日页 Hero 卡（「正在上课」那张）的着色。浅色主题保持原版做法：
+   * 整片强调色填充 —— 浅底页面上一块饱和色就是最强的一级标题。
+   */
+  --hero-bg: var(--accent);
+  --hero-fg: var(--on-accent);
+  --hero-sub: var(--on-accent);
+  --hero-kicker: var(--on-accent);
+  --hero-border: transparent;
   --error: #c42b1c;
   --warning: #9d5d00;
   --success: #0f7b0f;
@@ -76,6 +113,34 @@
   --note-5: #c42b1c;
   --note-6: #8430ce;
   --note-7: #5c5c5c;
+
+  /*
+   * 课程身份色：8 档等距色相，只服务课表课程块。
+   * 不复用 --note-*（那是便签圆点/图标的颜色）：深色下 --note-3 与 --warning 同为
+   * #fce100，直接拿来当课程色会和「临时提醒」的语义撞车。
+   * 这八档只出现在 3px 竖条和极淡的洗色底上，正文一律 --on-surface，
+   * 所以不参与正文对比度计算，但每档压在原底色上都有 ≥3:1 的可见度。
+   */
+  --class-0: #0067c0;
+  --class-1: #0d7b7f;
+  --class-2: #3f7d1f;
+  --class-3: #9a6a00;
+  --class-4: #c2580a;
+  --class-5: #b3261e;
+  --class-6: #7b3fbf;
+  --class-7: #5c6b7a;
+
+  /* 浅色主题洗 6%：再多（试过 12%）课块就变成马卡龙色块，
+     灰字压在彩底上既违反「灰字别放彩底」，也让今日列的高亮底发浑 */
+  --class-wash: 6%;
+
+  /* 原生 select 的箭头（appearance:none 之后由自己画，不再交给系统） */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235c5c5c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  /* 淡底 + 同色字：给「高危标签」用，避免实心色块抢走整个表头的注意力 */
+  --error-tint: rgba(196, 43, 28, 0.13);
+  --warning-tint: rgba(157, 93, 0, 0.13);
+  --success-tint: rgba(15, 123, 15, 0.12);
 }
 
 :root[data-theme="dark"] {
@@ -86,7 +151,9 @@
   --surface3: #333333;
   --on-surface: #ffffff;
   --on-surface-variant: #c5c5c5;
-  --on-surface-faint: #8a8a8a;
+  /* 深色同理：#8a8a8a 压在 --surface #2b2b2b 上是 4.11:1，够不上表头用的正文级阈值。
+   * #949494 在 surface 上 4.67:1、在 --bg #141414 上 6.07:1。 */
+  --on-surface-faint: #949494;
   --outline: #3a3a3a;
   --outline-strong: #4a4a4a;
   --border-rest: #404040;
@@ -96,6 +163,16 @@
   --on-accent: #003a5c;
   --accent-tint: rgba(96, 205, 255, 0.12);
   --accent-hover: rgba(96, 205, 255, 0.07);
+  /*
+   * 深色主题不照抄浅色的「整片强调色」：1160px 宽的 #60cdff 亮带会把整页的
+   * 视觉重心全吸走，而真正要读的是课程名与结束时间。改成强调色洗进 surface 的
+   * 低饱和底 + 强调色描边，状态点与状态行仍用强调色 —— 该「亮」的地方靠对比，不靠面积。
+   */
+  --hero-bg: color-mix(in srgb, var(--accent) 22%, var(--surface2));
+  --hero-fg: var(--on-surface);
+  --hero-sub: var(--on-surface-variant);
+  --hero-kicker: var(--accent);
+  --hero-border: color-mix(in srgb, var(--accent) 42%, transparent);
   --error: #ff99a4;
   --warning: #fce100;
   --success: #6ccb5f;
@@ -111,4 +188,24 @@
   --note-5: #ff99a4;
   --note-6: #c586c0;
   --note-7: #9a9a9a;
+
+  /* 同浅色：色相不变、亮度和饱和度整体抬到深色底上可见的区间 */
+  --class-0: #60cdff;
+  --class-1: #4cc2c4;
+  --class-2: #9fd65b;
+  --class-3: #e3b341;
+  --class-4: #f2903b;
+  --class-5: #ff8a80;
+  --class-6: #b98cf0;
+  --class-7: #9db2c4;
+
+  /* 深色主题洗 14%：底色本来就深，同样的比例在这里几乎看不出来，
+     14% 才能一眼分出课与课，又不至于把白色课名压得发灰 */
+  --class-wash: 14%;
+
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c5c5c5' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  --error-tint: rgba(255, 153, 164, 0.16);
+  --warning-tint: rgba(252, 225, 0, 0.16);
+  --success-tint: rgba(108, 203, 95, 0.16);
 }

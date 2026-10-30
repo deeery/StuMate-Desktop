@@ -1331,3 +1331,212 @@ textarea.input {
   color: var(--on-surface-faint);
   pointer-events: none;
 }
+
+/* ════════════════════════════════════════════════════════════════
+ * v1.7.12 · 表达层
+ *
+ * 只动「怎么说」，不动「说什么」：所有尺寸、间距、分栏、栅格、信息密度
+ * 依旧与原版一致，这里补的是原版没有表达出来的三件事 ——
+ *   1. 键盘可达（:focus-visible）
+ *   2. 状态与空态说得清楚（空态有图标有下文、危险标签不再抢戏）
+ *   3. 课程之间的身份差别（同一门课同一种颜色，扫视不用读字）
+ * 全部走 tokens.css 的令牌，回滚只需删掉这一段。
+ * ════════════════════════════════════════════════════════════════ */
+
+/* 键盘焦点环 ────────────────────────────────────────────────────
+ * 只响应键盘（:focus-visible），鼠标点击不会出现，观感与原来一致。
+ * 输入框除外：它们本来就有「描边变强调色 + 底部内阴影」的焦点语言，
+ * 再叠一圈和 .input 同色的外环会变成双线。 */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.input:focus-visible,
+.kb-textarea:focus-visible,
+.qo-input:focus-visible {
+  outline: none;
+}
+
+/* 课程块是绝对定位的，外环会顶出列边界被 overflow 裁掉，改成向内画 */
+.week-block:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 侧栏导航是 212px 满宽的，外环会贴着窗口边缘画成一道竖线；向内收更像「选中态」 */
+.nav-item:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 动效兜底 ──────────────────────────────────────────────────────
+ * 系统里开了「减少动态效果」时，所有过渡/动画压到 1ms：
+ * 位置与配色照样生效，只是不再有位移过程。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 原生下拉 ──────────────────────────────────────────────────────
+ * 之前只有边框走了 .input，箭头、内边距仍是系统画的那个 ——
+ * 深浅切换时它跟着 color-scheme 变，和其他控件的视觉语言对不上。 */
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 9px 6px;
+  cursor: pointer;
+}
+
+select.input:hover {
+  border-color: var(--outline-strong);
+}
+
+/* 空状态 ────────────────────────────────────────────────────────
+ * 原来只有一句 12px 灰字浮在中间：既没说明「为什么是空的」，
+ * 也没给出下一步。结构固定为 图标 / 标题 / 说明 / 动作 四段，缺省时自动收拢。 */
+.empty {
+  display: grid;
+  /* align-content 必须显式写 center：grid 的默认值是 stretch，
+     在「撑满高度的容器」里（比如知识库编辑器空态）会把三行文字均匀摊到
+     上中下三处，截图上就是「图标在最上、标题在中间、提示在最下」。
+     place-items 管的是单行内的对齐，管不到行组在容器里的位置。 */
+  align-content: center;
+  place-items: center;
+  /* 放在 flex 柱子里时（便签列表）撑满剩余高度，让空态落在卡片正中；
+     其它容器里 flex 属性无效果，不影响布局 */
+  flex: 1 0 auto;
+  gap: 6px;
+  padding: 40px 16px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--on-surface-variant);
+  text-align: center;
+}
+
+.empty-icon {
+  display: flex;
+  color: var(--outline-strong);
+  margin-bottom: 2px;
+}
+
+.empty-title {
+  font-size: var(--fs-sm);
+  color: var(--on-surface-variant);
+}
+
+.empty-hint {
+  max-width: 26em;
+  font-size: var(--fs-xs);
+  color: var(--on-surface-faint);
+}
+
+/* 高危标签 ──────────────────────────────────────────────────────
+ * 「Deadline」原来是一块实心红胶囊：它是「类型」不是「错误」，
+ * 实心红会把整张表的视觉重心吸到这一列，标题反而没人看。
+ * 改成本色淡底 + 同色字 + 加粗 —— 该跳出来的还是跳出来，但不再压过内容。 */
+.chip.danger {
+  background: var(--error-tint);
+  color: var(--error);
+  font-weight: 600;
+}
+
+.chip.warn {
+  background: var(--warning-tint);
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* 课程块身份色 ──────────────────────────────────────────────────
+ * 底色 = 这门课的身份色洗过一层铺在 surface3 上，3px 竖条用同一色的饱和版。
+ * 同一门课在任何一周、任何主题下都是同一档颜色，扫一列就能把同一门课连起来。
+ *
+ * 洗多淡是量出来的，不是拍的：浅色主题下 12% 会让块变成一片马卡龙色，
+ * 灰字压在彩底上（Refactoring UI 明令禁止），与「今日列」的强调底叠起来发浑，
+ * 所以浅色只留 6%——底色仍然读作中性，身份靠竖条；深色主题的底色本来就深，
+ * 洗到 14% 才有分辨度，且不会压过文字。
+ * 先写 surface3 兜底：万一 color-mix 不可用，也只是回到原来的中性底，
+ * 不会变成透明块。 */
+.week-block {
+  background: var(--surface3);
+  background: color-mix(in srgb, var(--block-color) var(--class-wash), var(--surface3));
+}
+
+/* 当前时间指示线 ────────────────────────────────────────────────
+ * 只在「今天」这一列出现。课表最常被问的一句是「现在到哪了」，
+ * 原来只能靠列头的强调色 + 自己数刻度。
+ * 2px 而不是 1px：1px 压在中性块上几乎看不见（截图上验收过），
+ * 而再粗就跟网格线抢戏了。 */
+.now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.now-line::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -2.5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* 今日表的层级 ──────────────────────────────────────────────────
+ * 原来「时间」列每一行都是强调色 600：七行都是重点，等于没有重点，
+ * 而正在上的那节反倒要靠一个实心蓝胶囊去喊。现在强调色只留给正在上的那节，
+ * 其余行回到正文色 —— 眼睛自然先落到 Hero 卡，再落到当前行。
+ * 已上完的课也不再整行压到 45% 透明（那让文字掉到 3:1 以下，等于不可读），
+ * 改成文字降一档到 faint，仍然看得清、但明显退后。 */
+.today-time {
+  color: var(--on-surface);
+}
+
+.today-row.active .today-time {
+  color: var(--accent);
+}
+
+.today-row.done .today-title,
+.today-row.done .today-room,
+.today-row.done .today-teacher {
+  color: var(--on-surface-faint);
+}
+
+/* 「进行中」跟着一起降调：实心强调胶囊与新的淡底 danger/warn 标签语言不一致，
+   而且它上面那行文字已经加粗了，不需要再用色块喊一次 */
+.chip.accent {
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* 幽灵按钮给个悬停底色 ──────────────────────────────────────────
+ * 知识库工具行的「快速跳转 / 新窗口」用的是 .btn.ghost：没有描边、没有底色，
+ * 静止时和旁边的纯文字链接看不出区别。加一层 hover 才说得清「这是能点的」。 */
+.btn.ghost:hover {
+  background: var(--hover);
+}

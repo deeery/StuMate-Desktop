@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StuMate Lite v1.7.12 表达层验收</title>
+    <style>
+      :root {
+        --bg: #f7f7f8;
+        --surface: #ffffff;
+        --line: #e3e3e6;
+        --text: #1a1a1a;
+        --dim: #6b6b73;
+        --accent: #0067c0;
+        --warn: #9d5d00;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 40px 32px 72px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.65 "Segoe UI", system-ui, -apple-system, "Microsoft YaHei UI", sans-serif;
+      }
+      .wrap { max-width: 1320px; margin: 0 auto; }
+      header { margin-bottom: 34px; }
+      h1 { font-size: 26px; font-weight: 600; margin: 0 0 10px; letter-spacing: -0.01em; }
+      .sub { color: var(--dim); font-size: 13px; max-width: 78ch; }
+      .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+      .fact {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: 999px; padding: 5px 13px; font-size: 12.5px; color: var(--dim);
+      }
+      .fact b { color: var(--text); font-weight: 600; }
+      h2 {
+        font-size: 15px; font-weight: 600; margin: 44px 0 16px;
+        padding-bottom: 9px; border-bottom: 1px solid var(--line);
+        display: flex; align-items: baseline; gap: 10px;
+      }
+      h2 span { font-size: 12.5px; font-weight: 400; color: var(--dim); }
+      .grid {
+        display: grid; gap: 22px;
+        grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+      }
+      figure {
+        margin: 0; background: var(--surface); border: 1px solid var(--line);
+        border-radius: 10px; overflow: hidden;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      figure img { display: block; width: 100%; height: auto; }
+      figcaption {
+        padding: 11px 14px; font-size: 12.5px; color: var(--dim);
+        border-top: 1px solid var(--line);
+        display: flex; justify-content: space-between; gap: 10px;
+      }
+      figcaption b { color: var(--text); font-weight: 600; }
+      ol.check { padding-left: 22px; margin: 0 0 8px; }
+      ol.check li { margin-bottom: 7px; }
+      ol.check li b { font-weight: 600; }
+      .note {
+        background: #fff8ec; border: 1px solid #f0dcb4; border-radius: 8px;
+        padding: 13px 16px; font-size: 12.5px; color: #6b4b00; margin: 18px 0 0;
+      }
+      footer {
+        margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--line);
+        font-size: 12.5px; color: var(--dim);
+      }
+      code {
+        font: 12px ui-monospace, Consolas, monospace;
+        background: #ececef; padding: 1px 5px; border-radius: 4px; color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>StuMate Lite v1.7.12 · 表达层验收</h1>
+        <div class="sub">
+          本版<b>只改表达层</b>：尺寸 / 布局 / 信息架构一行未动，差异全部落在设计令牌与
+          <code>app.css</code> 末尾那一段。下面的图取自
+          <b>浏览器预览</b>（真实 <code>dist</code> 产物 + mock 的 Tauri IPC），样式与组件是真的，
+          只有 Rust 后端换成了 fixtures —— 因为这台机器没有 Rust 工具链，release exe 重建不了。
+        </div>
+        <div class="facts">
+          <div class="fact">commit <b>7c0dc91</b></div>
+          <div class="fact">快照 <b>v1.7.12.rar · 569 项</b></div>
+          <div class="fact">前端用例 <b>210</b></div>
+          <div class="fact">截图 <b>20 张</b></div>
+          <div class="fact">窗口 <b>1200×800</b></div>
+          <div class="fact">「现在」钉在 <b>08:36 周五</b></div>
+        </div>
+      </header>
+
+      <h2>重点看这七处 <span>对应 v1.7.12 的七条改动</span></h2>
+      <ol class="check">
+        <li><b>课表身份色</b>：一周 13 门课各有一个竖条色，课块底色只轻微带同色（浅 6% / 深 14%）——
+            扫一眼就能按颜色认课，不必读字。</li>
+        <li><b>当前时间线</b>：今天那列在 08:36 处有一条 2px 强调色横线 + 左端圆点，压在最上层。</li>
+        <li><b>键盘焦点</b>：点页面空白后按 <code>Tab</code>，每个可操作元素都有 2px 强调色环；
+            输入框沿用原本的描边语言，不叠双线。</li>
+        <li><b>空态三段式</b>：图标 / 标题 / 提示，且整体居中（不是「图标在最上、提示在最下」）。</li>
+        <li><b>状态色不再抢戏</b>：便签的 Deadline、今日表的「临时」都是淡底同色字；「正在上课」那一行才用强调色。</li>
+        <li><b>深色 Hero</b>：不再是一条亮青带，改低饱和底 + 强调色描边。</li>
+        <li><b>下拉与次级文字</b>：select 自绘箭头（深浅两套）；表头 / 课表刻度这些 11~12px 的灰字提到 4.5:1 以上。</li>
+      </ol>
+      <div class="note">
+        想自己点：在 <code>dist-preview/</code> 目录起静态服务后打开
+        <code>index.html?page=week&amp;theme=dark</code>。支持的参数：<code>page</code>（today / week /
+        notes / knowledge / settings）、<code>theme</code>（light / dark）、<code>at=HH:MM</code>（把「现在」
+        钉到别的时刻）、<code>wash=0%</code>（看洗色强度的对照）、<code>empty=1</code>（清空数据看空态）。
+      </div>
+
+      <h2>深色主题 <span>theme=dark</span></h2>
+      <div class="grid">
+        <figure>
+          <img src="preview/dark-today.png" alt="深色 · 今日" />
+          <figcaption><b>今日</b><span>Hero 低饱和底 · 强调色只留「正在上」</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/dark-week.png" alt="深色 · 课表" />
+          <figcaption><b>课表</b><span>8 档身份色 · 当前时间线 · 今日列</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/dark-notes.png" alt="深色 · 便签" />
+          <figcaption><b>便签</b><span>Deadline 淡底胶囊 · 自绘下拉箭头</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/dark-knowledge.png" alt="深色 · 知识库" />
+          <figcaption><b>知识库</b><span>树选中态 · 浅色工具行</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/dark-settings.png" alt="深色 · 设置" />
+          <figcaption><b>设置</b><span>分组卡片 · 次级文字 4.67:1</span></figcaption>
+        </figure>
+      </div>
+
+      <h2>浅色主题 <span>theme=light</span></h2>
+      <div class="grid">
+        <figure>
+          <img src="preview/light-today.png" alt="浅色 · 今日" />
+          <figcaption><b>今日</b><span>Hero 强调色填充（浅色保留原方案）</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/light-week.png" alt="浅色 · 课表" />
+          <figcaption><b>课表</b><span>灰底不抢 · 竖条承担身份</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/light-notes.png" alt="浅色 · 便签" />
+          <figcaption><b>便签</b><span>行悬停 / 选中两档底色不变</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/light-knowledge.png" alt="浅色 · 知识库" />
+          <figcaption><b>知识库</b><span>三栏结构原样</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/light-settings.png" alt="浅色 · 设置" />
+          <figcaption><b>设置</b><span>select 自绘 chevron</span></figcaption>
+        </figure>
+      </div>
+
+      <h2>空态 <span>?empty=1（清空课程 / 便签 / 知识库）</span></h2>
+      <div class="grid">
+        <figure>
+          <img src="preview/light-today-empty-1.png" alt="今日空态" />
+          <figcaption><b>今日 · 浅色</b><span>Hero 空态 + 列表空态 + 今日截止空态</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/dark-today-empty-1.png" alt="今日空态 · 深色" />
+          <figcaption><b>今日 · 深色</b><span>三处空态都居中且等高</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/light-notes-empty-1.png" alt="便签空态" />
+          <figcaption><b>便签 · 浅色</b><span>图标 + 标题 + 下一步提示</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/dark-notes-empty-1.png" alt="便签空态 · 深色" />
+          <figcaption><b>便签 · 深色</b><span>同一套三段式</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/light-knowledge-empty-1.png" alt="知识库空态" />
+          <figcaption><b>知识库 · 浅色</b><span>树空态 + 编辑器空态</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/dark-knowledge-empty-1.png" alt="知识库空态 · 深色" />
+          <figcaption><b>知识库 · 深色</b><span>此前三行会被 grid stretch 摊开，已修</span></figcaption>
+        </figure>
+      </div>
+
+      <h2>键盘焦点 <span>按 Tab 后的 :focus-visible</span></h2>
+      <div class="grid">
+        <figure>
+          <img src="preview/focus-light-week.png" alt="浅色 · 焦点" />
+          <figcaption><b>课表 · 浅色</b><span>满宽导航的焦点环向内收</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/focus-dark-week.png" alt="深色 · 焦点" />
+          <figcaption><b>课表 · 深色</b><span>深色下同样可见</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/focus-light-notes.png" alt="浅色 · 焦点" />
+          <figcaption><b>便签 · 浅色</b><span>输入框不叠双线</span></figcaption>
+        </figure>
+        <figure>
+          <img src="preview/focus-dark-notes.png" alt="深色 · 焦点" />
+          <figcaption><b>便签 · 深色</b><span>Tab 顺序与 DOM 一致</span></figcaption>
+        </figure>
+      </div>
+
+      <footer>
+        与 <code>acceptance.html</code> 的区别：那一批是 <b>v1.7.11 的 release exe 截图</b>（真实后端 +
+        真实数据库）；这一批是 <b>v1.7.12 的浏览器预览</b>（真实前端产物 + mock IPC）。
+        本机没有 <code>cargo</code> / <code>rustc</code>，exe 重建不了，所以本版以预览为准 ——
+        样式与组件是真的、<code>dist</code> 是真的，数据是 fixtures。
+        <br />
+        生成方式：<code>python tools/shoot_preview.py [light|dark] [page]</code>；
+        桥接层 <code>tools/preview_bridge.js</code> 把 <code>invoke()</code> 换成 fixture 表，
+        截图走 Edge 无头模式 + CDP（<code>Page.captureScreenshot</code>）。
+      </footer>
+    </div>
+  </body>
+</html>
