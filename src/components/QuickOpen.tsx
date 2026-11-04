@@ -12,10 +12,12 @@ const MAX_ROWS = 40;
 
 export function QuickOpen({
   notes,
+  leaving,
   onPick,
   onClose,
 }: {
   notes: TreeNode[];
+  leaving?: boolean;
   onPick: (path: string) => void;
   onClose: () => void;
 }) {
@@ -48,7 +50,7 @@ export function QuickOpen({
   }, [index]);
 
   return (
-    <div className="qo-mask" onMouseDown={onClose}>
+    <div className={`qo-mask${leaving ? " leaving" : ""}`} onMouseDown={onClose}>
       <div className="qo" onMouseDown={(e) => e.stopPropagation()}>
         <input
           className="qo-input"

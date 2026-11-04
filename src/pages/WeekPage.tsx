@@ -13,9 +13,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog, Field, Select } from "../components/ui";
+import { usePresence } from "../components/Presence";
 import {
   IconChevronLeft,
   IconChevronRight,
+  IconClose,
+  IconEdit,
   IconPlus,
   IconTrash,
 } from "../components/Icons";
@@ -31,7 +34,6 @@ import {
   rowCount,
   spanOf,
   zebraBands,
-  type Focus,
   type Span,
 } from "../model/timeAxis";
 import { currentWeek, mondayOf, weekContains, weekStart } from "../model/weekSchedule";
@@ -55,7 +57,19 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
   const nowWeek = currentWeek(week1Monday);
   const [week, setWeek] = useState<number>(() => nowWeek ?? 1);
   const [editing, setEditing] = useState<ClassEntity | null>(null);
-  const [focus, setFocus] = useState<Focus | null>(null);
+  /**
+   * 选中态**按课程 id 唯一**，不按开始时间。
+   *
+   * 这里原来是 `focus: Focus | null`，而块的高亮判定写成
+   * `focus?.startMinute === minutesOf(p.cls.startTime)` —— 只要开始时间相同就一起亮。
+   * 结果是点周一 10:00 那节课，周一/周二/周五所有 10:00 的块全部被画上 accent 边框，
+   * 看上去像「一行被整行选中」。同一时段本来就会有多门课（不同天），所以这不是罕见情况。
+   *
+   * 顺带把 `focus` 这个只为放大纵轴服务的状态也拿掉了：它进来时传的区间是
+   * `{start, start + 1}`，一分钟的区间在 600 分钟的时间轴上放大 2.2 倍，
+   * 视觉上等于没有，却让 mapping 的计算多绕一层。选中与布局现在彻底解耦。
+   */
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [gridRef, setGridRef] = useState<HTMLDivElement | null>(null);
   const [gridHeight, setGridHeight] = useState(640);
   // 「校准周数」对话框：原版把这个入口放在页面顶栏，不再塞一条常驻提示条
@@ -92,9 +106,68 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
   const rows = Math.max(Math.floor((gridHeight - 24) / 56), 4);
   const perRow = hoursPerRow(span, rows);
   const totalRows = rowCount(span, perRow);
-  const mapping = useMemo(() => mappingOf(span, focus), [span, focus]);
+  const mapping = useMemo(() => mappingOf(span, null), [span]);
   const marks = useMemo(() => roundMarks(span, perRow * 60), [span, perRow]);
   const bands = useMemo(() => zebraBands(span), [span]);
+
+  // 换周之后原来那节课可能不在这一周了，选中态要跟着清掉，
+  // 否则会把「上一周选过的 id」带过来，看起来像选中了一块空白。
+  useEffect(() => {
+    setSelectedId(null);
+  }, [week]);
+
+  /*
+   * 选中 id → 课程实体。这里用 `weekClasses` 而不是 `ctx.classes`：
+   * 详情面板必须和「本周实际画出来的块」一致，否则切周到一门没课的周次，
+   * 面板还挂着一个不在网格里的课程，点「编辑」改的是看不见的条目。
+   */
+  const selected = useMemo(
+    () => (selectedId === null ? null : weekClasses.find((c) => c.id === selectedId) ?? null),
+    [selectedId, weekClasses],
+  );
+
+  /**
+   * 三处「一关就消失」的退场保留：详情面板、课程编辑对话框、校准周数对话框。
+   *
+   * 关闭动作会把状态**同一帧**置空，但节点还要再画 120ms 播收起动画。
+   * 直接读当前值会让它先塌成空白再淡出（一帧白框），所以用 ref 记住最后一份
+   * 可渲染的值。只在当前值为空时才回退 —— 否则切到另一节课会先闪一帧上一条。
+   *
+   * 与 Compose 端 `RightPanelTransition` 的 `retained` 同一个思路。
+   */
+  const detailPresence = usePresence(selected !== null);
+  const retainedCls = useRef<ClassEntity | null>(null);
+  if (selected) retainedCls.current = selected;
+  const shownCls = selected ?? retainedCls.current;
+
+  const editPresence = usePresence(editing !== null);
+  const retainedEdit = useRef<ClassEntity | null>(null);
+  if (editing) retainedEdit.current = editing;
+  const shownEdit = editing ?? retainedEdit.current;
+
+  const calPresence = usePresence(calOpen);
+
+  /**
+   * 本周统计。口径照抄原版 `computeWeekStats`：
+   * 节数按块数、课时按「结束 - 开始」求和后一小时为单位（整点不带小数点），
+   * 最忙的那天用「周X · N 节」，一天都没课时显示「—」。
+   */
+  const weekStats = useMemo(() => {
+    const minutes = weekClasses.reduce((sum, c) => {
+      const s = minutesOf(c.startTime);
+      const e = minutesOf(c.endTime);
+      if (s === null || e === null) return sum;
+      return sum + Math.max(e - s, 0);
+    }, 0);
+    const perDay = DAY_NAMES.map((d) => weekClasses.filter((c) => c.dayOfWeek === d).length);
+    const busiest = perDay.reduce((best, n, i) => (n > perDay[best] ? i : best), 0);
+    const hours = minutes / 60;
+    return {
+      courses: weekClasses.length,
+      hours: Number.isInteger(hours) ? String(hours) : hours.toFixed(1),
+      busiest: perDay[busiest] === 0 ? "—" : `${DAY_CN[busiest]} · ${perDay[busiest]} 节`,
+    };
+  }, [weekClasses]);
 
   /*
    * 「现在到哪了」这根线要用当前时刻，但这一页本身不需要按分钟重渲染 ——
@@ -143,6 +216,8 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
       await api.deleteClass(entity.id);
       await ctx.reloadClasses();
       setEditing(null);
+      // 删掉的是当前选中项时，面板会挂着一个已经不存在的课程 —— 一起清掉
+      setSelectedId((id) => (id === entity.id ? null : id));
       ctx.toast("已删除");
     } catch (err) {
       ctx.toast(errorText(err), "error");
@@ -213,6 +288,11 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
           </div>
         ) : null}
 
+        {/* 课表 + 右侧详情面板并排。面板宽度是**瞬时**的（不做抽屉拉开），
+            原因和原版 RightPanelTransition 一样：每帧改宽度会让整张网格重新布局，
+            课程块的 transform 过渡会跟着抖。所以只给面板做 opacity + 位移入场。 */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {ctx.prefs.weekGrid ? (
           <div
             className="card"
@@ -282,8 +362,8 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
               ref={setGridRef}
               style={{ flex: 1, minHeight: 0, display: "flex", position: "relative", overflow: "hidden" }}
               onClick={(e) => {
-                // 点空白处收起展开态
-                if (e.target === e.currentTarget) setFocus(null);
+                // 点空白处取消选中
+                if (e.target === e.currentTarget) setSelectedId(null);
               }}
             >
               {/* 纵轴刻度 */}
@@ -359,7 +439,7 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
 
                     {placed.map((p) => {
                       const height = Math.max(p.heightFraction * gridHeight, 22);
-                      const active = focus?.startMinute === minutesOf(p.cls.startTime);
+                      const active = selectedId === p.cls.id;
                       // 按块高分级显示，与原版 CourseBlock 的四档阈值一致：
                       //   < 30 只课名 / ≥ 30 课名+地点 / ≥ 58 课名可两行 / ≥ 76 再加块底时间区间。
                       // 不这么分的话，矮块里硬塞三行会互相压住，长课又显得内容很少。
@@ -375,8 +455,13 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                           className="week-block"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const start = minutesOf(p.cls.startTime);
-                            setFocus(start === null ? null : { startMinute: start, endMinute: start + 1 });
+                            // 单击只选中，不弹编辑框 —— 和原版 1.6.x 一致：
+                            // 「单击看详情，双击编辑」。原来点一下就 setEditing，
+                            // 等于所有选中都被对话框盖住，选中态根本看不见。
+                            setSelectedId(p.cls.id);
+                          }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
                             setEditing(p.cls);
                           }}
                           onContextMenu={(e) => {
@@ -470,22 +555,41 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
             </div>
           </div>
         ) : (
-          <ListView weekClasses={weekClasses} onEdit={setEditing} />
+          <ListView
+            weekClasses={weekClasses}
+            selectedId={selectedId}
+            onSelect={(c) => setSelectedId(c.id)}
+            onEdit={setEditing}
+          />
         )}
+          </div>
+          {detailPresence.mounted && shownCls ? (
+            <ClassDetailPanel
+              leaving={detailPresence.leaving}
+              cls={shownCls}
+              stats={weekStats}
+              onEdit={() => setEditing(shownCls)}
+              onDelete={() => void remove(shownCls)}
+              onClose={() => setSelectedId(null)}
+            />
+          ) : null}
+        </div>
       </div>
 
-      {editing ? (
+      {editPresence.mounted && shownEdit ? (
         <ClassDialog
-          entity={editing}
-          isNew={editing.id === 0}
+          leaving={editPresence.leaving}
+          entity={shownEdit}
+          isNew={shownEdit.id === 0}
           onClose={() => setEditing(null)}
           onSave={save}
           onDelete={remove}
         />
       ) : null}
 
-      {calOpen ? (
+      {calPresence.mounted ? (
         <Dialog
+          leaving={calPresence.leaving}
           title="校准周数"
           subtitle="指定第 1 周的周一，课表按它推算今天是第几周"
           onClose={() => setCalOpen(false)}
@@ -528,11 +632,117 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
   );
 }
 
+/**
+ * 右侧课程详情面板（原版 `ClassDetailPanel`）。
+ *
+ * 规格照抄 Compose 版 v1.7.5 的 268dp 裸列，不画整块背景 —— 面板由两张 `FlCard` 组成，
+ * 分别是「课程信息」和「本周统计」，中间 12px 缝。为什么不做成一张长卡：
+ * 统计是页面级信息，和某一节课无关，粘在同一张卡里会让「这条属于谁」说不清。
+ *
+ * 和 1.6.x 的分工一致：**单击课程块看这里，双击才进编辑**。
+ */
+function ClassDetailPanel({
+  cls,
+  stats,
+  leaving,
+  onEdit,
+  onDelete,
+  onClose,
+}: {
+  cls: ClassEntity;
+  stats: { courses: number; hours: string; busiest: string };
+  leaving?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const isTemp = Boolean(cls.date);
+  const dayLabel = DAY_CN[DAY_NAMES.indexOf(cls.dayOfWeek)] ?? cls.dayOfWeek;
+  const when = `${isTemp ? cls.date : dayLabel} ${cls.startTime} – ${cls.endTime}`;
+
+  return (
+    <aside className={`week-detail${leaving ? " leaving" : ""}`} aria-label="课程详情">
+      <div className="card" style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {/* 身份色条：临时提醒沿用警示色，和网格里那块的颜色条是同一个语义 */}
+          <span
+            aria-hidden
+            style={{
+              width: 4,
+              height: 30,
+              borderRadius: 2,
+              background: isTemp ? "var(--warning)" : "var(--accent)",
+            }}
+          />
+          <button
+            className="icon-btn"
+            style={{ marginLeft: "auto", width: 24, height: 24 }}
+            title="取消选中"
+            onClick={onClose}
+          >
+            <IconClose size={12} />
+          </button>
+        </div>
+
+        <div style={{ fontSize: 16, fontWeight: 600, marginTop: 10, color: "var(--on-surface)" }}>
+          {cls.title}
+        </div>
+        <div style={{ fontSize: 12.5, marginTop: 4, color: "var(--on-surface-variant)" }}>{when}</div>
+
+        <dl style={{ margin: "12px 0 0" }}>
+          <DetailRow label="教室" value={cls.room || "—"} />
+          <DetailRow label="教师" value={cls.teacher || "—"} />
+          <DetailRow label="周次" value={cls.weeks || "不限"} />
+          <DetailRow label="类型" value={isTemp ? "临时提醒" : "长期提醒"} />
+        </dl>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button className="btn primary" onClick={onEdit}>
+            <IconEdit size={13} /> 编辑
+          </button>
+          <button className="btn danger" onClick={onDelete}>
+            <IconTrash size={13} /> 删除
+          </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 16 }}>
+        <div className="detail-section-label">本周统计</div>
+        <dl style={{ margin: "8px 0 0" }}>
+          <DetailRow label="课程" value={`${stats.courses} 节`} />
+          <DetailRow label="课时" value={`${stats.hours} 小时`} />
+          <DetailRow label="最忙" value={stats.busiest} />
+        </dl>
+        <div className="detail-section-label" style={{ marginTop: 14 }}>
+          操作提示
+        </div>
+        <div style={{ fontSize: 12, marginTop: 6, color: "var(--on-surface-variant)", lineHeight: 1.6 }}>
+          单击课程块查看详情，双击直接编辑。
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/** 详情里的一行「标签 + 值」。标签固定 48px，四行才会左对齐成一条线。 */
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="detail-row">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
 function ListView({
   weekClasses,
+  selectedId,
+  onSelect,
   onEdit,
 }: {
   weekClasses: ClassEntity[];
+  selectedId: number | null;
+  onSelect: (c: ClassEntity) => void;
   onEdit: (c: ClassEntity) => void;
 }) {
   return (
@@ -550,7 +760,9 @@ function ListView({
             {list.map((c) => (
               <button
                 key={c.id}
-                onClick={() => onEdit(c)}
+                // 与表格视图同一套手势：单击选中、双击编辑
+                onClick={() => onSelect(c)}
+                onDoubleClick={() => onEdit(c)}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -559,6 +771,10 @@ function ListView({
                   height: 38,
                   borderBottom: "1px solid var(--outline)",
                   textAlign: "left",
+                  background: c.id === selectedId ? "var(--accent-tint)" : undefined,
+                  borderLeft:
+                    c.id === selectedId ? "2px solid var(--accent)" : "2px solid transparent",
+                  paddingLeft: 10,
                 }}
               >
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, width: 84, flex: "0 0 84px", color: "var(--on-surface-variant)" }}>
@@ -583,12 +799,14 @@ function ListView({
 function ClassDialog({
   entity,
   isNew,
+  leaving,
   onClose,
   onSave,
   onDelete,
 }: {
   entity: ClassEntity;
   isNew: boolean;
+  leaving?: boolean;
   onClose: () => void;
   onSave: (e: ClassEntity) => void;
   onDelete: (e: ClassEntity) => void;
@@ -612,6 +830,7 @@ function ClassDialog({
 
   return (
     <Dialog
+      leaving={leaving}
       title={isNew ? "新建课程" : "编辑课程"}
       subtitle={isNew ? "只填课名和时间就能存" : `#${entity.id}`}
       onClose={onClose}

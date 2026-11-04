@@ -5,6 +5,11 @@ import fs from "node:fs";
 
 // Tauri 会把前端当静态站点加载，所以这里固定 5173 端口并让 Tauri 的 devUrl 指向它。
 // clearScreen=false：Rust 端的编译告警不要被 Vite 清屏冲掉，两边日志要能一起看。
+//
+// ⚠ 5173 这个数字**不要随手改**：它已经被编译进 dev 构建的 stumate-lite.exe
+// （WebviewUrl::default() 在 dev 下替换成 devUrl，是编译期常量）。改这里的端口
+// 而不重新构建 exe，exe 仍会去 5173 找页面，结果就是「localhost 拒绝连接」。
+// 要换端口必须同时改 tauri.conf.json 的 build.devUrl 并重跑一次构建。
 
 /**
  * 请求日志（仅 STUMATE_TRACE=1 时启用）。

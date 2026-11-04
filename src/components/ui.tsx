@@ -18,6 +18,7 @@ export function Dialog({
   actions,
   onClose,
   width,
+  leaving,
 }: {
   title: string;
   subtitle?: string;
@@ -25,6 +26,8 @@ export function Dialog({
   actions?: ReactNode;
   onClose: () => void;
   width?: number;
+  /** 退场中：遮罩与面板各播一段收起动画，由调用方的 `usePresence` 驱动 */
+  leaving?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -39,9 +42,12 @@ export function Dialog({
   }, [onClose]);
 
   return createPortal(
-    <div className="flyout-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className={`flyout-scrim${leaving ? " leaving" : ""}`}
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div
-        className="dialog"
+        className={`dialog${leaving ? " leaving" : ""}`}
         style={width ? { width } : undefined}
         ref={ref}
         tabIndex={-1}
@@ -221,6 +227,8 @@ export interface ToastMessage {
   id: number;
   text: string;
   tone?: "info" | "error";
+  /** 正在退场：先播 140ms 收起动画，再由 App 的定时器真正移除 */
+  leaving?: boolean;
 }
 
 export function ToastHost({ toasts }: { toasts: ToastMessage[] }) {
@@ -242,6 +250,7 @@ export function ToastHost({ toasts }: { toasts: ToastMessage[] }) {
       {toasts.map((t) => (
         <div
           key={t.id}
+          className={`toast-msg${t.leaving ? " leaving" : ""}`}
           style={{
             padding: "9px 16px",
             borderRadius: 6,

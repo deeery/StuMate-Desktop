@@ -48,6 +48,27 @@
   --dur-fast: 120ms;
   --dur-normal: 200ms;
 
+  /*
+   * 过渡层（v1.7.13）。数值**照抄** Compose 端 `ui/fluent/Motion.kt`，
+   * 两端并排看时，切页/开面板的手感必须一样：
+   *   入场 BASE 160、退出 FAST 120、对话框 DIALOG 180。
+   *
+   * 桌面端和移动端不是一个尺度：鼠标是「指哪打哪」，超过 200ms 的等待就会被
+   * 读成迟钝。所以这里没有 300ms 以上的值，位移也不超过 8px ——
+   * 动效只负责交代「东西从哪来、往哪去」，不表演。
+   */
+  --dur-enter: 160ms;
+  --dur-exit: 120ms;
+  --dur-dialog: 180ms;
+  /* 标准减速：快起步、长收尾，像「被推到位」 */
+  --ease-decel: cubic-bezier(0.1, 0.9, 0.2, 1);
+  /* 标准加速：慢起步、快离场，让位给下一个状态 */
+  --ease-accel: cubic-bezier(0.7, 0, 1, 0.5);
+  /* 页面入场抬升量。超过 8px 会变成「掉下来」，不是「浮上来」 */
+  --motion-rise: 6px;
+  /* 右列面板的侧滑量，与面板宽度解耦 */
+  --motion-slide: 8px;
+
   /* 键盘焦点环：:focus-visible 专用（鼠标点击不画）。
      全站原本只有输入框有 :focus 描边，Tab 到按钮、导航、表格行上完全没有位置提示。 */
   --focus-ring-width: 2px;

@@ -6,9 +6,10 @@
  * 所以备份区把「整表替换」四个字写在按钮旁边，而不是藏在帮助文档里。
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog, Field, Select, Toggle } from "../components/ui";
+import { usePresence } from "../components/Presence";
 import { IconFolder, IconTrash } from "../components/Icons";
 import { api, errorText } from "../api";
 import { currentWeek, mondayOf } from "../model/weekSchedule";
@@ -44,6 +45,17 @@ export function SettingsPage({ ctx }: { ctx: AppContextValue }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfCourses, setPdfCourses] = useState<ParsedCourse[] | null>(null);
   const [pdfSaving, setPdfSaving] = useState(false);
+
+  /**
+   * 三个浮层的退场保留（备份 / 导入 / PDF 解析结果）。
+   * 关闭时状态同帧置空，节点还要再画 120ms —— 用 ref 记住最后一份可渲染的值。
+   */
+  const backupPresence = usePresence(backupOpen);
+  const importPresence = usePresence(importOpen);
+  const pdfPresence = usePresence(pdfCourses !== null);
+  const retainedPdf = useRef<ParsedCourse[] | null>(null);
+  if (pdfCourses) retainedPdf.current = pdfCourses;
+  const shownPdf = pdfCourses ?? retainedPdf.current;
 
   const prefs = ctx.prefs;
 
@@ -370,11 +382,24 @@ export function SettingsPage({ ctx }: { ctx: AppContextValue }) {
         </Section>
       </div>
 
-      {backupOpen ? <BackupDialog ctx={ctx} onClose={() => setBackupOpen(false)} /> : null}
-      {importOpen ? <ImportDialog ctx={ctx} onClose={() => setImportOpen(false)} /> : null}
-      {pdfCourses ? (
+      {backupPresence.mounted ? (
+        <BackupDialog
+          leaving={backupPresence.leaving}
+          ctx={ctx}
+          onClose={() => setBackupOpen(false)}
+        />
+      ) : null}
+      {importPresence.mounted ? (
+        <ImportDialog
+          leaving={importPresence.leaving}
+          ctx={ctx}
+          onClose={() => setImportOpen(false)}
+        />
+      ) : null}
+      {pdfPresence.mounted && shownPdf ? (
         <Dialog
-          title={`解析出 ${pdfCourses.length} 门课`}
+          leaving={pdfPresence.leaving}
+          title={`解析出 ${shownPdf.length} 门课`}
           subtitle="确认后会逐条写入课表（新增，不覆盖已有课程）"
           width={560}
           onClose={() => (pdfSaving ? undefined : setPdfCourses(null))}
@@ -388,13 +413,13 @@ export function SettingsPage({ ctx }: { ctx: AppContextValue }) {
                 取消
               </button>
               <button className="btn primary" disabled={pdfSaving} onClick={() => void confirmImport()}>
-                {pdfSaving ? "导入中…" : `导入 ${pdfCourses.length} 门课`}
+                {pdfSaving ? "导入中…" : `导入 ${shownPdf.length} 门课`}
               </button>
             </>
           }
         >
           <div style={{ maxHeight: 320, overflow: "auto", marginTop: 4 }}>
-            {pdfCourses.map((c, i) => (
+            {shownPdf.map((c, i) => (
               <div
                 key={`${c.title}-${c.dayOfWeek}-${c.startTime}-${i}`}
                 style={{
@@ -484,7 +509,15 @@ function Row({
   );
 }
 
-function BackupDialog({ ctx, onClose }: { ctx: AppContextValue; onClose: () => void }) {
+function BackupDialog({
+  ctx,
+  leaving,
+  onClose,
+}: {
+  ctx: AppContextValue;
+  leaving?: boolean;
+  onClose: () => void;
+}) {
   const [modules, setModules] = useState<Set<string>>(
     new Set(["courses", "notes", "knowledge", "settings"]),
   );
@@ -516,6 +549,7 @@ function BackupDialog({ ctx, onClose }: { ctx: AppContextValue; onClose: () => v
 
   return (
     <Dialog
+      leaving={leaving}
       title="导出备份"
       subtitle="与原版 Compose 版的备份文件互通"
       onClose={onClose}
@@ -549,7 +583,15 @@ interface InspectResult {
   modules?: Record<string, { count?: number; present?: boolean }>;
 }
 
-function ImportDialog({ ctx, onClose }: { ctx: AppContextValue; onClose: () => void }) {
+function ImportDialog({
+  ctx,
+  leaving,
+  onClose,
+}: {
+  ctx: AppContextValue;
+  leaving?: boolean;
+  onClose: () => void;
+}) {
   const [path, setPath] = useState<string | null>(null);
   const [info, setInfo] = useState<InspectResult | null>(null);
   const [modules, setModules] = useState<Set<string>>(new Set());
@@ -591,6 +633,7 @@ function ImportDialog({ ctx, onClose }: { ctx: AppContextValue; onClose: () => v
 
   return (
     <Dialog
+      leaving={leaving}
       title="导入备份"
       subtitle={path ? path : "选择一个 .json 备份文件"}
       onClose={onClose}

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText, onCheckNow, onCloseRequested, type AppInfo } from "./api";
 import { Sidebar, WindowControls, type PageKey } from "./components/Chrome";
 import { Checkbox, Dialog, ToastHost, type ToastMessage } from "./components/ui";
+import { usePresence } from "./components/Presence";
 import { useReminder } from "./useReminder";
 import type {
   ClassEntity,
@@ -61,9 +62,15 @@ export default function App() {
   const toast = useCallback((text: string, tone: "info" | "error" = "info") => {
     const id = toastSeq.current++;
     setToasts((prev) => [...prev, { id, text, tone }]);
+    const life = tone === "error" ? 5200 : 2600;
     window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, tone === "error" ? 5200 : 2600);
+      // 分两段：先标记退场（140ms 收起动画），再真正从列表里摘掉。
+      // 一次性 filter 的话提示条会在消失的那一帧凭空蒸发。
+      setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+      window.setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 160);
+    }, life);
   }, []);
 
   const reloadClasses = useCallback(async () => {
@@ -162,6 +169,11 @@ export default function App() {
   // 上课提醒轮询：托盘状态、置顶卡片、系统通知都由它驱动
   const { checkNow } = useReminder(classes, prefs, Boolean(info && prefs), toast);
 
+  // 关闭确认框的退场：`closeAsk` 变 false 之后还要留 120ms 播收起动画。
+  // 必须在所有 early return 之前调用 —— 否则 hooks 顺序会在「启动中」和
+  // 「已就绪」两个分支之间变来变去。
+  const closePresence = usePresence(closeAsk);
+
   // 托盘菜单「立即检查一次」
   useEffect(() => {
     let alive = true;
@@ -199,8 +211,30 @@ export default function App() {
     return systemDark ? "dark" : "light";
   }, [info?.startTheme, prefs?.themeMode, systemDark]);
 
+  /**
+   * 主题落地。切 data-theme 的那一帧，所有 CSS 变量一起换值 —— 底色、文字、
+   * 描边、课程块的洗色全部瞬变，观感就是「啪」地翻了一页。
+   *
+   * 解决办法是切换前后 240ms 内给 <html> 挂一个临时类，让全站的颜色类属性
+   * 走一条统一过渡（规则在 app.css 的过渡层里）。CSS 变量本身不能过渡，
+   * 但变量算完之后落到 background-color / color 上的**计算值**可以。
+   *
+   * 首次挂载不播：启动时从浅到深渐变一遍，看起来像闪屏。
+   */
+  const lastTheme = useRef<string | null>(null);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    const prev = lastTheme.current;
+    lastTheme.current = theme;
+    if (prev === null || prev === theme) return;
+
+    const root = document.documentElement;
+    root.classList.add("theme-switching");
+    const timer = window.setTimeout(() => root.classList.remove("theme-switching"), 260);
+    return () => {
+      window.clearTimeout(timer);
+      root.classList.remove("theme-switching");
+    };
   }, [theme]);
 
   // Ctrl+1..5 切页：桌面端习惯，成本极低
@@ -296,15 +330,21 @@ export default function App() {
           />
         )}
         <main className="page">
-          {page === "today" && <TodayPage ctx={ctx} />}
-          {page === "week" && <WeekPage ctx={ctx} />}
-          {page === "notes" && <NotesPage ctx={ctx} />}
-          {page === "knowledge" && <KnowledgePage ctx={ctx} solo={solo} />}
-          {page === "settings" && <SettingsPage ctx={ctx} />}
+          {/* `key={page}`：切页时整块重挂载，入场动画随之重播。
+              旧页在同一帧被移除 —— 单边入场，不做交叉淡入（两屏文字叠在一起
+              时中间那一段不可读，代价还是一次双份测量）。 */}
+          <div className="page-stage" key={page}>
+            {page === "today" && <TodayPage ctx={ctx} />}
+            {page === "week" && <WeekPage ctx={ctx} />}
+            {page === "notes" && <NotesPage ctx={ctx} />}
+            {page === "knowledge" && <KnowledgePage ctx={ctx} solo={solo} />}
+            {page === "settings" && <SettingsPage ctx={ctx} />}
+          </div>
         </main>
       </div>
-      {closeAsk ? (
+      {closePresence.mounted ? (
         <CloseConfirmDialog
+          leaving={closePresence.leaving}
           dontAskAgain={dontAskAgain}
           onDontAskAgain={setDontAskAgain}
           onCancel={() => {
@@ -326,12 +366,14 @@ export default function App() {
  * 「取消」和「最小化到托盘」靠右，默认动线是"最小化"。
  */
 function CloseConfirmDialog({
+  leaving,
   dontAskAgain,
   onDontAskAgain,
   onCancel,
   onMinimize,
   onQuit,
 }: {
+  leaving?: boolean;
   dontAskAgain: boolean;
   onDontAskAgain: (v: boolean) => void;
   onCancel: () => void;
@@ -340,6 +382,7 @@ function CloseConfirmDialog({
 }) {
   return (
     <Dialog
+      leaving={leaving}
       title="关闭窗口"
       subtitle="最小化到托盘后应用继续在后台运行，到点仍会提醒；直接退出则停止提醒。"
       width={440}

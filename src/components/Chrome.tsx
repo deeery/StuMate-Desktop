@@ -60,15 +60,14 @@ export const NAV: { key: PageKey; label: string; icon: ComponentType<IconProps> 
  */
 export function BrandRow({ version, collapsed }: { version: string; collapsed: boolean }) {
   return (
-    <div className="brand-row">
+    <div className="brand-row" title={collapsed ? "StuMate LITE" : undefined}>
       <StuMateMark size={26} />
-      {collapsed ? null : (
-        <>
-          <span className="brand">StuMate</span>
-          <span className="brand-tag">LITE</span>
-          <span className="brand-version">v{version}</span>
-        </>
-      )}
+      {/* 收起态**不卸载**这三个 span：条件渲染会让文字在栏宽开始收之前就消失
+          （「先删字、再收栏」），两段动作接不上。这里交给 CSS 的
+          max-width + opacity 一起收拢，见 app.css 过渡层。 */}
+      <span className="brand">StuMate</span>
+      <span className="brand-tag">LITE</span>
+      <span className="brand-version">v{version}</span>
     </div>
   );
 }
@@ -141,12 +140,8 @@ export function Sidebar({
             title={collapsed ? item.label : undefined}
           >
             <Icon size={17} />
-            {collapsed ? null : (
-              <>
-                <span className="nav-label">{item.label}</span>
-                {badge ? <span className="nav-badge">{badge}</span> : null}
-              </>
-            )}
+            <span className="nav-label">{item.label}</span>
+            {badge ? <span className="nav-badge">{badge}</span> : null}
           </button>
         );
       })}
@@ -157,11 +152,11 @@ export function Sidebar({
         title={collapsed ? "展开侧栏" : "收起侧栏"}
       >
         <IconSidebar size={16} />
-        {collapsed ? null : <span className="nav-label">收起侧栏</span>}
+        <span className="nav-label">收起侧栏</span>
       </button>
       <div className="sidebar-foot" title={status}>
         <span className="status-dot" />
-        {collapsed ? null : <span>{status}</span>}
+        <span>{status}</span>
       </div>
     </nav>
   );

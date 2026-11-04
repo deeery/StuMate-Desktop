@@ -85,10 +85,12 @@ button {
   flex: 0 0 auto;
 }
 
+/* 收起态：标识留在原来的水平位置上（16 → 11，差 5px 由 padding 过渡吃掉）。
+   不能继续用 justify-content:center —— 文字宽度收到 0 的过程中，
+   居中的那一组会带着图标一起向右漂，看起来像整排导航在左右跳。 */
 .sidebar.rail .brand-row {
-  padding-left: 0;
-  padding-right: 0;
-  justify-content: center;
+  padding: 8px 11px 16px;
+  justify-content: flex-start;
 }
 
 .brand-row .brand {
@@ -116,9 +118,13 @@ button {
   white-space: nowrap;
 }
 
+/* 收起态不再 display:none：那是「先删字、再收栏」。改成 max-width 收拢（见文件末尾
+   过渡层），文字跟着栏宽一起缩进去。 */
 .sidebar.rail .brand-tag,
 .sidebar.rail .brand-version {
-  display: none;
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
 }
 
 /* 窗口按钮：46×32、在 52 高的页头里垂直居中（原版 CAPTION_BUTTON_* 的取值） */
@@ -234,16 +240,27 @@ button {
   background: var(--accent);
 }
 
+/* 收起态：图标固定在左侧 15px（展开态 16px，差 1px 看不出），
+   不要 justify-content:center —— 文字宽度收向 0 时，居中组会带着图标右漂。 */
 .sidebar.rail .nav-item {
   width: 48px;
-  justify-content: center;
-  padding: 0;
+  padding: 0 0 0 15px;
   gap: 0;
 }
 
-.sidebar.rail .nav-label,
+.sidebar.rail .nav-label {
+  flex: 0 0 auto;
+  max-width: 0;
+  opacity: 0;
+}
+
 .sidebar.rail .nav-badge {
-  display: none;
+  min-width: 0;
+  max-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
 }
 
 .sidebar .grow {
@@ -262,8 +279,13 @@ button {
 }
 
 .sidebar.rail .sidebar-foot {
-  justify-content: center;
-  padding: 10px 0;
+  justify-content: flex-start;
+  padding: 10px 0 10px 20px;
+}
+
+.sidebar.rail .sidebar-foot > span:not(.status-dot) {
+  max-width: 0;
+  opacity: 0;
 }
 
 .status-dot {
@@ -715,7 +737,7 @@ textarea.input {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  animation: notePanelIn var(--dur-normal) var(--ease-fluent);
+  animation: notePanelIn var(--dur-enter) var(--ease-decel) backwards;
 }
 
 @keyframes notePanelIn {
@@ -1539,4 +1561,307 @@ select.input:hover {
  * 静止时和旁边的纯文字链接看不出区别。加一层 hover 才说得清「这是能点的」。 */
 .btn.ghost:hover {
   background: var(--hover);
+}
+
+/* ── 课表右侧详情面板（原版 ClassDetailPanel，268dp 裸列）──────────────
+ * 宽度是瞬时的，不做抽屉拉开：每帧改宽度会让课表网格重新布局，
+ * 课程块的 top/height 过渡跟着抖。入场只动 opacity + translateX。
+ * 复用 .note-panel 的入场曲线，两个右侧面板看起来才是一套东西。 */
+.week-detail {
+  width: 268px;
+  flex: 0 0 268px;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* 滚动条贴着圆角边会被裁掉，留 2px */
+  padding-right: 2px;
+  animation: notePanelIn var(--dur-enter) var(--ease-decel) backwards;
+}
+
+/* 详情行：标签固定 48px，四行左对齐成一条线（原版 DetailRow）。 */
+.detail-row {
+  display: flex;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.detail-row dt {
+  width: 48px;
+  flex: 0 0 48px;
+  margin: 0;
+  color: var(--on-surface-faint);
+}
+
+.detail-row dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--on-surface);
+  word-break: break-word;
+}
+
+.detail-section-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+}
+
+/* ════════════════════════════════════════════════════════════════
+ * v1.7.13 · 过渡层
+ *
+ * 这一版只做一件事：把「切换」从瞬时改成有过程。
+ *
+ * 数值与 Compose 端 `ui/fluent/Motion.kt` 同源（见 tokens.css 的
+ * --dur-enter / --dur-exit / --ease-decel / --ease-accel）：
+ *   入场 160ms、退出 120ms、抬升 6px、侧滑 8px。
+ * 两端并排时，同一个动作的手感必须一样。
+ *
+ * 三条硬约束（与 Compose 端一致，别在这里破例）：
+ *   1. **只动 opacity / transform**。两者都在合成层，不触发重排。
+ *      动 width / height / padding 会让整页每帧重排 —— 而那一帧恰好是用户
+ *      刚点完导航、对卡顿最敏感的时刻。唯一例外是侧栏折叠：它本来就是宽度动画，
+ *      文字要「收进去」只能靠 max-width。
+ *   2. **单边入场，不做交叉淡入**。旧内容与新内容同时存在时，两屏文字在中间
+ *      叠成一片不可读；代价还是一次双份测量。所以旧节点同帧移除，只让新内容浮入。
+ *   3. **稳定态零开销**。动画跑完不再有帧回调，也不挂常驻的 will-change。
+ *
+ * 全部可整段回滚：删掉这一段 + tokens.css 那六个令牌 + 各调用点的 class。
+ * ════════════════════════════════════════════════════════════════ */
+
+/* ── 页面切换 ────────────────────────────────────────────────────
+ * 五个页面是条件渲染：点导航的那一帧旧页被摘掉、新页挂进来。
+ * `key={page}` 让 stage 重新挂载，动画随之重播一次。
+ *
+ * stage 必须与 `.page` 拥有同样的 flex 约束 —— 它现在是唯一子节点，
+ * 少写 flex:1 / min-height:0 会让内容区塌成「刚好装下」的高度，
+ * 长表格不再内部滚动，整页开始外滚。 */
+.page-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* backwards 而不是 both：结束后不保留 transform，避免给内部 fixed/absolute 元素
+     造出新的包含块（比如对话框、右键菜单） */
+  animation: page-in var(--dur-enter) var(--ease-decel) backwards;
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* ── 通用入场 ────────────────────────────────────────────────────
+ * 用在「同一块位置换了内容」的地方：编辑器换了一篇、命中列表换了一批、
+ * 条件字段展开、空态出现。挂载播一次，不常驻。 */
+.enter-fade {
+  animation: enter-fade var(--dur-enter) var(--ease-decel) backwards;
+}
+
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── 右列面板退场 ────────────────────────────────────────────────
+ * 入场沿用原来的 notePanelIn（只动 opacity + translateX），退场是新补的：
+ * 之前 `{panelOpen ? <Panel/> : null}` 在关闭的那一帧就把节点摘掉，
+ * 面板是「噗」地消失的。`usePresence` 把卸载推迟 --dur-exit。 */
+.note-panel.leaving,
+.week-detail.leaving {
+  animation: panel-out var(--dur-exit) var(--ease-accel) forwards;
+  pointer-events: none;
+}
+
+@keyframes panel-out {
+  to {
+    opacity: 0;
+    transform: translateX(var(--motion-slide));
+  }
+}
+
+/* ── 对话框退场 ──────────────────────────────────────────────────
+ * 入场本来就有（fade-in + pop-in），缺的是关闭：点「取消」后整块浮层
+ * 直接消失，连一点收势都没有。遮罩比内容退得略慢，观感才是「内容先收、
+ * 遮罩后散」，反过来会看到内容在空场上闪一下。 */
+.flyout-scrim.leaving {
+  animation: scrim-out var(--dur-exit) var(--ease-accel) forwards;
+}
+
+.dialog.leaving {
+  animation: dialog-out var(--dur-exit) var(--ease-accel) forwards;
+}
+
+@keyframes scrim-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: scale(0.99) translateY(2px);
+  }
+}
+
+/* ── 提示条 ──────────────────────────────────────────────────────
+ * 出现要有「从下方顶上来」的方向感；消失同样需要过程，否则错误提示
+ * 会像被人抽走一样。 */
+.toast-msg {
+  animation: toast-in 180ms var(--ease-decel) backwards;
+}
+
+.toast-msg.leaving {
+  animation: toast-out 140ms var(--ease-accel) forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+}
+
+/* ── 命令面板 ────────────────────────────────────────────────────
+ * Ctrl+P 的浮层：遮罩淡入、面板从 1.5% 缩放里推出来（与对话框同一套语言）。 */
+.qo-mask {
+  animation: fade-in var(--dur-fast) var(--ease-decel) backwards;
+}
+
+.qo-mask.leaving {
+  animation: scrim-out var(--dur-exit) var(--ease-accel) forwards;
+}
+
+.qo-mask.leaving .qo {
+  animation: dialog-out var(--dur-exit) var(--ease-accel) forwards;
+}
+
+.qo {
+  animation: pop-in var(--dur-enter) var(--ease-decel) backwards;
+}
+
+/* ── 主题切换 ────────────────────────────────────────────────────
+ * CSS 变量本身不能过渡，切 data-theme 的那一帧所有颜色一起跳。
+ * 做法是切换前后 240ms 内，给全站临时挂一条「只过渡颜色类属性」的规则。
+ *
+ * 为什么不用 View Transitions API：它要对整页做一次快照 + 交叉淡化，
+ * 在软件渲染的 WebView 里会整屏重绘一遍，比逐元素颜色过渡贵得多，
+ * 而且中间那帧是一张位图，文字会糊。
+ *
+ * 为什么可以临时用 !important：元素上原有的 `transition: background …`
+ * 是简写，会把 transition-property 重置成单个属性，只有 !important 才能盖住。
+ * 代价是这 240ms 内折叠动画会跟着变慢 —— 但没人会在切主题的同一瞬间去收侧栏。
+ * 类由 App.tsx 的 theme effect 挂/摘，只在「第二次及以后」的主题变化时挂。 */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition-property: background-color, border-color, color, fill, stroke !important;
+  transition-duration: 240ms !important;
+  transition-timing-function: var(--ease-decel) !important;
+  transition-delay: 0ms !important;
+}
+
+/* ── 侧栏折叠 ────────────────────────────────────────────────────
+ * 宽度本来就有 200ms 过渡，但文字是 `display:none` 一刀切的：宽度在动、
+ * 文字却已经没了，看起来像「先删字再收栏」。改成 max-width 收拢 + 透明度，
+ * 文字跟着栏宽一起缩进去。
+ *
+ * 图标位置几乎不动是故意的：展开态 padding-left 16、收起态 15，
+ * 差 1px 肉眼不可见 —— 图标要是从 16 滑到 20.5（居中），整排导航会「跳」。 */
+.brand-row {
+  transition: padding var(--dur-normal) var(--ease-decel);
+}
+
+.brand-row .brand,
+.brand-row .brand-tag,
+.brand-row .brand-version,
+.nav-label,
+.nav-badge,
+.sidebar-foot > span:not(.status-dot) {
+  overflow: hidden;
+  transition: opacity 140ms var(--ease-decel),
+    max-width var(--dur-normal) var(--ease-decel),
+    margin var(--dur-normal) var(--ease-decel),
+    padding var(--dur-normal) var(--ease-decel);
+}
+
+.sidebar.rail .brand {
+  max-width: 0;
+  opacity: 0;
+}
+
+.sidebar.rail .brand-tag,
+.sidebar.rail .brand-version {
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
+}
+
+.sidebar.rail .nav-label {
+  flex: 0 0 auto;
+  max-width: 0;
+  opacity: 0;
+}
+
+.sidebar.rail .nav-badge {
+  min-width: 0;
+  max-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.sidebar.rail .sidebar-foot > span:not(.status-dot) {
+  max-width: 0;
+  opacity: 0;
+}
+
+/* ── 知识库 ──────────────────────────────────────────────────────
+ * 树行、命中项都是「按需挂载」的：展开文件夹、敲关键词，新节点直接出现。
+ * 90ms 的淡入足够交代「这几行是刚来的」，又不会让整棵树看起来在呼吸。 */
+.kb-row,
+.kb-hit {
+  animation: enter-fade 100ms var(--ease-decel) backwards;
+}
+
+/* ── 课表课程块 ──────────────────────────────────────────────────
+ * 切周、切「表格 / 列表」时，块是按 id 重新挂载的。只动 opacity：
+ * 块本身是绝对定位的，一旦让它位移，就会和网格线对不齐，看着像「课掉了一格」。 */
+.week-block {
+  animation: enter-fade 140ms var(--ease-decel) backwards;
+}
+
+/* ── 今日表 ──────────────────────────────────────────────────────
+ * 「正在上」是 30 秒轮询算出来的：到点那一行从普通变强调、上一行变已完成。
+ * 没有过渡时，整张表会「啪」地换一套颜色。 */
+.today-row {
+  transition: background-color 140ms var(--ease-decel);
+}
+
+.today-time,
+.today-title,
+.today-room,
+.today-teacher {
+  transition: color 200ms var(--ease-decel);
+}
+
+/* ── 空态 ────────────────────────────────────────────────────────
+ * 列表从「有」到「没有」是条件渲染，空态整块是新挂上来的。 */
+.empty {
+  animation: enter-fade var(--dur-enter) var(--ease-decel) backwards;
 }

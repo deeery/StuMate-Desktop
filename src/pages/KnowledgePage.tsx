@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog } from "../components/ui";
+import { usePresence } from "../components/Presence";
 import { QuickOpen } from "../components/QuickOpen";
 import { VaultTree } from "../components/VaultTree";
 import {
@@ -99,6 +100,24 @@ export function KnowledgePage({
   const revRef = useRef("");
   const tree = useMemo(() => buildTree(entries, sort), [entries, sort]);
   const notes = useMemo(() => flattenNotes(tree), [tree]);
+
+  /**
+   * 三个浮层的退场保留：快速跳转、移动到…、删除确认。
+   *
+   * 关闭时状态同帧置空，节点却还要再画 120ms —— 用 ref 记住最后一份可渲染的
+   * 值，否则退场那一帧会先塌成空白（对话框标题突然变成 undefined）。
+   */
+  const quickPresence = usePresence(quickOpen);
+
+  const movingPresence = usePresence(moving !== null);
+  const retainedMoving = useRef<TreeNode | null>(null);
+  if (moving) retainedMoving.current = moving;
+  const shownMoving = moving ?? retainedMoving.current;
+
+  const deletingPresence = usePresence(deleting !== null);
+  const retainedDeleting = useRef<TreeNode | null>(null);
+  if (deleting) retainedDeleting.current = deleting;
+  const shownDeleting = deleting ?? retainedDeleting.current;
 
   // ── 扫描 ────────────────────────────────────────────────────────
 
@@ -635,6 +654,14 @@ export function KnowledgePage({
           )}
 
           <section className="kb-editor">
+            {/* 换一篇笔记 = 整块内容替换（没有过渡时，标题、正文、状态一行行同时跳变）。
+                `key={open}` 让它重新挂载并播一次淡入；空态与正文用同一个 key 空间，
+                所以「选中一篇」和「关掉返回空态」走的是同一段过渡。 */}
+            <div
+              key={open ?? "__empty"}
+              className="enter-fade"
+              style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+            >
             {open ? (
               <>
                 <div className="kb-head">
@@ -702,6 +729,7 @@ export function KnowledgePage({
                 </span>
               </div>
             )}
+            </div>
           </section>
         </div>
       </div>
@@ -767,8 +795,9 @@ export function KnowledgePage({
         </div>
       ) : null}
 
-      {quickOpen ? (
+      {quickPresence.mounted ? (
         <QuickOpen
+          leaving={quickPresence.leaving}
           notes={notes}
           onPick={(path) => {
             setQuickOpen(false);
@@ -778,9 +807,10 @@ export function KnowledgePage({
         />
       ) : null}
 
-      {moving ? (
+      {movingPresence.mounted && shownMoving ? (
         <Dialog
-          title={`移动「${moving.kind === "note" ? baseTitle(moving.path) : moving.name}」`}
+          leaving={movingPresence.leaving}
+          title={`移动「${shownMoving.kind === "note" ? baseTitle(shownMoving.path) : shownMoving.name}」`}
           subtitle="选一个目标文件夹"
           onClose={() => setMoving(null)}
           width={360}
@@ -798,9 +828,10 @@ export function KnowledgePage({
         </Dialog>
       ) : null}
 
-      {deleting ? (
+      {deletingPresence.mounted && shownDeleting ? (
         <Dialog
-          title={`删除「${deleting.kind === "note" ? baseTitle(deleting.path) : deleting.name}」？`}
+          leaving={deletingPresence.leaving}
+          title={`删除「${shownDeleting.kind === "note" ? baseTitle(shownDeleting.path) : shownDeleting.name}」？`}
           subtitle="会移到库里的 .trash 目录，不会真的删掉文件"
           onClose={() => setDeleting(null)}
           actions={

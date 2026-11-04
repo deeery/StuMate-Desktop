@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Select } from "../components/ui";
+import { usePresence } from "../components/Presence";
 import { IconEdit, IconNote, IconPlus, IconSearch, IconTrash } from "../components/Icons";
 import type { NoteEntity } from "../model/types";
 import { EMPTY_NOTE } from "../model/types";
@@ -147,6 +148,28 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
   const deadlineCount = ctx.notes.filter(hasDeadline).length;
   const panelOpen = creating || selected !== null;
 
+  /**
+   * 面板的「退场保留」。
+   *
+   * 关闭时 `creating` / `selectedId` **同一帧**就置空了，但面板还要再画 120ms。
+   * 直接读当前值会让它先塌成空白再淡出（一帧白框），所以用 ref 记住最后一份
+   * 可渲染的内容与身份（key / isNew）。只在「当前值为空」时才回退到记忆值 ——
+   * 否则切到另一条便签时会先闪一帧上一条。
+   *
+   * 与 Compose 端 `RightPanelTransition` 的 `retained` 是同一个思路。
+   */
+  const panelEntity = creating ? { ...EMPTY_NOTE } : selected;
+  const retainedEntity = useRef<NoteEntity | null>(null);
+  const retainedKey = useRef("creating");
+  const retainedIsNew = useRef(true);
+  if (panelEntity) {
+    retainedEntity.current = panelEntity;
+    retainedKey.current = creating ? "creating" : `edit-${panelEntity.id}`;
+    retainedIsNew.current = creating;
+  }
+  const panelPresence = usePresence(panelOpen);
+  const shownEntity = panelEntity ?? retainedEntity.current;
+
   return (
     <>
       <PageTopBar
@@ -240,11 +263,12 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
         {/* ── 右侧编辑面板 ──
             和原版一样宽 340、与表格间隔 16。收起时**整块不渲染**（不是 display:none）：
             这样面板里的输入状态不会在后台偷偷留着，下次选中新条目时不会看到上一条的残留。 */}
-        {panelOpen ? (
+        {panelPresence.mounted && shownEntity ? (
           <NoteEditorPanel
-            key={creating ? "creating" : `edit-${selectedId}`}
-            entity={creating ? { ...EMPTY_NOTE } : (selected as NoteEntity)}
-            isNew={creating}
+            key={retainedKey.current}
+            leaving={panelPresence.leaving}
+            entity={shownEntity}
+            isNew={panelEntity ? creating : retainedIsNew.current}
             onSave={save}
             onDelete={remove}
             onCancel={closePanel}
@@ -600,12 +624,14 @@ function NoteList({
 function NoteEditorPanel({
   entity,
   isNew,
+  leaving,
   onSave,
   onDelete,
   onCancel,
 }: {
   entity: NoteEntity;
   isNew: boolean;
+  leaving?: boolean;
   onSave: (n: NoteEntity) => void;
   onDelete: (id: number) => void;
   onCancel: () => void;
@@ -632,7 +658,7 @@ function NoteEditorPanel({
   };
 
   return (
-    <div className="note-panel">
+    <div className={`note-panel${leaving ? " leaving" : ""}`}>
       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--on-surface)", paddingBottom: 14 }}>
         {isNew ? "新建便签" : "编辑便签"}
       </div>
@@ -688,8 +714,10 @@ function NoteEditorPanel({
           }
         />
 
+        {/* 分类相关的字段是条件挂载的：从「作业」切到「Deadline」会凭空多出
+            两组输入，直接出现像页面被塞了一下。给整组一个 160ms 的淡入。 */}
         {type.editableLabel ? (
-          <>
+          <div className="enter-fade">
             <PanelLabel top>分类名</PanelLabel>
             <input
               className="input"
@@ -697,11 +725,11 @@ function NoteEditorPanel({
               onChange={(e) => patch({ customLabel: e.target.value })}
               placeholder={type.kind === "deadline" ? "例如「期末论文」" : "例如「科研」"}
             />
-          </>
+          </div>
         ) : null}
 
         {isDeadline ? (
-          <>
+          <div className="enter-fade">
             <PanelLabel top>截止时间</PanelLabel>
             <input
               className="input"
@@ -722,7 +750,7 @@ function NoteEditorPanel({
                 留空也能存，只是不显示倒计时
               </div>
             )}
-          </>
+          </div>
         ) : null}
 
         {draft.typeIndex === NOTE_TYPE_DEADLINE && !draft.deadlineAt ? (
