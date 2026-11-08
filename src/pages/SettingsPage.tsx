@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog, Field, Select, Toggle } from "../components/ui";
+import { RecurringSection } from "../components/RecurringSection";
 import { usePresence } from "../components/Presence";
 import { IconFolder, IconTrash } from "../components/Icons";
 import { api, errorText } from "../api";
@@ -22,6 +23,7 @@ const MODULE_LABELS: Record<string, string> = {
   notes: "便签",
   knowledge: "知识库",
   settings: "设置",
+  recurring: "循环提醒",
 };
 
 /** 数据库里存英文星期名，界面上显示中文 */
@@ -221,6 +223,14 @@ export function SettingsPage({ ctx }: { ctx: AppContextValue }) {
             checked={prefs.notifyEnabled}
             onChange={(v) => void ctx.setPref("notifyEnabled", v)}
           />
+          {/* v1.7.15 补上的「有实现、无 UI」开关：showPopup 一直在 default_prefs
+              里，useReminder 也一直消费它，但此前用户根本配不了。 */}
+          <Toggle
+            label="显示置顶提醒卡片"
+            hint="关掉后只发系统通知；全屏游戏或演示模式下两种通道都会被抑制"
+            checked={prefs.showPopup}
+            onChange={(v) => void ctx.setPref("showPopup", v)}
+          />
           <Row
             label="预览提醒浮窗"
             hint="不用等上课，立刻看一眼浮窗长什么样、弹在哪块屏"
@@ -231,7 +241,23 @@ export function SettingsPage({ ctx }: { ctx: AppContextValue }) {
           </Row>
         </Section>
 
+        {/* 循环提醒：独立组件，规则模型与相位计算都在 model/recurring.ts */}
+        <RecurringSection ctx={ctx} />
+
         <Section title="启动与托盘">
+          {/* 另一个「有实现、无 UI」的键。此前只能靠关闭确认框里的
+              「下次不再提问」隐式写入，最小化到托盘这条路径没有入口。 */}
+          <Row label="关闭按钮行为" hint="最小化到托盘后提醒继续在后台运行">
+            <Select<number>
+              value={prefs.closeAction}
+              options={[
+                { value: 0, label: "每次询问" },
+                { value: 1, label: "最小化到托盘" },
+                { value: 2, label: "直接退出" },
+              ]}
+              onChange={(v) => void setNumber("closeAction", v)}
+            />
+          </Row>
           <Toggle
             label="开机自启"
             hint="写入 HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
@@ -519,7 +545,7 @@ function BackupDialog({
   onClose: () => void;
 }) {
   const [modules, setModules] = useState<Set<string>>(
-    new Set(["courses", "notes", "knowledge", "settings"]),
+    new Set(["courses", "notes", "knowledge", "settings", "recurring"]),
   );
   const [busy, setBusy] = useState(false);
 
@@ -621,7 +647,14 @@ function ImportDialog({
     setBusy(true);
     try {
       const message = await api.backupImport(path, [...modules]);
-      await Promise.all([ctx.reloadClasses(), ctx.reloadNotes(), ctx.reloadKnowledge()]);
+      await Promise.all([
+        ctx.reloadClasses(),
+        ctx.reloadNotes(),
+        ctx.reloadKnowledge(),
+        // 循环提醒是整表替换，导入后内存里的规则必须跟着换，否则下一次
+        // 轮询会用旧规则的 lastFiredAt 覆盖刚导入的存档
+        ctx.reloadRecurring(),
+      ]);
       ctx.toast(message);
       onClose();
     } catch (err) {

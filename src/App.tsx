@@ -12,6 +12,7 @@ import { Sidebar, WindowControls, type PageKey } from "./components/Chrome";
 import { Checkbox, Dialog, ToastHost, type ToastMessage } from "./components/ui";
 import { usePresence } from "./components/Presence";
 import { useReminder } from "./useReminder";
+import type { RecurringItem } from "./model/recurring";
 import type {
   ClassEntity,
   KnowledgeEntity,
@@ -36,12 +37,17 @@ export interface AppContextValue {
   notes: NoteEntity[];
   knowledge: KnowledgeEntity[];
   links: LinkRef[];
+  /** 循环提醒规则（recurring.json，Lite 专属） */
+  recurring: RecurringItem[];
   reloadClasses: () => Promise<void>;
   reloadNotes: () => Promise<void>;
   reloadKnowledge: () => Promise<void>;
   reloadLinks: () => Promise<void>;
+  reloadRecurring: () => Promise<void>;
   /** 就地保存附件列表：写盘 + 更新内存，页面不必等一次全量 reload */
   saveLinks: (links: LinkRef[]) => Promise<void>;
+  /** 就地保存规则列表：轮询每秒都可能改 lastFiredAt，不能等全量 reload */
+  saveRecurring: (items: RecurringItem[]) => Promise<void>;
   toast: (text: string, tone?: "info" | "error") => void;
   theme: "light" | "dark";
 }
@@ -53,6 +59,7 @@ export default function App() {
   const [notes, setNotes] = useState<NoteEntity[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeEntity[]>([]);
   const [links, setLinks] = useState<LinkRef[]>([]);
+  const [recurring, setRecurring] = useState<RecurringItem[]>([]);
   const [page, setPage] = useState<PageKey>("today");
   const [bootError, setBootError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -88,29 +95,46 @@ export default function App() {
     const payload = await api.linksLoad();
     setLinks(Array.isArray(payload?.links) ? payload.links : []);
   }, []);
+  const reloadRecurring = useCallback(async () => {
+    const payload = await api.recurringLoad();
+    setRecurring(Array.isArray(payload?.items) ? payload.items : []);
+  }, []);
   const saveLinks = useCallback(async (next: LinkRef[]) => {
     await api.linksSave(next);
     setLinks(next);
+  }, []);
+  const saveRecurring = useCallback(async (next: RecurringItem[]) => {
+    await api.recurringSave(next);
+    setRecurring(next);
   }, []);
 
   useEffect(() => {
     (async () => {
       try {
-        const [appInfo, prefsValue, classList, noteList, knowledgeList, linkPayload] =
-          await Promise.all([
-            api.appInfo(),
-            api.prefs(),
-            api.classes(),
-            api.notes(),
-            api.knowledge(),
-            api.linksLoad(),
-          ]);
+        const [
+          appInfo,
+          prefsValue,
+          classList,
+          noteList,
+          knowledgeList,
+          linkPayload,
+          recurringPayload,
+        ] = await Promise.all([
+          api.appInfo(),
+          api.prefs(),
+          api.classes(),
+          api.notes(),
+          api.knowledge(),
+          api.linksLoad(),
+          api.recurringLoad(),
+        ]);
         setInfo(appInfo);
         setPrefs(prefsValue);
         setClasses(classList);
         setNotes(noteList);
         setKnowledge(knowledgeList);
         setLinks(Array.isArray(linkPayload?.links) ? linkPayload.links : []);
+        setRecurring(Array.isArray(recurringPayload?.items) ? recurringPayload.items : []);
       } catch (err) {
         setBootError(errorText(err));
       }
@@ -172,8 +196,15 @@ export default function App() {
     [dontAskAgain, toast],
   );
 
-  // 上课提醒轮询：托盘状态、置顶卡片、系统通知都由它驱动
-  const { checkNow } = useReminder(classes, prefs, Boolean(info && prefs), toast);
+  // 提醒轮询：上课提醒与循环提醒共用托盘状态、置顶卡片、系统通知三通道
+  const { checkNow } = useReminder(
+    classes,
+    prefs,
+    Boolean(info && prefs),
+    toast,
+    recurring,
+    saveRecurring,
+  );
 
   // 关闭确认框的退场：`closeAsk` 变 false 之后还要留 120ms 播收起动画。
   // 必须在所有 early return 之前调用 —— 否则 hooks 顺序会在「启动中」和
@@ -304,11 +335,14 @@ export default function App() {
     notes,
     knowledge,
     links,
+    recurring,
     reloadClasses,
     reloadNotes,
     reloadKnowledge,
     reloadLinks,
+    reloadRecurring,
     saveLinks,
+    saveRecurring,
     toast,
     theme,
   };

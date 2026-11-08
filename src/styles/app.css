@@ -2151,3 +2151,158 @@ html.theme-switching *::after {
   color: var(--on-surface);
   font-family: var(--font-mono);
 }
+
+/* ── v1.7.15 · 循环提醒 ────────────────────────────────────────────
+ * 整段追加在文件末尾，回滚时删掉这一段即可。只用 tokens.css 的变量，
+ * 浅深两套主题自动跟着走。规则行的动作按钮沿用 .btn.ghost.sm（v1.7.14 已定义）。 */
+
+.rec-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 10px;
+}
+
+.rec-head-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+  letter-spacing: 0.2;
+}
+
+.rec-head-hint {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  line-height: 1.6;
+}
+
+.rec-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.rec-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--outline);
+}
+
+.rec-row.rec-off .rec-main {
+  opacity: 0.55;
+}
+
+.rec-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.rec-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.rec-body {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.rec-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  user-select: none;
+}
+
+.rec-switch input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.rec-error {
+  padding: 6px 0 10px;
+  font-size: 11px;
+  color: var(--error);
+}
+
+.rec-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rec-inline {
+  display: flex;
+  gap: 12px;
+}
+
+.rec-inline > .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.rec-weekdays {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.rec-weekday {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rec-weekday.on {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.rec-weekday input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.rec-weekday:has(input:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}

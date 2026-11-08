@@ -38,6 +38,9 @@ pub const LABEL: &str = "overlay";
 /// 提醒内容更新时发的事件（窗口已存在的情况）。
 pub const EVENT_UPDATE: &str = "stumate://overlay-update";
 
+/// 浮窗上点了「跳过本次」。载荷 `{ ruleId }`，由主窗口收下后推进相位。
+pub const EVENT_SKIP: &str = "stumate://recurring-skip";
+
 /// 卡片尺寸（逻辑像素），取自原版 `CARD_WIDTH/CARD_HEIGHT = 460x176 dp`。
 const CARD_W: f64 = 460.0;
 const CARD_H: f64 = 176.0;
@@ -354,6 +357,24 @@ pub fn overlay_hide(app: AppHandle, state: State<'_, AppState>) {
     if let Some(win) = app.get_webview_window(LABEL) {
         let _ = win.hide();
     }
+}
+
+/// 浮窗上点了「跳过本次」。
+///
+/// **这里不碰 `recurring.json`**：相位推进（`skipOnce`）只有前端一份实现，
+/// Rust 再把规则解析一遍就会出现第二份各自演化的逻辑。所以只把 ruleId
+/// 广播回主窗口，由 `useReminder` 收下后改 `lastFiredAt` 并落盘。
+/// 事件是全局 emit，主窗口与子窗口都能收到，谁拿着规则谁处理。
+#[tauri::command]
+pub fn overlay_skip(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    rule_id: String,
+) -> Result<(), String> {
+    app.emit(EVENT_SKIP, serde_json::json!({ "ruleId": rule_id }))
+        .map_err(|e| format!("跳过本次事件发不出去：{e}"))?;
+    overlay_hide(app, state);
+    Ok(())
 }
 
 /// 当前是否被「全屏 / 演示 / 免打扰」拦住。

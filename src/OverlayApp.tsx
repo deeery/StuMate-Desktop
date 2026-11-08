@@ -29,6 +29,27 @@ export function OverlayApp() {
     void api.overlayHide();
   }, []);
 
+  // 主题：main.tsx 先按系统偏好给了个同步默认值，这里再按用户的真实设置纠正。
+  // 浮窗没有 App.tsx 那一层主题 effect，只能自己读一次 prefs。
+  useEffect(() => {
+    let alive = true;
+    api
+      .prefs()
+      .then((p) => {
+        if (!alive) return;
+        const mode = p.themeMode ?? 0;
+        const dark =
+          mode === 2 ||
+          (mode === 0 &&
+            (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false));
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // 挂载后主动取一帧：窗口是新建的，创建时 emit 的事件早于监听注册，会丢
   useEffect(() => {
     let alive = true;
@@ -80,6 +101,16 @@ export function OverlayApp() {
 
   const view = overlayView(alert, now);
   const timeRange = `${formatClock(alert.startMillis)} – ${formatClock(alert.endMillis)}`;
+  // 循环提醒复用同一张卡片：区间退化让 overlayView 自动不显示倒计时/进度，
+  // 这里只换一行标题、把副标题从「时间·教室」换成正文字，并多一个按钮。
+  // 刻意不新建窗口、不改 460×176 尺寸、不给 alert 加 kind 字段。
+  const isRecurring = Boolean(alert.recurringId);
+  const phase = isRecurring ? "循环提醒" : view.phase;
+  const subtitle = isRecurring
+    ? alert.room || "按设定的规律重复提醒"
+    : alert.room
+      ? `${timeRange}   ·   ${alert.room}`
+      : timeRange;
 
   return (
     <div
@@ -112,10 +143,10 @@ export function OverlayApp() {
                 color: "var(--accent)",
               }}
             >
-              {view.phase}
+              {phase}
             </span>
             <span style={{ flex: 1 }} />
-            {view.countdown ? (
+            {!isRecurring && view.countdown ? (
               <span style={{ fontSize: 12, color: "var(--on-surface-variant)" }}>
                 {view.countdown}
               </span>
@@ -144,7 +175,7 @@ export function OverlayApp() {
               textOverflow: "ellipsis",
             }}
           >
-            {alert.room ? `${timeRange}   ·   ${alert.room}` : timeRange}
+            {subtitle}
           </div>
         </div>
       </div>
@@ -174,10 +205,21 @@ export function OverlayApp() {
 
       <div style={{ height: 14 }} />
 
-      <div>
+      <div style={{ display: "flex", gap: 8 }}>
         <button className="btn primary" onClick={dismiss}>
           知道了
         </button>
+        {isRecurring ? (
+          <button
+            className="btn ghost"
+            onClick={() => {
+              // Rust 侧会广播 ruleId 并顺手收窗；相位推进由主窗口做
+              void api.overlaySkip(alert.recurringId!);
+            }}
+          >
+            跳过本次
+          </button>
+        ) : null}
       </div>
     </div>
   );

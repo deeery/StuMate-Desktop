@@ -18,6 +18,7 @@ import type {
 import { mindNodeFromDisk, mindNodeToDisk } from "./model/mindMap";
 import type { MindNodeWire } from "./model/mindMap";
 import type { ReminderAlert } from "./model/reminder";
+import type { RecurringItem } from "./model/recurring";
 
 /** 待落盘的一篇笔记：相对 vault 根的路径 + 全文 */
 export interface VaultFilePayload {
@@ -120,6 +121,12 @@ export const api = {
   linksLoad: () => invoke<{ version: number; links: LinkRef[] }>("links_load"),
   linksSave: (links: LinkRef[]) => invoke<void>("links_save", { links }),
 
+  // 循环提醒（recurring.json，Lite 专属旁路存档）
+  recurringLoad: () =>
+    invoke<{ version: number; items: RecurringItem[] }>("recurring_load"),
+  /** 整份写回。规则模型只有前端一份，Rust 不解析字段 */
+  recurringSave: (items: RecurringItem[]) => invoke<void>("recurring_save", { items }),
+
   // 备份
   backupExport: (modules: string[], path: string) =>
     invoke<string>("backup_export", { modules, path }),
@@ -201,6 +208,8 @@ export const api = {
   /** 窗口新建时事件会丢，页面挂载后主动取一帧 */
   overlayState: () => invoke<ReminderAlert | null>("overlay_state"),
   overlayHide: () => invoke<void>("overlay_hide"),
+  /** 浮窗「跳过本次」：把规则 id 广播回主窗口推进相位，随后收起卡片 */
+  overlaySkip: (ruleId: string) => invoke<void>("overlay_skip", { ruleId }),
   /** 当前被「全屏游戏 / 演示模式 / 免打扰」拦住的原因；null = 可以提醒 */
   notifyBlocked: () => invoke<string | null>("notify_blocked"),
   trayStatus: (title: string, detail: string) => invoke<void>("tray_status", { title, detail }),
@@ -214,6 +223,13 @@ export function onOverlayUpdate(handler: (alert: ReminderAlert) => void): Promis
 /** 托盘菜单「立即检查一次」 */
 export function onCheckNow(handler: () => void): Promise<UnlistenFn> {
   return listen("stumate://check-now", () => handler());
+}
+
+/** 浮窗上点了「跳过本次」，由主窗口收下并推进该规则的相位 */
+export function onRecurringSkip(
+  handler: (payload: { ruleId: string }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ ruleId: string }>("stumate://recurring-skip", (e) => handler(e.payload));
 }
 
 /**

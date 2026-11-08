@@ -1,8 +1,12 @@
-//! 旁路 JSON 存档：偏好设置、思维导图、知识库附件。
+//! 旁路 JSON 存档：偏好设置、思维导图、知识库附件、循环提醒。
 //!
-//! 原版把这三样都放在 `%APPDATA%\StuMate\` 下的 JSON 文件里（不落库，理由是
+//! 原版把前三样都放在 `%APPDATA%\StuMate\` 下的 JSON 文件里（不落库，理由是
 //! 落库要涨 `user_version`，安卓端 Room 就打不开这个库了 —— 见原版 `MindMap.kt` 顶部）。
 //! Lite 沿用同一份文件格式，**导图与附件完全共用**，两版改完互相看得见。
+//!
+//! `recurring.json` 是 Lite 专属的第四份：安卓端 `AppDatabase.kt` 用的是
+//! `fallbackToDestructiveMigration()`，Lite 单方面 bump schema 会让安卓打开库时清库，
+//! 所以循环规则绝不进 DB。它也不与原版共用 —— 原版没有这套规则模型。
 //!
 //! 唯一的例外是偏好设置：Lite 写 `settings.lite.json`，不写原版的 `settings.json`。
 //! 原因是两版有各自专属的项（原版有 `renderApi` 渲染后端，Lite 没有；Lite 有侧栏宽度等），
@@ -23,6 +27,7 @@ pub struct Paths {
     pub settings_original: PathBuf,
     pub mindmap: PathBuf,
     pub links: PathBuf,
+    pub recurring: PathBuf,
 }
 
 impl Paths {
@@ -40,6 +45,7 @@ impl Paths {
             settings_original: data_dir.join("settings.json"),
             mindmap: data_dir.join("mindmap.json"),
             links: data_dir.join("knowledge_links.json"),
+            recurring: data_dir.join("recurring.json"),
             data_dir,
         }
     }
@@ -153,4 +159,81 @@ pub fn load_links(paths: &Paths) -> Value {
 pub fn save_links(paths: &Paths, links: Value) -> Result<(), String> {
     let payload = serde_json::json!({ "version": 1, "links": links });
     write_json_atomic(&paths.links, &payload)
+}
+
+/// 循环提醒规则。
+///
+/// 内部项整体当作 `Value` 透传：**规则模型只在前端 `model/recurring.ts` 有一份实现**，
+/// Rust 不解析 `kind` / `anchor` / `lastFiredAt`，这样以后加规则类型不用两端同步改结构。
+/// 坏档当空档但不删原文件（与 `load_mindmap` 同一策略）。
+pub fn load_recurring(paths: &Paths) -> Value {
+    match read_json(&paths.recurring) {
+        Some(Value::Object(o)) if o.get("items").map(|v| v.is_array()).unwrap_or(false) => {
+            Value::Object(o)
+        }
+        _ => serde_json::json!({ "version": 1, "items": [] }),
+    }
+}
+
+pub fn save_recurring(paths: &Paths, items: Value) -> Result<(), String> {
+    let payload = serde_json::json!({ "version": 1, "items": items });
+    write_json_atomic(&paths.recurring, &payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_paths(tag: &str) -> Paths {
+        let dir = std::env::temp_dir().join(format!("stumate-store-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Paths {
+            data_dir: dir.clone(),
+            db: dir.join("class_reminder.db"),
+            settings: dir.join("settings.lite.json"),
+            settings_original: dir.join("settings.json"),
+            mindmap: dir.join("mindmap.json"),
+            links: dir.join("knowledge_links.json"),
+            recurring: dir.join("recurring.json"),
+        }
+    }
+
+    #[test]
+    fn recurring_roundtrip_keeps_opaque_rule_shape() {
+        let p = temp_paths("roundtrip");
+        assert_eq!(load_recurring(&p)["items"].as_array().unwrap().len(), 0);
+
+        // 规则里的嵌套字段 Rust 完全不认识，必须原样往返
+        let items = serde_json::json!([{
+            "id": "r1", "title": "起身活动", "enabled": true,
+            "rule": { "kind": "interval", "minutes": 45, "anchor": 1762588800000i64 },
+            "lastFiredAt": 1762588800000i64, "endAt": null
+        }]);
+        save_recurring(&p, items.clone()).unwrap();
+        let loaded = load_recurring(&p);
+        assert_eq!(loaded["version"], 1);
+        assert_eq!(loaded["items"], items);
+        assert_eq!(loaded["items"][0]["rule"]["kind"], "interval");
+        let _ = std::fs::remove_dir_all(&p.data_dir);
+    }
+
+    #[test]
+    fn recurring_corrupt_file_is_treated_as_empty_but_preserved() {
+        let p = temp_paths("corrupt");
+        std::fs::write(&p.recurring, "{ 这不是 JSON").unwrap();
+        let loaded = load_recurring(&p);
+        assert_eq!(loaded["items"].as_array().unwrap().len(), 0);
+        assert!(p.recurring.is_file(), "坏档不能被静默覆盖掉");
+        let _ = std::fs::remove_dir_all(&p.data_dir);
+    }
+
+    #[test]
+    fn recurring_write_leaves_no_tmp_file() {
+        let p = temp_paths("atomic");
+        save_recurring(&p, serde_json::json!([])).unwrap();
+        assert!(p.recurring.is_file());
+        assert!(!p.data_dir.join("recurring.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&p.data_dir);
+    }
 }

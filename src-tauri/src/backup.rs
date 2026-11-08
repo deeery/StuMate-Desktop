@@ -30,7 +30,10 @@ pub const FORMAT: &str = "stumate-backup";
 pub const SCHEMA: i32 = 3;
 pub const APP: &str = "StuMate-Lite";
 
-pub const MODULE_KEYS: [&str; 4] = ["courses", "notes", "knowledge", "settings"];
+/// v1.7.15 起多一个 `recurring`。**SCHEMA 保持 3**：安卓 / Compose 的
+/// `Backup.kt` 用 `BackupModule.byKey(key)?.let { ... }`，未知键静默忽略，
+/// 且只校验 `format`、不校验 `schema` —— 所以旧客户端导入新备份不会报错、不丢数据。
+pub const MODULE_KEYS: [&str; 5] = ["courses", "notes", "knowledge", "settings", "recurring"];
 
 /// 剥掉 frontmatter，取出 `stumate_uid` 和正文。
 ///
@@ -132,7 +135,7 @@ pub fn vault_knowledge(prefs: &Value) -> Option<Vec<KnowledgeEntity>> {
     Some(out)
 }
 
-pub fn build(db: &Db, prefs: &Value, modules: &[String]) -> Result<Value, String> {
+pub fn build(db: &Db, paths: &Paths, prefs: &Value, modules: &[String]) -> Result<Value, String> {
     let mut out = Map::new();
     for key in MODULE_KEYS {
         if !modules.iter().any(|m| m == key) {
@@ -175,6 +178,14 @@ pub fn build(db: &Db, prefs: &Value, modules: &[String]) -> Result<Value, String
                 "weekGrid": prefs.get("weekGrid").cloned().unwrap_or(json!(true)),
                 "experimentalGrid": true
             }),
+            "recurring" => {
+                // 独立模块、整表替换。不塞进 settings：那边是「逐键合并」语义，
+                // 塞进去会让导入与本机规则混成一团，且一个键要装整个数组。
+                let payload = crate::store::load_recurring(paths);
+                let items = payload.get("items").cloned().unwrap_or(json!([]));
+                let count = items.as_array().map(|a| a.len()).unwrap_or(0);
+                json!({ "count": count, "items": items })
+            }
             _ => continue,
         };
         out.insert(key.to_string(), value);
@@ -195,6 +206,8 @@ pub struct ImportReport {
     pub notes: usize,
     pub knowledge: usize,
     pub settings: bool,
+    /// 导入的循环提醒条数；没选该模块时为 0
+    pub recurring: usize,
 }
 
 pub fn apply(
@@ -219,6 +232,7 @@ pub fn apply(
         notes: 0,
         knowledge: 0,
         settings: false,
+        recurring: 0,
     };
 
     if wanted("courses") {
@@ -282,6 +296,18 @@ pub fn apply(
                 k.id = 0;
                 db.save_knowledge(k)?;
             }
+        }
+    }
+
+    if wanted("recurring") {
+        if let Some(items) = all
+            .get("recurring")
+            .and_then(|v| v.get("items"))
+            .and_then(|v| v.as_array())
+        {
+            // 整表替换：与 courses/notes/knowledge 一致，不合并、不保留本机独有项
+            crate::store::save_recurring(paths, Value::Array(items.clone()))?;
+            report.recurring = items.len();
         }
     }
 
@@ -390,6 +416,82 @@ mod tests {
         let value = serde_json::to_value(newton).unwrap();
         assert_eq!(value.as_object().unwrap().len(), 9);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    fn temp_env(tag: &str) -> (std::path::PathBuf, Paths, crate::db::Db) {
+        let dir = std::env::temp_dir().join(format!(
+            "stumate-backup-rec-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(vault::SUB_DIR)).unwrap();
+        let paths = Paths {
+            data_dir: dir.clone(),
+            db: dir.join("class_reminder.db"),
+            settings: dir.join("settings.lite.json"),
+            settings_original: dir.join("settings.json"),
+            mindmap: dir.join("mindmap.json"),
+            links: dir.join("knowledge_links.json"),
+            recurring: dir.join("recurring.json"),
+        };
+        let db = crate::db::Db::open(&paths.db).unwrap();
+        (dir, paths, db)
+    }
+
+    #[test]
+    fn recurring_module_is_the_fifth_and_keeps_schema_3() {
+        assert_eq!(MODULE_KEYS.len(), 5);
+        assert!(MODULE_KEYS.contains(&"recurring"));
+        // 旧客户端只校验 format、对未知模块键静默忽略；schema 一旦改动
+        // 就可能触发老解码器的分支，所以这一版必须继续是 3。
+        assert_eq!(SCHEMA, 3);
+        assert_eq!(FORMAT, "stumate-backup");
+    }
+
+    #[test]
+    fn recurring_module_roundtrips_with_whole_table_replacement() {
+        let (dir, paths, db) = temp_env("round");
+        let items = json!([{
+            "id": "r1", "title": "起身活动", "body": "别一直坐着",
+            "enabled": true,
+            "rule": { "kind": "interval", "minutes": 45, "anchor": 1762588800000i64 },
+            "endAt": null, "lastFiredAt": 0, "createdAt": 1762588800000i64
+        }]);
+        crate::store::save_recurring(&paths, items.clone()).unwrap();
+
+        let wanted = vec!["recurring".to_string()];
+        let payload = build(&db, &paths, &json!({}), &wanted).unwrap();
+        assert_eq!(payload["schema"], 3);
+        assert_eq!(payload["modules"]["recurring"]["count"], 1);
+        assert_eq!(payload["modules"]["recurring"]["items"], items);
+        // describe() 不需要认识新模块，按 count 自动出预览
+        assert_eq!(describe(&payload)["modules"]["recurring"]["count"], 1);
+
+        // 本机另有一条规则 → 导入后应被整表替换掉，不是合并
+        crate::store::save_recurring(&paths, json!([{ "id": "local-only" }])).unwrap();
+        let report = apply(&db, &paths, &payload, &wanted).unwrap();
+        assert_eq!(report.recurring, 1);
+        let after = crate::store::load_recurring(&paths);
+        assert_eq!(after["version"], 1);
+        assert_eq!(after["items"], items);
+        assert_eq!(after["items"].as_array().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn not_selecting_recurring_leaves_local_rules_untouched() {
+        let (dir, paths, db) = temp_env("untouched");
+        let local = json!([{ "id": "local-only" }]);
+        crate::store::save_recurring(&paths, local.clone()).unwrap();
+        let payload = json!({
+            "format": FORMAT,
+            "schema": SCHEMA,
+            "modules": { "recurring": { "count": 1, "items": [{ "id": "from-backup" }] } }
+        });
+        let report = apply(&db, &paths, &payload, &["settings".to_string()]).unwrap();
+        assert_eq!(report.recurring, 0);
+        assert_eq!(crate::store::load_recurring(&paths)["items"], local);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

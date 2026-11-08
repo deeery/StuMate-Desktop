@@ -36,6 +36,14 @@ export interface ReminderAlert {
   endMillis: number;
   /** true = 已经在上课（上课铃已响），false = 马上要上课 */
   ongoing: boolean;
+  /**
+   * v1.7.15 循环提醒：非空表示这一帧来自某条规则，浮窗据此显示「跳过本次」。
+   * 上课提醒一律不写这个字段。
+   *
+   * 刻意不新增 `kind` / 独立结构：Rust 侧把 alert 当 `Value` 原样透传，
+   * 浮窗仍是同一张 460×176 卡片，用标题文字区分来源就够了。
+   */
+  recurringId?: string;
 }
 
 export interface ReminderDecision {

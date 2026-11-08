@@ -237,6 +237,24 @@ fn links_save(state: State<'_, AppState>, links: Vec<LinkRef>) -> Result<(), Str
     store::save_links(&state.paths, value)
 }
 
+// ── 循环提醒（`recurring.json`，Lite 专属旁路存档）──────────────────
+//
+// 规则的类型定义只在 `src/model/recurring.ts` 一处。Rust 把整条规则当
+// `Value` 透传，不解析 kind / anchor / lastFiredAt —— 以后加规则类型不必
+// 两端同时改结构。判定与相位推进也全在前端，理由同 `model/reminder.ts`：
+// 同一套规则不该有两份各自演化的实现。
+
+#[tauri::command]
+fn recurring_load(state: State<'_, AppState>) -> Value {
+    store::load_recurring(&state.paths)
+}
+
+#[tauri::command]
+fn recurring_save(state: State<'_, AppState>, items: Vec<Value>) -> Result<(), String> {
+    let value = serde_json::to_value(items).map_err(|e| e.to_string())?;
+    store::save_recurring(&state.paths, value)
+}
+
 // ── 备份 ──────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -245,7 +263,7 @@ fn backup_export(
     modules: Vec<String>,
     path: String,
 ) -> Result<String, String> {
-    let payload = backup::build(&state.db, &state.prefs_snapshot(), &modules)?;
+    let payload = backup::build(&state.db, &state.paths, &state.prefs_snapshot(), &modules)?;
     let target = std::path::PathBuf::from(&path);
     store::write_json_atomic(&target, &payload)?;
     Ok(target.display().to_string())
@@ -274,10 +292,11 @@ fn backup_import(
         }
     }
     Ok(format!(
-        "已导入：课程 {} 条、便签 {} 条、知识 {} 条{}",
+        "已导入：课程 {} 条、便签 {} 条、知识 {} 条、循环提醒 {} 条{}",
         report.courses,
         report.notes,
         report.knowledge,
+        report.recurring,
         if report.settings { "、设置" } else { "" }
     ))
 }
@@ -877,6 +896,8 @@ pub fn run() {
             mind_save,
             links_load,
             links_save,
+            recurring_load,
+            recurring_save,
             backup_export,
             backup_inspect,
             backup_import,
@@ -912,6 +933,7 @@ pub fn run() {
             overlay::overlay_show,
             overlay::overlay_state,
             overlay::overlay_hide,
+            overlay::overlay_skip,
             overlay::notify_blocked,
         ])
         .run(tauri::generate_context!())

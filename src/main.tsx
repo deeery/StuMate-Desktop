@@ -14,6 +14,18 @@ import "./styles/app.css";
  */
 const isOverlay = new URLSearchParams(window.location.search).get("overlay") === "1";
 
+if (isOverlay) {
+  // 浮窗是**独立 webview**，没有 App.tsx 来落地 `data-theme`。
+  // tokens.css 的两套变量都挂在 [data-theme] 上，不设就一套都不生效：
+  // 卡片会变纯白、.btn.primary 变成无底无边的一行字（v1.7.15 真机截图发现）。
+  // 先按系统偏好给个同步默认值，OverlayApp 挂载后再按 prefs.themeMode 纠正。
+  document.documentElement.dataset.theme = window.matchMedia?.(
+    "(prefers-color-scheme: dark)",
+  ).matches
+    ? "dark"
+    : "light";
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>{isOverlay ? <OverlayApp /> : <App />}</React.StrictMode>,
 );
