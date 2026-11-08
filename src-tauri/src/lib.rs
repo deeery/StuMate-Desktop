@@ -426,6 +426,33 @@ fn vault_trash(base: String, rel: String) -> Result<String, String> {
     vault::trash(&root, &rel)
 }
 
+// 回收站（v1.7.14）：删除只挪进 .trash，这四个命令让界面能真的找回 / 清掉。
+// `name` 是 `.trash` 里的纯文件名，路径合法性由 vault.rs 逐个校验。
+
+#[tauri::command]
+fn vault_trash_list(base: String) -> Result<Vec<vault::TrashItem>, String> {
+    let root = vault::sub_root(std::path::Path::new(&base))?;
+    Ok(vault::trash_list(&root))
+}
+
+#[tauri::command]
+fn vault_trash_restore(base: String, name: String) -> Result<String, String> {
+    let root = vault::sub_root(std::path::Path::new(&base))?;
+    vault::trash_restore(&root, &name)
+}
+
+#[tauri::command]
+fn vault_trash_purge(base: String, name: String) -> Result<(), String> {
+    let root = vault::sub_root(std::path::Path::new(&base))?;
+    vault::trash_purge(&root, &name)
+}
+
+#[tauri::command]
+fn vault_trash_empty(base: String) -> Result<usize, String> {
+    let root = vault::sub_root(std::path::Path::new(&base))?;
+    vault::trash_empty(&root)
+}
+
 /// 全文搜索。不做索引，理由见 `vault::grep`。
 #[tauri::command]
 fn vault_grep(base: String, needle: String) -> Result<Vec<vault::GrepHit>, String> {
@@ -869,6 +896,10 @@ pub fn run() {
             vault_mkdir,
             vault_rename,
             vault_trash,
+            vault_trash_list,
+            vault_trash_restore,
+            vault_trash_purge,
+            vault_trash_empty,
             vault_grep,
             open_knowledge_window,
             open_markdown_window,

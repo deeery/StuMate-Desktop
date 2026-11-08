@@ -1865,3 +1865,289 @@ html.theme-switching *::after {
 .empty {
   animation: enter-fade var(--dur-enter) var(--ease-decel) backwards;
 }
+
+/* ── v1.7.14 · 知识库补全（导图 / 附件 / 回收站 / 同名确认）─────────
+ * 整段追加在文件末尾，回滚时删掉这一段即可，不动上面任何一行。
+ * 只用 tokens.css 的变量，浅深两套主题自动跟着走。 */
+
+.btn.sm {
+  height: 24px;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.btn.danger-text {
+  color: var(--error);
+}
+
+/* 列表 / 导图分段控件 */
+.kb-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+}
+
+.kb-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: none;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent),
+    color var(--dur-fast) var(--ease-fluent);
+}
+
+.kb-view-btn:hover {
+  background: var(--hover);
+  color: var(--on-surface);
+}
+
+.kb-view-btn.on {
+  background: var(--surface);
+  color: var(--on-surface);
+  box-shadow: 0 1px 2px var(--scrim);
+}
+
+/* 导图：工具栏 + 画布 + 脚注。画布根节点自带 flex:1 / minHeight:0 */
+.kb-map {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.kb-map-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--outline);
+  background: var(--surface);
+}
+
+.kb-map-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+}
+
+.kb-map-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--outline);
+}
+
+.kb-map-foot {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-top: 1px solid var(--outline);
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  background: var(--surface);
+}
+
+/* 附件：贴在编辑器底部，正文 textarea 仍占 flex:1 */
+.kb-links {
+  flex: 0 0 auto;
+  max-height: 168px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--outline);
+  background: var(--surface);
+}
+
+.kb-links-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.kb-links-count {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--surface3);
+  font-size: 10px;
+  text-align: center;
+}
+
+.kb-links-hint {
+  padding: 0 12px 6px;
+  font-size: 10.5px;
+  color: var(--warning);
+}
+
+.kb-links-empty {
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+}
+
+.kb-links-list {
+  overflow: auto;
+  padding: 0 12px 8px;
+}
+
+.kb-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+}
+
+.kb-link-kind {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: var(--radius-small);
+  background: var(--surface3);
+  color: var(--on-surface-variant);
+  font-size: 10px;
+}
+
+.kb-link-kind.web {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.kb-link-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: none;
+  background: transparent;
+  color: var(--on-surface);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.kb-link-name:hover {
+  color: var(--accent);
+}
+
+/* 回收站 */
+.kb-trash-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-control);
+  background: var(--error-tint);
+  font-size: 12px;
+}
+
+.kb-trash-confirm > span {
+  flex: 1 1 100%;
+}
+
+.kb-trash-error {
+  margin-bottom: 10px;
+  color: var(--error);
+  font-size: 11.5px;
+}
+
+.kb-trash-list {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-control);
+}
+
+.kb-trash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--outline);
+}
+
+.kb-trash-row:last-child {
+  border-bottom: none;
+}
+
+.kb-trash-meta {
+  min-width: 0;
+}
+
+.kb-trash-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-trash-time {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--on-surface-faint);
+}
+
+.kb-trash-tag {
+  padding: 0 5px;
+  border-radius: var(--radius-small);
+  background: var(--surface3);
+  color: var(--on-surface-variant);
+  font-size: 10px;
+}
+
+.kb-trash-tag.warn {
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+
+.kb-trash-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 0;
+  color: var(--on-surface-faint);
+  font-size: 12px;
+}
+
+/* 同名确认正文 */
+.kb-conflict-body {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.kb-conflict-body code {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-small);
+  background: var(--surface3);
+  color: var(--on-surface);
+  font-family: var(--font-mono);
+}

@@ -311,29 +311,286 @@ pub fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
     std::fs::rename(&src, &dst).map_err(|e| format!("改名失败：{e}"))
 }
 
+// ── 回收站 ────────────────────────────────────────────────────────
+//
+// v1.7.14 之前只「挪进去」：文件名是 `{毫秒}_{basename}`，原目录没记，
+// 所以在界面上想还原都不知道该放回哪。现在每次删除往 `.trash/index.json`
+// 追加一条元数据（原相对路径 / 删除时刻 / 是不是目录）。
+//
+// 老版本删的条目没有元数据，照样列得出来，只是 `orphan: true` —— 只能放回
+// 根目录。宁可少还原一层目录，也不要凭空猜一个路径。
+// index 本身也放在 `.trash` 里并被扫描器跳过，不会混进笔记树。
+
+const TRASH_DIR: &str = ".trash";
+const TRASH_INDEX: &str = "index.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashItem {
+    /// `.trash` 里的条目名（纯文件名，前端拿它当 id）
+    pub name: String,
+    /// 删除前相对 `Stumate/` 的路径
+    pub rel: String,
+    pub deleted_at: i64,
+    pub is_dir: bool,
+    /// 缺元数据（老版本删的）：只能还原到根目录。
+    /// 注意不能写 `#[serde(skip)]` —— 这个字段是给 `vault_trash_list` 的
+    /// 响应用的，跳过序列化后前端只会拿到 undefined，老条目会被误当成可精确还原。
+    /// 写进 index.json 的那份恒为 false，多存一个键没有副作用。
+    #[serde(default)]
+    pub orphan: bool,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct TrashIndex {
+    #[serde(default)]
+    version: i32,
+    #[serde(default)]
+    items: Vec<TrashItem>,
+}
+
+fn trash_dir(root: &Path) -> PathBuf {
+    root.join(TRASH_DIR)
+}
+
+fn read_index(dir: &Path) -> TrashIndex {
+    std::fs::read_to_string(dir.join(TRASH_INDEX))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn write_index(dir: &Path, index: &TrashIndex) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(index).map_err(|e| format!("回收站索引序列化失败：{e}"))?;
+    // 与 write_note 同款：临时文件以点开头，扫描器看不见
+    let tmp = dir.join(".index.tmp");
+    std::fs::write(&tmp, text.as_bytes()).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("写回收站索引失败：{e}")
+    })?;
+    std::fs::rename(&tmp, dir.join(TRASH_INDEX))
+        .map_err(|e| format!("替换回收站索引失败：{e}"))
+}
+
+/// 只收纯文件名。渲染进程传来的名字一律当不可信：`../` 能直接把库外的
+/// 文件挪进回收站，清空时还会把它删掉。
+fn check_trash_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty()
+        || name.starts_with('.')
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+    {
+        return Err(format!("非法的回收站条目名：{name}"));
+    }
+    Ok(())
+}
+
+/// 从 `{毫秒}_{原名}` 里拆出老条目信息；认不出来就整串当原名、时间记 0。
+fn parse_trash_name(name: &str) -> (i64, String) {
+    if let Some((head, tail)) = name.split_once('_') {
+        if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) && !tail.is_empty() {
+            return (head.parse::<i64>().unwrap_or(0), tail.to_string());
+        }
+    }
+    (0, name.to_string())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// 目标被占了就顺延成 ` 2` / ` 3`，与前端 `vaultTree.uniqueTitle` 同口径。
+/// 只在「还原」时用：正常改名撞名由前端先问过用户，不该走到这里。
+fn free_rel(root: &Path, rel: &str, is_dir: bool) -> Result<String, String> {
+    safe_join(root, rel)?;
+    if !root.join(rel).exists() {
+        return Ok(rel.to_string());
+    }
+    let (parent, filename) = match rel.rsplit_once('/') {
+        Some((p, f)) => (p.to_string(), f.to_string()),
+        None => (String::new(), rel.to_string()),
+    };
+    let (stem, ext) = if is_dir {
+        (filename.clone(), String::new())
+    } else {
+        match filename.rsplit_once('.') {
+            Some((s, e)) => (s.to_string(), format!(".{e}")),
+            None => (filename.clone(), String::new()),
+        }
+    };
+    for n in 2..10000 {
+        let candidate = format!("{stem} {n}{ext}");
+        let combined = if parent.is_empty() {
+            candidate
+        } else {
+            format!("{parent}/{candidate}")
+        };
+        if !root.join(&combined).exists() {
+            return Ok(combined);
+        }
+    }
+    Err("找不到可用的还原文件名".into())
+}
+
 /// 删除 = 挪进 `<root>/.trash/`，**不是**物理删除。
 ///
-/// 树里点一下右键就永久删掉一个笔记，是这个模块最容易造成不可挽回损失的地方。
-/// 挪进点开头的目录有两个好处：扫描器天然看不见它，用户想找回的时候
-/// 资源管理器里翻得到；不用引第三方回收站库，也没有「回收站满了」这种状态。
+/// 先写索引再挪文件：索引写失败时磁盘上什么都没发生，不会出现「文件没了、
+/// 却不知道它原来在哪」。挪失败则把刚写的条目撤回。
 pub fn trash(root: &Path, rel: &str) -> Result<String, String> {
     let src = safe_join(root, rel)?;
     if !src.exists() {
         return Err(format!("不存在：{rel}"));
     }
-    let dir = root.join(".trash");
+    let dir = trash_dir(root);
     std::fs::create_dir_all(&dir).map_err(|e| format!("建回收目录失败：{e}"))?;
-    let name = src
+    let original = src
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "未命名".into());
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let dst = dir.join(format!("{stamp}_{name}"));
-    std::fs::rename(&src, &dst).map_err(|e| format!("删除失败：{e}"))?;
+    let stamp = now_ms();
+    let is_dir = src.is_dir();
+
+    // 同一毫秒删两个同名文件（不同目录）会撞名，顺延一下
+    let mut name = format!("{stamp}_{original}");
+    for n in 2..10000 {
+        if !dir.join(&name).exists() {
+            break;
+        }
+        name = format!("{stamp}_{n}_{original}");
+    }
+
+    let mut index = read_index(&dir);
+    index.version = 1;
+    index.items.push(TrashItem {
+        name: name.clone(),
+        rel: rel.to_string(),
+        deleted_at: stamp,
+        is_dir,
+        orphan: false,
+    });
+    write_index(&dir, &index)?;
+
+    let dst = dir.join(&name);
+    if let Err(e) = std::fs::rename(&src, &dst) {
+        index.items.retain(|i| i.name != name);
+        let _ = write_index(&dir, &index);
+        return Err(format!("删除失败：{e}"));
+    }
     Ok(dst.display().to_string())
+}
+
+/// 列出回收站。索引里没有的实体条目也列出来（老版本删的），标 `orphan`。
+pub fn trash_list(root: &Path) -> Vec<TrashItem> {
+    let dir = trash_dir(root);
+    let index = read_index(&dir);
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return out,
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == TRASH_INDEX || name.starts_with('.') {
+            continue;
+        }
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let (rel, deleted_at, orphan) = match index.items.iter().find(|i| i.name == name) {
+            Some(i) => (i.rel.clone(), i.deleted_at, false),
+            None => {
+                let (stamp, original) = parse_trash_name(&name);
+                (original, stamp, true)
+            }
+        };
+        out.push(TrashItem {
+            name,
+            rel,
+            deleted_at,
+            is_dir: meta.is_dir(),
+            orphan,
+        });
+    }
+    out.sort_by(|a, b| b.deleted_at.cmp(&a.deleted_at).then(a.name.cmp(&b.name)));
+    out
+}
+
+/// 还回原路径。目标被占了就顺延（不覆盖、不丢东西），返回实际落点。
+pub fn trash_restore(root: &Path, name: &str) -> Result<String, String> {
+    check_trash_name(name)?;
+    let dir = trash_dir(root);
+    let src = dir.join(name);
+    if !src.exists() {
+        return Err(format!("回收站里没有：{name}"));
+    }
+    let mut index = read_index(&dir);
+    let known = index.items.iter().find(|i| i.name == name).cloned();
+    let (base_rel, is_dir) = match known {
+        Some(i) => (i.rel.clone(), i.is_dir),
+        None => (parse_trash_name(name).1, src.is_dir()),
+    };
+    let rel = free_rel(root, &base_rel, is_dir)?;
+    let dst = safe_join(root, &rel)?;
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("建目录失败：{e}"))?;
+    }
+    std::fs::rename(&src, &dst).map_err(|e| format!("还原失败：{e}"))?;
+    index.items.retain(|i| i.name != name);
+    let _ = write_index(&dir, &index);
+    Ok(rel)
+}
+
+/// 单条彻底删除。**唯一会真的抹掉字节的地方**，界面上必须二次确认。
+pub fn trash_purge(root: &Path, name: &str) -> Result<(), String> {
+    check_trash_name(name)?;
+    let dir = trash_dir(root);
+    let target = dir.join(name);
+    if !target.exists() {
+        return Err(format!("回收站里没有：{name}"));
+    }
+    if target.is_dir() {
+        std::fs::remove_dir_all(&target).map_err(|e| format!("删除目录失败：{e}"))?;
+    } else {
+        std::fs::remove_file(&target).map_err(|e| format!("删除文件失败：{e}"))?;
+    }
+    let mut index = read_index(&dir);
+    index.items.retain(|i| i.name != name);
+    let _ = write_index(&dir, &index);
+    Ok(())
+}
+
+pub fn trash_empty(root: &Path) -> Result<usize, String> {
+    let dir = trash_dir(root);
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let mut removed = 0usize;
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("读回收站失败：{e}"))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == TRASH_INDEX || name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        let ok = if path.is_dir() {
+            std::fs::remove_dir_all(&path).is_ok()
+        } else {
+            std::fs::remove_file(&path).is_ok()
+        };
+        if ok {
+            removed += 1;
+        }
+    }
+    let _ = write_index(&dir, &TrashIndex {
+        version: 1,
+        items: Vec::new(),
+    });
+    Ok(removed)
 }
 
 #[derive(Debug, Serialize)]
@@ -635,6 +892,104 @@ mod tests {
         assert!(grep(&root, "   ").is_empty(), "空白查询不该扫全库");
         assert!(grep(&root, "不存在的词").is_empty());
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ── v1.7.14 回收站：列出 / 还原 / 彻底删除 / 清空 ──────────────
+
+    #[test]
+    fn trash_index_remembers_original_path_and_restore_puts_it_back() {
+        let base = temp_vault("trash-restore");
+        let root = sub_root(&base).unwrap();
+        write_note(&root, "物理/力学/牛顿.md", "F=ma", None).unwrap();
+
+        trash(&root, "物理/力学/牛顿.md").unwrap();
+        let list = trash_list(&root);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].rel, "物理/力学/牛顿.md");
+        assert!(!list[0].orphan);
+        assert!(!list[0].is_dir);
+        assert!(list[0].deleted_at > 0);
+
+        let rel = trash_restore(&root, &list[0].name).unwrap();
+        assert_eq!(rel, "物理/力学/牛顿.md", "没放回原目录");
+        assert_eq!(read_note(&root, &rel).unwrap().content, "F=ma");
+        assert!(trash_list(&root).is_empty(), "还原后索引里不该留着这一条");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn restore_does_not_overwrite_and_falls_back_with_suffix() {
+        let base = temp_vault("restore-clash");
+        let root = sub_root(&base).unwrap();
+        write_note(&root, "笔记.md", "旧的", None).unwrap();
+        trash(&root, "笔记.md").unwrap();
+        write_note(&root, "笔记.md", "重建的", None).unwrap();
+
+        let name = trash_list(&root)[0].name.clone();
+        let rel = trash_restore(&root, &name).unwrap();
+        assert_eq!(rel, "笔记 2.md");
+        assert_eq!(read_note(&root, "笔记.md").unwrap().content, "重建的");
+        assert_eq!(read_note(&root, "笔记 2.md").unwrap().content, "旧的");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn orphan_entry_is_listed_and_restored_to_root() {
+        let base = temp_vault("trash-orphan");
+        let root = sub_root(&base).unwrap();
+        let dir = trash_dir(&root);
+        std::fs::create_dir_all(&dir).unwrap();
+        // 老版本留下的条目：没有 index，只有 `{stamp}_{原名}`
+        std::fs::write(dir.join("1730000000000_老笔记.md"), "旧版本内容").unwrap();
+
+        let list = trash_list(&root);
+        assert_eq!(list.len(), 1);
+        assert!(list[0].orphan);
+        assert_eq!(list[0].deleted_at, 1730000000000);
+        let rel = trash_restore(&root, &list[0].name).unwrap();
+        assert_eq!(rel, "老笔记.md");
+        assert_eq!(read_note(&root, &rel).unwrap().content, "旧版本内容");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn trash_folder_keeps_its_tree_and_purge_and_empty_work() {
+        let base = temp_vault("trash-folder");
+        let root = sub_root(&base).unwrap();
+        write_note(&root, "科目/一/甲.md", "甲", None).unwrap();
+        write_note(&root, "科目/一/乙.md", "乙", None).unwrap();
+
+        trash(&root, "科目/一").unwrap();
+        assert!(trash_list(&root)[0].is_dir);
+        let rel = trash_restore(&root, &trash_list(&root)[0].name).unwrap();
+        assert_eq!(rel, "科目/一");
+        assert_eq!(read_note(&root, "科目/一/甲.md").unwrap().content, "甲");
+
+        trash(&root, "科目/一").unwrap();
+        let name = trash_list(&root)[0].name.clone();
+        trash_purge(&root, &name).unwrap();
+        assert!(trash_list(&root).is_empty());
+        assert!(!root.join(".trash").join(&name).exists());
+
+        write_note(&root, "a.md", "a", None).unwrap();
+        write_note(&root, "b.md", "b", None).unwrap();
+        trash(&root, "a.md").unwrap();
+        trash(&root, "b.md").unwrap();
+        assert_eq!(trash_list(&root).len(), 2);
+        assert_eq!(trash_empty(&root).unwrap(), 2);
+        assert!(trash_list(&root).is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn trash_commands_reject_path_traversal() {
+        let base = temp_vault("trash-evil");
+        let root = sub_root(&base).unwrap();
+        std::fs::create_dir_all(trash_dir(&root)).unwrap();
+        assert!(trash_restore(&root, "../库外.md").is_err());
+        assert!(trash_purge(&root, "..\\库外.md").is_err());
+        assert!(trash_restore(&root, ".trash").is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

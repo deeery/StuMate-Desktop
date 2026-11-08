@@ -60,6 +60,15 @@ export interface GrepHitWire {
   preview: string;
 }
 
+/** `.trash` 里的一条。`orphan` = 老版本删的、没记原路径，只能放回根目录 */
+export interface TrashItemWire {
+  name: string;
+  rel: string;
+  deletedAt: number;
+  isDir: boolean;
+  orphan: boolean;
+}
+
 export interface AppInfo {
   version: string;
   flavor: string;
@@ -145,6 +154,14 @@ export const api = {
     invoke<void>("vault_rename", { base, from, to }),
   /** 删除 = 挪进 `<库>/Stumate/.trash/`，返回落点 */
   vaultTrash: (base: string, rel: string) => invoke<string>("vault_trash", { base, rel }),
+  // 回收站（v1.7.14）：删除只是挪走，这四个才让界面能真的找回 / 清掉
+  vaultTrashList: (base: string) => invoke<TrashItemWire[]>("vault_trash_list", { base }),
+  /** 返回实际还原到的相对路径（目标被占时会顺延成「 2」） */
+  vaultTrashRestore: (base: string, name: string) =>
+    invoke<string>("vault_trash_restore", { base, name }),
+  vaultTrashPurge: (base: string, name: string) =>
+    invoke<void>("vault_trash_purge", { base, name }),
+  vaultTrashEmpty: (base: string) => invoke<number>("vault_trash_empty", { base }),
   /** 全文搜索（大小写不敏感）。不做索引：几百个文件直扫是一两毫秒的事 */
   vaultGrep: (base: string, needle: string) =>
     invoke<GrepHitWire[]>("vault_grep", { base, needle }),

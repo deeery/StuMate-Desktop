@@ -13,10 +13,17 @@
 //!    而且有「`text` 为空就跳过这条」的守卫，镜像缺了它们会把便签整批丢掉。
 //! 2. 设置模块只搬两版语义相同的键。`experimentalGrid` 写出去（旧版要读），
 //!    但 Lite 自己不消费它。
+//!
+//! v1.7.14 起 `knowledge` 模块**以文件库为准**：桌面端 v1.7.7 把知识库改成
+//! `<库根>/Stumate/**/*.md` 之后，DB 里的 `knowledge` 表就冻结了，而手机端
+//! 的备份解码器只认这张表的行 —— 于是「桌面新写的知识，导出备份里一条都没有」。
+//! 现在导出时把 .md 折成 v10 实体写进包里，**不加列、不改 schema、不回写 DB**，
+//! 两端的数据契约就这么重新对齐了。
 
 use crate::db::Db;
 use crate::models::{ClassEntity, KnowledgeEntity, NoteEntity};
 use crate::store::Paths;
+use crate::vault;
 use serde_json::{json, Map, Value};
 
 pub const FORMAT: &str = "stumate-backup";
@@ -24,6 +31,106 @@ pub const SCHEMA: i32 = 3;
 pub const APP: &str = "StuMate-Lite";
 
 pub const MODULE_KEYS: [&str; 4] = ["courses", "notes", "knowledge", "settings"];
+
+/// 剥掉 frontmatter，取出 `stumate_uid` 和正文。
+///
+/// 只认 `parseNote`（前端 `model/vaultNote.ts`）写出来的那几行，其余键原样
+/// 丢弃 —— 备份里要的是「手机端能显示的知识正文」，不是 YAML 元数据。
+/// 没有 frontmatter 的 .md（用户自己丢进库里的）整篇当正文，uid 由调用方兜底。
+fn split_note(raw: &str) -> (Option<String>, String) {
+    let text = raw.strip_prefix('\u{feff}').unwrap_or(raw);
+    let lines: Vec<&str> = text.split('\n').collect();
+    if lines.first().map(|l| l.trim_end_matches('\r').trim()) != Some("---") {
+        return (None, raw.to_string());
+    }
+    let close = lines
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, l)| {
+            let t = l.trim_end_matches('\r').trim();
+            t == "---" || t == "..."
+        })
+        .map(|(i, _)| i);
+    let Some(end) = close else {
+        return (None, raw.to_string());
+    };
+
+    let mut uid = None;
+    for line in &lines[1..end] {
+        let line = line.trim_end_matches('\r');
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        if key != "stumate_uid" && key != "uid" {
+            continue;
+        }
+        let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+        if !value.is_empty() {
+            uid = Some(value.to_string());
+        }
+    }
+
+    // 分隔线后恰好一个空行是 composeNote 的格式，吃掉它；正文其余空白不动
+    let mut rest = lines[end + 1..].join("\n");
+    if rest.starts_with("\r\n") {
+        rest = rest[2..].to_string();
+    } else if rest.starts_with('\n') {
+        rest = rest[1..].to_string();
+    }
+    (uid, rest)
+}
+
+/// 把文件库当前内容折成 v10 `knowledge` 行。
+///
+/// 返回 `None` = 「没启用文件库 / 还没迁移 / 库目录不在了」，调用方应退回
+/// 冻结的 DB 表；返回 `Some(vec![])` 是合法结果 —— 用户确实把笔记删空了。
+/// 单篇读失败只跳过那一篇，不因为一个坏文件让整次导出悄悄换数据源。
+pub fn vault_knowledge(prefs: &Value) -> Option<Vec<KnowledgeEntity>> {
+    let base = prefs.get("vaultRoot")?.as_str()?;
+    if base.trim().is_empty() || prefs.get("vaultMigrated")?.as_bool() != Some(true) {
+        return None;
+    }
+    let root = std::path::Path::new(base).join(vault::SUB_DIR);
+    if !root.is_dir() {
+        return None;
+    }
+
+    let mut out = Vec::new();
+    for entry in vault::scan(&root).into_iter().filter(|e| !e.is_dir) {
+        let Ok(note) = vault::read_note(&root, &entry.path) else {
+            continue;
+        };
+        let (uid, body) = split_note(&note.content);
+        let (subject, filename) = match entry.path.rsplit_once('/') {
+            Some((dir, file)) => (
+                dir.split('/').next().unwrap_or("").to_string(),
+                file.to_string(),
+            ),
+            None => (String::new(), entry.path.clone()),
+        };
+        let title = filename
+            .strip_suffix(".md")
+            .or_else(|| filename.strip_suffix(".MD"))
+            .unwrap_or(&filename)
+            .to_string();
+        let index = out.len();
+        out.push(KnowledgeEntity {
+            id: (index + 1) as i32,
+            subject,
+            title,
+            content: body,
+            position: index as i32,
+            created_at: note.mtime,
+            // 外部丢进来的 .md 没有 uid：用路径兜底，保证每行都有稳定非空串
+            uid: uid.unwrap_or_else(|| format!("vault:{}", entry.path)),
+            updated_at: note.mtime,
+            deleted_at: 0,
+        });
+    }
+    Some(out)
+}
 
 pub fn build(db: &Db, prefs: &Value, modules: &[String]) -> Result<Value, String> {
     let mut out = Map::new();
@@ -51,7 +158,12 @@ pub fn build(db: &Db, prefs: &Value, modules: &[String]) -> Result<Value, String
                 json!({ "count": mapped.len(), "items": mapped })
             }
             "knowledge" => {
-                let items = db.knowledge()?;
+                // 文件库是桌面端当前的真相；只有没启用时才退回冻结的 DB 表。
+                // 手机端导入的仍是同一种 v10 行，格式一字未改。
+                let items = match vault_knowledge(prefs) {
+                    Some(v) => v,
+                    None => db.knowledge()?,
+                };
                 json!({ "count": items.len(), "items": items })
             }
             "settings" => json!({
@@ -213,4 +325,90 @@ pub fn describe(root: &Value) -> Value {
         "exportedAt": root.get("exportedAt").cloned().unwrap_or(json!(0)),
         "modules": Value::Object(out),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_base(tag: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "stumate-backup-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(path.join(vault::SUB_DIR)).unwrap();
+        path
+    }
+
+    #[test]
+    fn split_note_reads_uid_and_keeps_body() {
+        let raw = "---\nstumate: true\nstumate_uid: abc-123\ncreated: 2026-01-01T10:00\n---\n\n正文第一行\n\n第二行\n";
+        let (uid, body) = split_note(raw);
+        assert_eq!(uid.as_deref(), Some("abc-123"));
+        assert_eq!(body, "正文第一行\n\n第二行\n");
+        assert!(!body.contains("stumate_uid"));
+
+        let (none, plain) = split_note("没有元信息的正文\n");
+        assert_eq!(none, None);
+        assert_eq!(plain, "没有元信息的正文\n");
+    }
+
+    #[test]
+    fn vault_knowledge_maps_files_to_v10_rows() {
+        let base = temp_base("map");
+        let root = base.join(vault::SUB_DIR);
+        vault::write_note(
+            &root,
+            "物理/牛顿.md",
+            "---\nstumate: true\nstumate_uid: uid-a\n---\n\nF=ma\n",
+            None,
+        )
+        .unwrap();
+        vault::write_note(&root, "随笔.md", "一段没有元信息的文字", None).unwrap();
+
+        let prefs = json!({
+            "vaultRoot": base.to_string_lossy(),
+            "vaultMigrated": true
+        });
+        let rows = vault_knowledge(&prefs).expect("启用了文件库就该接管");
+        assert_eq!(rows.len(), 2);
+
+        let newton = rows.iter().find(|r| r.title == "牛顿").unwrap();
+        assert_eq!(newton.subject, "物理");
+        assert_eq!(newton.uid, "uid-a");
+        assert_eq!(newton.content, "F=ma\n");
+        assert_eq!(newton.deleted_at, 0);
+        assert_eq!(newton.id, 1);
+
+        let plain = rows.iter().find(|r| r.title == "随笔").unwrap();
+        assert_eq!(plain.subject, "");
+        assert_eq!(plain.uid, "vault:随笔.md");
+        assert_eq!(plain.content, "一段没有元信息的文字");
+
+        // 九列一个不多、一个不少：安卓 Room 的 schema 校验靠这个
+        let value = serde_json::to_value(newton).unwrap();
+        assert_eq!(value.as_object().unwrap().len(), 9);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn vault_knowledge_defers_to_db_when_not_enabled() {
+        let base = temp_base("off");
+        assert!(vault_knowledge(&json!({})).is_none());
+        assert!(vault_knowledge(&json!({ "vaultRoot": base.to_string_lossy() })).is_none());
+        assert!(vault_knowledge(&json!({
+            "vaultRoot": base.to_string_lossy(),
+            "vaultMigrated": false
+        }))
+        .is_none());
+        // 启用但库是空的：Some(空) 才是「真相」，不能退回 DB 的旧行
+        let empty = vault_knowledge(&json!({
+            "vaultRoot": base.to_string_lossy(),
+            "vaultMigrated": true
+        }))
+        .unwrap();
+        assert!(empty.is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

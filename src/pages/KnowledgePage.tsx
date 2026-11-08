@@ -26,7 +26,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog } from "../components/ui";
 import { usePresence } from "../components/Presence";
+import { LinkSection } from "../components/LinkSection";
+import { MindView } from "../components/MindView";
 import { QuickOpen } from "../components/QuickOpen";
+import { TrashDialog } from "../components/TrashDialog";
 import { VaultTree } from "../components/VaultTree";
 import {
   IconChevronLeft,
@@ -35,13 +38,19 @@ import {
   IconExternal,
   IconFile,
   IconFolder,
+  IconList,
+  IconMap,
   IconPlus,
   IconSearch,
   IconSort,
+  IconTrash,
 } from "../components/Icons";
 import { api, onVaultChanged, type GrepHitWire, type VaultEntryWire } from "../api";
 import { buildVaultFiles, sanitizeSegment } from "../model/vault";
 import { composeNote, parseNote, type NoteMeta } from "../model/vaultNote";
+import { reconcileMind } from "../model/mindMap";
+import { toKnowledgeEntities, vaultUid } from "../model/vaultMind";
+import type { MindNode } from "../model/types";
 import {
   NOTE_EXT,
   ancestorsOf,
@@ -97,7 +106,28 @@ export function KnowledgePage({
   const [deleting, setDeleting] = useState<TreeNode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // v1.7.14：视图模式、导图节点、回收站、同名冲突确认
+  const [viewMode, setViewMode] = useState<"tree" | "map">("tree");
+  const [mapNodes, setMapNodes] = useState<MindNode[]>([]);
+  const [mapReady, setMapReady] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  /** `desired` 是用户输的名字，`next` 是顺延后的名字；不等就先问一句 */
+  const [nameConflict, setNameConflict] = useState<{
+    kind: "rename" | "move";
+    from: string;
+    desired: string;
+    next: string;
+  } | null>(null);
+
+  const trashPresence = usePresence(trashOpen);
+  const conflictPresence = usePresence(nameConflict !== null);
+  const retainedConflict = useRef<typeof nameConflict>(null);
+  if (nameConflict) retainedConflict.current = nameConflict;
+  const shownConflict = nameConflict ?? retainedConflict.current;
+
   const revRef = useRef("");
+  /** 导图节点的最新值。派生要读它，但不该把 mapNodes 塞进依赖造成自激循环 */
+  const mindRef = useRef<MindNode[]>([]);
   const tree = useMemo(() => buildTree(entries, sort), [entries, sort]);
   const notes = useMemo(() => flattenNotes(tree), [tree]);
 
@@ -139,6 +169,48 @@ export function KnowledgePage({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // ── 导图（v1.7.14 重新接回死代码 MindCanvas）─────────────────────────
+
+  const persistMind = useCallback((nodes: MindNode[]) => {
+    mindRef.current = nodes;
+    setMapNodes(nodes);
+    // mindmap.json 是整份重写；写失败不阻塞界面，但要把错误露出来
+    void api.mindSave(nodes).catch((e) => setError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    if (!base) return;
+    setMapReady(false);
+    void api
+      .mindLoad()
+      .then((payload) => {
+        mindRef.current = payload.nodes ?? [];
+        setMapNodes(mindRef.current);
+        setMapReady(true);
+      })
+      .catch((e) => {
+        setError(String(e));
+        setMapReady(true); // 读失败也让它进空图，别把整页卡住
+      });
+  }, [base]);
+
+  /**
+   * 文件库是真相：树变了就把新笔记补进导图。
+   * `reconcileMind` 只补缺失、不拉回被用户拖走的节点，所以每轮跑都安全。
+   * 读 `mindRef.current` 而不是 `mapNodes`，避免「保存 → 重跑 → 又保存」自激。
+   */
+  useEffect(() => {
+    if (viewMode !== "map" || !mapReady || !base) return;
+    const result = reconcileMind(mindRef.current, toKnowledgeEntities(entries));
+    if (result.changed) persistMind(result.nodes);
+  }, [viewMode, mapReady, base, entries, persistMind]);
+
+  /** 「重建」＝丢掉手工排布，按当前文件库重新派生一份，不删任何 .md */
+  const rebuildMind = useCallback(() => {
+    if (!base) return;
+    persistMind(reconcileMind([], toKnowledgeEntities(entries)).nodes);
+  }, [base, entries, persistMind]);
 
   /**
    * 轮询版本号，变了才重扫。
@@ -349,6 +421,11 @@ export function KnowledgePage({
     if (!r || !base) return;
     const next = renamePath(r.path, r.value, takenNames(tree, parentOf(r.path)));
     if (next === r.path) return;
+    // 顺延了就先别落盘：v1.7.14 起同名不再静默变成「 2」，把选择权交回用户
+    if (next !== desiredRenamePath(r.path, r.value)) {
+      setNameConflict({ kind: "rename", from: r.path, desired: r.value, next });
+      return;
+    }
     try {
       await api.vaultRename(base, r.path, next);
       if (open === r.path) setOpen(next);
@@ -385,6 +462,16 @@ export function KnowledgePage({
       if (!node || !base) return;
       const next = movePath(node.path, targetDir, tree);
       if (next === node.path) return;
+      // 目标目录里有同名项：先问，不要悄悄把文件改成「xx 2.md」
+      if (next !== joinPath(targetDir, node.path.slice(node.path.lastIndexOf("/") + 1))) {
+        setNameConflict({
+          kind: "move",
+          from: node.path,
+          desired: targetDir || "根目录",
+          next,
+        });
+        return;
+      }
       try {
         await api.vaultRename(base, node.path, next);
         if (open === node.path) setOpen(next);
@@ -395,6 +482,21 @@ export function KnowledgePage({
     },
     [moving, base, tree, open, refresh],
   );
+
+  /** 冲突对话框里点了「用这个名字」：这时才真正动磁盘 */
+  const applyNameConflict = useCallback(async () => {
+    const c = nameConflict;
+    setNameConflict(null);
+    if (!c || !base) return;
+    try {
+      await api.vaultRename(base, c.from, c.next);
+      if (open === c.from) setOpen(c.next);
+      await refresh();
+      ctx.toast(`已保存为「${baseTitle(c.next)}」`);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [nameConflict, base, open, refresh, ctx]);
 
   // ── 迁移（一次性）───────────────────────────────────────────────
 
@@ -535,6 +637,27 @@ export function KnowledgePage({
   return (
     <>
       <PageTopBar title="知识库" subtitle={`${notes.length} 篇`}>
+        <div className="kb-view-switch" role="group" aria-label="知识库视图">
+          <button
+            className={`kb-view-btn${viewMode === "tree" ? " on" : ""}`}
+            title="文件树视图"
+            aria-pressed={viewMode === "tree"}
+            onClick={() => setViewMode("tree")}
+          >
+            <IconList size={13} /> 列表
+          </button>
+          <button
+            className={`kb-view-btn${viewMode === "map" ? " on" : ""}`}
+            title="思维导图视图"
+            aria-pressed={viewMode === "map"}
+            onClick={() => setViewMode("map")}
+          >
+            <IconMap size={13} /> 导图
+          </button>
+        </div>
+        <button className="btn ghost" onClick={() => setTrashOpen(true)} title="回收站：还原或彻底删除">
+          <IconTrash size={13} /> 回收站
+        </button>
         <div className="kb-search">
           <span className="kb-search-icon">
             <IconSearch size={13} />
@@ -565,6 +688,21 @@ export function KnowledgePage({
       </PageTopBar>
 
       <div className="page-content" style={{ overflow: "hidden", padding: 0 }}>
+        {viewMode === "map" ? (
+          <MindView
+            nodes={mapNodes}
+            onNodesChange={persistMind}
+            onOpenNote={(path) => {
+              setViewMode("tree");
+              void openNote(path);
+            }}
+            onNewNote={(dir) => {
+              setViewMode("tree");
+              void createNote(dir);
+            }}
+            onRebuild={rebuildMind}
+          />
+        ) : (
         <div className="kb-split">
           {paneOpen ? (
             <aside className="kb-tree">
@@ -715,6 +853,21 @@ export function KnowledgePage({
                     {diskMtime ? `磁盘版本 ${new Date(diskMtime).toLocaleTimeString()}` : ""}
                   </span>
                 </div>
+                {/* 附件走旁路 knowledge_links.json，不碰 knowledge 表、不加列。
+                    Obsidian 手工建的裸 .md 没有 frontmatter uid，退化成按路径绑定。 */}
+                {meta ? (
+                  <LinkSection
+                    uid={meta.uid || vaultUid(open)}
+                    links={ctx.links}
+                    onSave={ctx.saveLinks}
+                    onError={setError}
+                    hint={
+                      meta.uid
+                        ? undefined
+                        : "这篇笔记没有 frontmatter 标识，附件暂按路径绑定；改名后需重新添加。"
+                    }
+                  />
+                ) : null}
               </>
             ) : (
               <div className="empty" style={{ flex: 1 }}>
@@ -732,6 +885,7 @@ export function KnowledgePage({
             </div>
           </section>
         </div>
+        )}
       </div>
 
       {error ? (
@@ -846,8 +1000,67 @@ export function KnowledgePage({
           }
         />
       ) : null}
+
+      {trashPresence.mounted ? (
+        <TrashDialog
+          base={base}
+          leaving={trashPresence.leaving}
+          onClose={() => setTrashOpen(false)}
+          onChanged={refresh}
+          toast={ctx.toast}
+        />
+      ) : null}
+
+      {conflictPresence.mounted && shownConflict ? (
+        <Dialog
+          leaving={conflictPresence.leaving}
+          title={shownConflict.kind === "rename" ? "名字已经被占用" : "目标目录里有同名项"}
+          subtitle={
+            shownConflict.kind === "rename"
+              ? `「${shownConflict.desired}」已存在`
+              : `${shownConflict.desired} 里已经有同名的笔记或文件夹`
+          }
+          onClose={() => setNameConflict(null)}
+          width={420}
+          actions={
+            <>
+              <button className="btn" onClick={() => setNameConflict(null)}>
+                取消
+              </button>
+              <button className="btn primary" onClick={() => void applyNameConflict()}>
+                用这个名字
+              </button>
+            </>
+          }
+        >
+          <div className="kb-conflict-body">
+            继续的话会保存为
+            <code>{baseTitle(shownConflict.next)}</code>
+            。取消则不动磁盘，可以回去换个名字再来。
+          </div>
+        </Dialog>
+      ) : null}
     </>
   );
+}
+
+/**
+ * 「没撞名时本该落到的路径」。
+ *
+ * `renamePath` 只返回最终路径，顺延过没顺延过从结果上看不出来；要弹确认
+ * 就得把用户输入按同一套清洗规则（sanitize / 去 .md / 补 .md）折算一遍，
+ * 再和它比。规则必须与 `vaultTree.renamePath` 的前半段保持一致，否则会出现
+ * 「用户只是打了 `.md`，却被问一遍要不要改名」这种假阳性。
+ */
+function desiredRenamePath(path: string, value: string): string {
+  const isNote = path.toLowerCase().endsWith(NOTE_EXT);
+  const stem = isNote ? baseTitle(path) : path.slice(path.lastIndexOf("/") + 1);
+  let name = sanitizeSegment(value, stem);
+  if (isNote) {
+    if (name.toLowerCase().endsWith(NOTE_EXT)) name = name.slice(0, -NOTE_EXT.length);
+    name = `${name}${NOTE_EXT}`;
+  }
+  return joinPath(parentOf(path), name);
 }
 
 /** 所有文件夹节点，按显示顺序（「移动到…」的候选） */

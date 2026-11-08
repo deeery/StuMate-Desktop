@@ -40,6 +40,8 @@ export interface AppContextValue {
   reloadNotes: () => Promise<void>;
   reloadKnowledge: () => Promise<void>;
   reloadLinks: () => Promise<void>;
+  /** 就地保存附件列表：写盘 + 更新内存，页面不必等一次全量 reload */
+  saveLinks: (links: LinkRef[]) => Promise<void>;
   toast: (text: string, tone?: "info" | "error") => void;
   theme: "light" | "dark";
 }
@@ -85,6 +87,10 @@ export default function App() {
   const reloadLinks = useCallback(async () => {
     const payload = await api.linksLoad();
     setLinks(Array.isArray(payload?.links) ? payload.links : []);
+  }, []);
+  const saveLinks = useCallback(async (next: LinkRef[]) => {
+    await api.linksSave(next);
+    setLinks(next);
   }, []);
 
   useEffect(() => {
@@ -302,6 +308,7 @@ export default function App() {
     reloadNotes,
     reloadKnowledge,
     reloadLinks,
+    saveLinks,
     toast,
     theme,
   };
