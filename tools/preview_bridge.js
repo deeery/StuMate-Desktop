@@ -11,7 +11,7 @@
  * 加一行 `<script src="/preview-bridge.js"></script>`，然后起个静态服务打开。
  *
  * URL 参数：
- *   ?page=today|week|notes|knowledge|settings  初始页（应用自己就支持）
+ *   ?page=today|week|notes|knowledge|recurring|settings  初始页（应用自己就支持）
  *   ?theme=light|dark                          主题（应用自己就支持，走 startTheme）
  *   ?at=10:05                                  把「现在」钉在当天这个时刻，
  *                                              用来演示「正在上课」与课表当前时间线
@@ -189,7 +189,7 @@
   };
 
   var APP_INFO = {
-    version: "1.7.15",
+    version: "1.7.16",
     flavor: "lite",
     dataDir: "C:\\Users\\Administrator\\AppData\\Roaming\\StuMate",
     dbPath: "C:\\Users\\Administrator\\AppData\\Roaming\\StuMate\\class_reminder.db",

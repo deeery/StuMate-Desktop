@@ -27,6 +27,7 @@ import {
   IconMaximize,
   IconMinus,
   IconNote,
+  IconRecurring,
   IconRestore,
   IconSettings,
   IconSidebar,
@@ -34,17 +35,23 @@ import {
   IconWeek,
 } from "./Icons";
 
-export type PageKey = "today" | "week" | "notes" | "knowledge" | "settings";
+export type PageKey = "today" | "week" | "notes" | "knowledge" | "recurring" | "settings";
 
 interface IconProps {
   size?: number;
 }
 
+/**
+ * v1.7.16 起「循环提醒」是第六个一级页：放在知识库之后、设置之前，
+ * 设置依旧是侧栏最后一项。**Ctrl+1..5 的老映射一个都不动**，新页用 Ctrl+6 ——
+ * 数字与显示顺序在这里不再一一对应，但用户已有的肌肉记忆不会突然改指向。
+ */
 export const NAV: { key: PageKey; label: string; icon: ComponentType<IconProps> }[] = [
   { key: "today", label: "今天", icon: IconToday },
   { key: "week", label: "课表", icon: IconWeek },
   { key: "notes", label: "便签", icon: IconNote },
   { key: "knowledge", label: "知识库", icon: IconKnowledge },
+  { key: "recurring", label: "循环提醒", icon: IconRecurring },
   { key: "settings", label: "设置", icon: IconSettings },
 ];
 
@@ -116,6 +123,7 @@ export function Sidebar({
   status,
   version,
   noteCount,
+  recurringCount,
 }: {
   page: PageKey;
   onNavigate: (page: PageKey) => void;
@@ -124,14 +132,21 @@ export function Sidebar({
   status: string;
   version: string;
   noteCount: number;
+  recurringCount: number;
 }) {
   return (
     <nav className={`sidebar${collapsed ? " rail" : ""}`}>
       <BrandRow version={version} collapsed={collapsed} />
       {NAV.map((item) => {
         const Icon = item.icon;
-        // 便签条数徽标：原版只在便签项上出现，收起态不显示（图标栏宽度放不下）
-        const badge = item.key === "notes" && noteCount > 0 ? String(noteCount) : null;
+        // 条数徽标：便签是总数，循环提醒是「启用中的规则数」（停用的不算待触发）。
+        // 收起态由 .sidebar.rail .nav-badge 压成 0 宽，这里不必再判 collapsed。
+        const badge =
+          item.key === "notes" && noteCount > 0
+            ? String(noteCount)
+            : item.key === "recurring" && recurringCount > 0
+              ? String(recurringCount)
+              : null;
         return (
           <button
             key={item.key}

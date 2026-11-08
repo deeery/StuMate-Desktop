@@ -1,16 +1,16 @@
 /**
- * 设置页的「循环提醒」Section：规则列表 + 新建/编辑对话框。
+ * 循环提醒页的规则面板：规则列表 + 新建/编辑对话框。
  *
- * 三条来自 v1.7.15 拷问共识的约束，改这里之前先读：
+ * 三条约束，改这里之前先读：
  *
- * 1. **不占导航位**。这是配置项，不是每天要浏览的内容；用户真正需要看到的是
- *    「到点弹一下」，所以放在设置页，不动 PageKey / NAV / Ctrl+1..5。
- * 2. **「立即试一次」绝不改相位**。复用设置页已有的「预览提醒浮窗」范式，
- *    构造一帧 alert 直接弹，帧里带的是 `RECURRING_PREVIEW_ID` —— 浮窗照样
- *    显示「跳过本次」、IPC 通路照样验得到，但主窗口找不到这条规则，
- *    `lastFiredAt` 一个字节都不会写。
- * 3. **规则模型只有一份**。本组件只收表单、调 `api.recurringSave`；相位计算、
+ * 1. **规则模型只有一份**。本组件只收表单、调 `ctx.saveRecurring`；相位计算、
  *    合法性收敛全在 `model/recurring.ts`，不在 UI 里重写一遍。
+ * 2. **「立即试一次」绝不改相位**。构造一帧 alert 直接弹，帧里带的是
+ *    `RECURRING_PREVIEW_ID` —— 浮窗照样显示「跳过本次」、IPC 通路照样验得到，
+ *    但主窗口找不到这条规则，`lastFiredAt` 一个字节都不会写。
+ * 3. **v1.7.16 起这里是侧栏独立页的主体**（v1.7.15 时是设置页的一个 Section）。
+ *    页面标题交给 `PageTopBar`，本组件只画卡片内的规则列表；设置页只留一个
+ *    跳转入口，不再把整张列表渲染两遍。
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -227,9 +227,9 @@ export function RecurringSection({ ctx }: { ctx: AppContextValue }) {
       <section className="card" style={{ padding: "14px 16px 10px", marginBottom: 12 }}>
         <div className="rec-head">
           <div>
-            <div className="rec-head-title">循环提醒</div>
+            <div className="rec-head-title">规则列表</div>
             <div className="rec-head-hint">
-              按设定规律重复提醒；规则只保存在本机 Lite，导出备份时会带上
+              按设定规律重复提醒；错过的不补弹，下一次始终按原相位触发。规则只保存在本机 Lite，导出备份时会带上
             </div>
           </div>
           <button className="btn primary" onClick={() => setDraft(newDraft(Date.now()))}>

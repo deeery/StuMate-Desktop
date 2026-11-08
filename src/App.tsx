@@ -25,6 +25,7 @@ import { TodayPage } from "./pages/TodayPage";
 import { WeekPage } from "./pages/WeekPage";
 import { NotesPage } from "./pages/NotesPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
+import { RecurringPage } from "./pages/RecurringPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 export interface AppContextValue {
@@ -151,7 +152,7 @@ export default function App() {
   useEffect(() => {
     if (!info || startApplied.current) return;
     startApplied.current = true;
-    const allowed: PageKey[] = ["today", "week", "notes", "knowledge", "settings"];
+    const allowed: PageKey[] = ["today", "week", "notes", "knowledge", "recurring", "settings"];
     const fromUrl = new URLSearchParams(window.location.search).get("page");
     const target = (fromUrl ?? info.startPage) as PageKey | null;
     if (target && allowed.includes(target)) setPage(target);
@@ -274,7 +275,8 @@ export default function App() {
     };
   }, [theme]);
 
-  // Ctrl+1..5 切页：桌面端习惯，成本极低
+  // Ctrl+1..6 切页：桌面端习惯。1..5 沿用旧映射，新页补在 6，
+  // 免得老用户按 Ctrl+5 时设置的落点突然变掉。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
@@ -284,6 +286,7 @@ export default function App() {
         "3": "notes",
         "4": "knowledge",
         "5": "settings",
+        "6": "recurring",
       };
       const target = map[e.key];
       if (target) {
@@ -368,6 +371,7 @@ export default function App() {
             status={status}
             version={info.version}
             noteCount={notes.length}
+            recurringCount={recurring.filter((r) => r.enabled).length}
           />
         )}
         <main className="page">
@@ -379,7 +383,8 @@ export default function App() {
             {page === "week" && <WeekPage ctx={ctx} />}
             {page === "notes" && <NotesPage ctx={ctx} />}
             {page === "knowledge" && <KnowledgePage ctx={ctx} solo={solo} />}
-            {page === "settings" && <SettingsPage ctx={ctx} />}
+            {page === "recurring" && <RecurringPage ctx={ctx} />}
+            {page === "settings" && <SettingsPage ctx={ctx} onNavigate={setPage} />}
           </div>
         </main>
       </div>
@@ -453,7 +458,7 @@ function CloseConfirmDialog({
  * 从左到右：`[标题 + 副标题]` ── 弹性空白（可拖动、双击最大化）── `[页面操作]` `[窗口按钮]`
  *
  * 空白处用 `flex:1` 吃掉剩余宽度：一来它天然是拖动把手，二来页面操作与窗口按钮
- * 被稳定推到右端，**在五个页面之间保持同一水平位置**（与原版 `PageTopBar` 一致）。
+ * 被稳定推到右端，**在六个页面之间保持同一水平位置**（与原版 `PageTopBar` 一致）。
  */
 export function PageTopBar({
   title,

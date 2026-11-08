@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog, Field, Select, Toggle } from "../components/ui";
-import { RecurringSection } from "../components/RecurringSection";
+import type { PageKey } from "../components/Chrome";
 import { usePresence } from "../components/Presence";
 import { IconFolder, IconTrash } from "../components/Icons";
 import { api, errorText } from "../api";
@@ -37,7 +37,14 @@ const DAY_LABEL_CN: Record<string, string> = {
   Sunday: "周日",
 };
 
-export function SettingsPage({ ctx }: { ctx: AppContextValue }) {
+export function SettingsPage({
+  ctx,
+  onNavigate,
+}: {
+  ctx: AppContextValue;
+  /** v1.7.16：给「循环提醒」指路入口用，独立页由 App 统一切 */
+  onNavigate?: (page: PageKey) => void;
+}) {
   const [backupOpen, setBackupOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   // null = 还没读到注册表。开关先按「关」渲染，读到真值再纠正 ——
@@ -239,10 +246,14 @@ export function SettingsPage({ ctx }: { ctx: AppContextValue }) {
               预览
             </button>
           </Row>
+          {/* v1.7.16：循环提醒升为侧栏一级页，这里只留指路入口 ——
+              规则列表不再在设置页渲染第二遍（两处同时写会互相刷新）。 */}
+          <Row label="循环提醒" hint="规则管理已移到侧栏「循环提醒」页">
+            <button className="btn" onClick={() => onNavigate?.("recurring")}>
+              打开
+            </button>
+          </Row>
         </Section>
-
-        {/* 循环提醒：独立组件，规则模型与相位计算都在 model/recurring.ts */}
-        <RecurringSection ctx={ctx} />
 
         <Section title="启动与托盘">
           {/* 另一个「有实现、无 UI」的键。此前只能靠关闭确认框里的

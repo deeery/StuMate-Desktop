@@ -65,6 +65,15 @@ export const IconSettings = (p: IconProps) => (
   </Svg>
 );
 
+/** 循环提醒：沿用 IconRefresh 的环箭头，中心补一根钟针，和「设置」区分开 */
+export const IconRecurring = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M13.2 8a5.2 5.2 0 11-1.6-3.7" />
+    <path d="M13.4 2.6v2.9h-2.9" />
+    <path d="M8 5.1V8l2 1.3" />
+  </Svg>
+);
+
 export const IconPlus = (p: IconProps) => (
   <Svg {...p}>
     <path d="M8 3.5v9M3.5 8h9" />
