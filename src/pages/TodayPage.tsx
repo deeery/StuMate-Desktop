@@ -1,5 +1,6 @@
 /**
- * 今天页：主卡（正在上 / 即将上 / 空闲 / 已上完）+ 今日时间线 + 今日截止。
+ * 今天页：主卡（正在上 / 即将上 / 空闲 / 已上完）+ 今日时间线 + 今日截止
+ *          + 今日循环（v1.7.17，右列第二张独立卡片）。
  *
  * 主卡的四种状态是这一页唯一的"规则"，判定全部走 `model/today.ts` 的纯函数，
  * 这里只负责排版 —— 和原版 `TodayPage` 的分工一致。
@@ -8,6 +9,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { IconCheck, IconNote, IconToday } from "../components/Icons";
+import { TodayRecurringCard } from "../components/TodayRecurringCard";
+import type { PageKey } from "../components/Chrome";
 import {
   greetingOf,
   humanDuration,
@@ -23,7 +26,14 @@ import { deadlineCountdown, hasDeadline, typeLabel } from "../model/notes";
 
 const WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-export function TodayPage({ ctx }: { ctx: AppContextValue }) {
+export function TodayPage({
+  ctx,
+  onNavigate,
+}: {
+  ctx: AppContextValue;
+  /** v1.7.17：今日循环卡片的「打开」入口，跳到侧栏第 6 页 */
+  onNavigate?: (page: PageKey) => void;
+}) {
   const [now, setNow] = useState(() => Date.now());
 
   // 每分钟重算一次：倒计时和"正在上"的判定都靠它。
@@ -113,6 +123,9 @@ export function TodayPage({ ctx }: { ctx: AppContextValue }) {
             )}
           </div>
 
+          {/* 右列（v1.7.17）：今日截止 + 今日循环两张独立卡片，各自一个 card 外框。
+              包一层 flex 列而不是把两节塞进同一张卡 —— 用户要的是「单独窗口」。 */}
+          <div className="today-side">
           <section className="card" style={{ padding: "14px 16px 10px" }}>
             <SectionTitle>今日截止</SectionTitle>
             {deadlines.length === 0 ? (
@@ -162,6 +175,13 @@ export function TodayPage({ ctx }: { ctx: AppContextValue }) {
               </div>
             )}
           </section>
+
+            <TodayRecurringCard
+              items={ctx.recurring}
+              now={now}
+              onNavigate={onNavigate}
+            />
+          </div>
         </div>
       </div>
     </>

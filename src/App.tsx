@@ -379,7 +379,7 @@ export default function App() {
               旧页在同一帧被移除 —— 单边入场，不做交叉淡入（两屏文字叠在一起
               时中间那一段不可读，代价还是一次双份测量）。 */}
           <div className="page-stage" key={page}>
-            {page === "today" && <TodayPage ctx={ctx} />}
+            {page === "today" && <TodayPage ctx={ctx} onNavigate={setPage} />}
             {page === "week" && <WeekPage ctx={ctx} />}
             {page === "notes" && <NotesPage ctx={ctx} />}
             {page === "knowledge" && <KnowledgePage ctx={ctx} solo={solo} />}

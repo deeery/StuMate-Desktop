@@ -383,6 +383,55 @@ export function describeRule(rule: RecurringRule): string {
   }
 }
 
+/** 今日页卡片的一行：一条规则 + 它今天内下一次触发时刻 */
+export interface TodayRecurringFire {
+  item: RecurringItem;
+  /** 本地时刻（epoch ms），严格晚于 now 且落在今天之内 */
+  fireAt: number;
+  /** 含本次在内，今天还剩几个相位点；封顶避免「每 1 分钟」刷满列表 */
+  remainingToday: number;
+}
+
+/** 单条规则一天最多数到这里。真实间隔最小 1 分钟也不过 1440，500 足够表意 */
+const MAX_TODAY_FIRES = 500;
+
+/**
+ * 今日页右列用：只列**今天之内还有相位点**的启用规则，按触发时刻升序。
+ *
+ * 与 `planRecurring` 的区别：那边问「这一轮要不要弹浮窗」，这边问「今天
+ * 还会响几次」——所以不碰 lastFiredAt、不产生任何落盘更新，是纯读函数。
+ * 停用的、结束日期已过的、下一次已经排到明天的规则都不出现。
+ * 同刻撞车按 id 稳定排序，跟浮窗那边口径一致。
+ */
+export function todayRecurringFires(
+  items: RecurringItem[],
+  now: number,
+): TodayRecurringFire[] {
+  // 用 setDate 加一天再减 1ms，而不是 startOfDay + 86400000：跨夏令时那天
+  // 只有 23 或 25 小时。中国目前无 DST，但这里和全文件保持同一套本地日口径。
+  const endOfDay = addDays(startOfDay(now), 1) - 1;
+  const out: TodayRecurringFire[] = [];
+
+  for (const item of items) {
+    if (!item.enabled) continue;
+    const fireAt = upcomingFireAt(item, now);
+    if (fireAt === null || fireAt > endOfDay) continue;
+
+    const hardEnd =
+      item.endAt === null ? endOfDay : Math.min(endOfDay, endExclusive(item.endAt));
+    let count = 0;
+    let t: number | null = fireAt;
+    while (t !== null && t <= hardEnd && count < MAX_TODAY_FIRES) {
+      count += 1;
+      t = nextFireAt(item.rule, t);
+    }
+    out.push({ item, fireAt, remainingToday: count });
+  }
+
+  out.sort((a, b) => a.fireAt - b.fireAt || a.item.id.localeCompare(b.item.id));
+  return out;
+}
+
 /** 设置页「下次触发」的一行文案 */
 export function describeNext(fireAt: number | null, now: number): string {
   if (fireAt === null) return "已结束或不启用";

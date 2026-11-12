@@ -18,6 +18,7 @@ import {
   ruleModeOf,
   skipOnce,
   startOfDay,
+  todayRecurringFires,
   upcomingFireAt,
   type RecurringItem,
   type RecurringRule,
@@ -173,6 +174,95 @@ describe("planRecurring · 错过一律跳过", () => {
     const plan = planRecurring([a, b], clock(9, 0, 10), clock(8, 59, 40));
     expect(plan.fire?.item.id).toBe("a");
     expect(plan.updates).toHaveLength(2);
+  });
+});
+
+describe("todayRecurringFires · 今日页卡片（v1.7.17）", () => {
+  const daily = (atTime: string, over: Partial<RecurringItem> = {}) =>
+    item({ rule: { kind: "weekly", weekdays: [], at: atTime }, ...over });
+
+  it("只列今天之内还有相位点的规则，明天的那一条不出现", () => {
+    const now = clock(7);
+    const fires = todayRecurringFires(
+      [
+        daily("08:00", { id: "a", title: "早读" }),
+        // 每周一 08:00，今天是周日 → 下一次在明天
+        item({
+          id: "b",
+          rule: { kind: "weekly", weekdays: [1], at: "08:00" },
+        }),
+      ],
+      now,
+    );
+    expect(fires.map((f) => f.item.id)).toEqual(["a"]);
+    expect(fires[0].fireAt).toBe(clock(8));
+    expect(fires[0].remainingToday).toBe(1);
+  });
+
+  it("停用 / 结束日期已过 / 下一次已越过今天，一律不列", () => {
+    const now = clock(9);
+    const fires = todayRecurringFires(
+      [
+        daily("08:00", { id: "past" }), // 今天 08:00 已过，下一次是明天
+        daily("10:00", { id: "off", enabled: false }),
+        daily("10:00", { id: "ended", endAt: at(2026, 11, 7) }),
+        daily("10:00", { id: "ok" }),
+      ],
+      now,
+    );
+    expect(fires.map((f) => f.item.id)).toEqual(["ok"]);
+  });
+
+  it("按触发时刻升序；同刻按 id 稳定排序", () => {
+    const now = clock(7);
+    const fires = todayRecurringFires(
+      [
+        daily("10:00", { id: "late" }),
+        daily("08:00", { id: "z" }),
+        daily("08:00", { id: "a" }),
+      ],
+      now,
+    );
+    expect(fires.map((f) => f.item.id)).toEqual(["a", "z", "late"]);
+  });
+
+  it("间隔型给出今天剩余次数，且结束日期当天会被截断", () => {
+    const now = clock(9, 0, 10);
+    const rule: RecurringRule = {
+      kind: "interval",
+      minutes: 60,
+      anchor: at(2026, 11, 8, 9),
+    };
+    const fires = todayRecurringFires(
+      [item({ id: "hour", rule }), item({ id: "todayEnd", rule, endAt: SUN })],
+      now,
+    );
+    expect(fires).toHaveLength(2);
+    // 10:00 ~ 23:00 共 14 个相位点；endAt 是今天，同样覆盖到当天最后一刻
+    expect(fires[0].fireAt).toBe(clock(10));
+    expect(fires[0].remainingToday).toBe(14);
+    expect(fires[1].remainingToday).toBe(14);
+  });
+
+  it("今天最后一分钟仍算今天；分钟级间隔有次数上限不会刷爆", () => {
+    const now = clock(23, 58);
+    const edge = todayRecurringFires([daily("23:59", { id: "edge" })], now);
+    expect(edge).toHaveLength(1);
+    expect(edge[0].fireAt).toBe(clock(23, 59));
+
+    const minute: RecurringRule = {
+      kind: "interval",
+      minutes: 1,
+      anchor: SUN,
+    };
+    const many = todayRecurringFires([item({ id: "minute", rule: minute })], clock(0, 0, 1));
+    expect(many).toHaveLength(1);
+    expect(many[0].remainingToday).toBeLessThanOrEqual(500);
+    expect(many[0].remainingToday).toBeGreaterThan(100);
+  });
+
+  it("空列表返回空数组，不抛异常", () => {
+    expect(todayRecurringFires([], clock(12))).toEqual([]);
   });
 });
 

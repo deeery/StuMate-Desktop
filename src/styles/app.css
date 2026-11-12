@@ -2306,3 +2306,114 @@ html.theme-switching *::after {
   outline: var(--focus-ring-width) solid var(--accent);
   outline-offset: var(--focus-ring-offset);
 }
+
+/* ── v1.7.17 · 今日页「今日循环」卡片 ───────────────────────────────
+ * 右列第二张独立 card，挂在「今日截止」下方，同宽 300px、随页面滚动。
+ * 只读展示，不复制规则逻辑；只用 tokens.css 的变量，浅深两套自动跟随。
+ * 回滚 = 删掉本段 + TodayRecurringCard.tsx + TodayPage.tsx 里的引用。 */
+
+.today-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.today-rec-card {
+  padding: 14px 16px 10px;
+}
+
+.today-rec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.today-rec-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--on-surface-variant);
+}
+
+.today-rec-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.today-rec-open {
+  flex: 0 0 auto;
+}
+
+.today-rec-empty {
+  padding: 20px 0 18px;
+}
+
+.today-rec-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.today-rec-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 6px 0;
+  border-top: 1px solid var(--outline);
+}
+
+.today-rec-time {
+  flex: 0 0 42px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.today-rec-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.today-rec-title,
+.today-rec-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-rec-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.today-rec-meta {
+  font-size: 11px;
+  color: var(--on-surface-faint);
+}
+
+.today-rec-due {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
