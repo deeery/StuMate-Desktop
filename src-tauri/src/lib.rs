@@ -11,6 +11,7 @@ mod db;
 mod models;
 mod fullscreen;
 mod overlay;
+mod splash;
 mod store;
 mod tray;
 mod vault;
@@ -29,6 +30,9 @@ pub struct AppState {
     /// 最近一帧提醒内容。提醒卡窗口是**新建**的，那一刻页面还在加载，
     /// 直接 emit 会丢事件 —— 所以留一份让页面挂载后主动来取（`overlay_state`）。
     alert: Mutex<Option<Value>>,
+    /// 启动窗「两票制」状态。watchdog 线程也要看，所以是 Arc<Mutex<_>>，
+    /// 不是上面两个那种只被 IPC 命令碰的裸 Mutex。
+    splash: splash::SharedGate,
 }
 
 impl AppState {
@@ -106,6 +110,23 @@ fn app_info(state: State<'_, AppState>) -> AppInfo {
         start_view: std::env::var("STUMATE_LITE_VIEW").ok().filter(|s| !s.is_empty()),
         start_theme: std::env::var("STUMATE_LITE_THEME").ok().filter(|s| !s.is_empty()),
     }
+}
+
+/// 启动窗的一票。四个取值：
+///   `main`  主窗口数据装载完成（或失败）
+///   `anim`  启动窗动画播完 / 用户点了跳过
+///   `close` 淡出跑完后的收尾
+///   `abort` 主窗口挂载失败，立刻撤窗露出错误页
+///
+/// 必须是 async：同步命令跑在主线程，而里面要 `close()` / `show()` 窗口，
+/// 这些操作要等主线程事件循环回话 —— 自己等自己就死锁了（v1.7.9 的老坑）。
+#[tauri::command(async)]
+async fn splash_signal(app: tauri::AppHandle, kind: String) {
+    let gate = {
+        let state = app.state::<AppState>();
+        state.splash.clone()
+    };
+    splash::signal(&app, &gate, &kind);
 }
 
 // ── 课程表 ────────────────────────────────────────────────────────
@@ -685,6 +706,10 @@ fn tray_status(app: tauri::AppHandle, title: String, detail: String) {
 pub fn run() {
     let paths = Paths::resolve();
 
+    // 自动化验收（CDP 截图主界面）用 NO_SPLASH 直接跳过启动窗，
+    // 免得每次都要等动画。正常启动一律启用。
+    let splash_enabled = std::env::var("STUMATE_LITE_NO_SPLASH").is_err();
+
     // 数据库打不开时**不要 panic**：那会变成一个没有窗口、没有提示的僵尸进程。
     // 用弹窗把原因（通常是「老 schema，请先开一次原版」）原样给用户，然后正常退出。
     let db = match db::Db::open(&paths.db) {
@@ -733,18 +758,53 @@ pub fn run() {
             paths,
             prefs: Mutex::new(prefs),
             alert: Mutex::new(None),
+            splash: splash::new_gate(splash_enabled),
         })
         // 窗口在代码里建，而不是写在 tauri.conf.json：
         //  - 需要按 `STUMATE_LITE_SCREEN` 决定放到哪块屏（验收截图时不要压住用户的主屏）
         //  - 需要按 `STUMATE_LITE_BROWSER_ARGS` 追加 WebView2 启动参数（开调试端口截图）
         // 这两件事都只在设了环境变量时才生效，正常启动就是一个普通的 1200×800 无边框窗口。
         .setup(|app| {
-            use tauri::{WebviewUrl, WebviewWindowBuilder};
+            use tauri::{Manager as _, WebviewUrl, WebviewWindowBuilder};
 
-            let data_dir = {
-                use tauri::Manager as _;
-                app.state::<AppState>().paths.data_dir.clone()
-            };
+            let data_dir = app.state::<AppState>().paths.data_dir.clone();
+
+            // 启动窗和主窗口必须用**同一份** WebView2 启动参数（理由见 browser_args
+            // 的注释），所以在这里先算一次，两处都取自它。
+            let args = browser_args();
+
+            // 启动窗先建、先画：第一个 webview 会初始化 WebView2 环境，
+            // 后建的主窗口复用它。主窗口这期间保持隐藏，等 splash.rs 两票齐了再亮出来。
+            let splash_enabled = app
+                .state::<AppState>()
+                .splash
+                .lock()
+                .map(|g| g.enabled)
+                .unwrap_or(false);
+            if splash_enabled {
+                let prefs_value = app.state::<AppState>().prefs_snapshot();
+                let mut theme_mode = prefs_value
+                    .get("themeMode")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                // 验收时的强制主题优先于偏好（与 App.tsx 的 startTheme 同口径）。
+                match std::env::var("STUMATE_LITE_THEME").as_deref() {
+                    Ok("light") => theme_mode = 1,
+                    Ok("dark") => theme_mode = 2,
+                    _ => {}
+                }
+                let cfg = serde_json::json!({
+                    "themeMode": theme_mode,
+                    "version": env!("CARGO_PKG_VERSION"),
+                    // 截图验收时让启动窗多停一会儿，不必改代码。
+                    "holdMs": if std::env::var("STUMATE_LITE_SPLASH_HOLD").is_ok() { 20000 } else { 0 },
+                });
+                splash::build(app.handle(), &args, &cfg)?;
+                splash::spawn_watchdog(
+                    app.handle().clone(),
+                    app.state::<AppState>().splash.clone(),
+                );
+            }
 
             // 目标屏（1 起算）。尺寸必须在**创建窗口时**就定好，不能建完再 set_size ——
             // 实测 set_size 返回 Ok 却没生效（outer 仍是原来的 2432×1618）。
@@ -790,7 +850,7 @@ pub fn run() {
             .title("StuMate Lite")
             .decorations(false)
             .resizable(true)
-            .visible(true);
+            .visible(!splash_enabled);
 
             let mut builder = match &target {
                 Some(monitor) => {
@@ -837,8 +897,7 @@ pub fn run() {
             //
             // 这个界面是静态二维布局，软渲染的代价可以忽略，画错的代价不可接受。
             // 需要硬件加速时：设 STUMATE_LITE_HARDWARE_ACCEL=1，或用 STUMATE_LITE_BROWSER_ARGS
-            // 直接接管全部参数。
-            let args = browser_args();
+            // 直接接管全部参数。`args` 在 setup 开头已算好，启动窗用的是同一份。
             if !args.is_empty() {
                 builder = builder.additional_browser_args(&args);
             }
@@ -876,6 +935,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
+            splash_signal,
             classes_list,
             class_save,
             class_delete,

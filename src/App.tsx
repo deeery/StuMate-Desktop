@@ -138,6 +138,10 @@ export default function App() {
         setRecurring(Array.isArray(recurringPayload?.items) ? recurringPayload.items : []);
       } catch (err) {
         setBootError(errorText(err));
+      } finally {
+        // 启动窗等的就是这一票。七张表有没有拉成功都要投 —— 失败时主窗口会画
+        // 错误页，不投的话用户会对着启动窗干等 watchdog 的 12 秒。
+        void api.splashDone().catch(() => {});
       }
     })();
   }, []);

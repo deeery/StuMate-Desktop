@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>StuMate Lite · 启动</title>
+<style>
+  /*
+   * 启动窗是**独立 webview**，故意不走 Vite / React：
+   * 主窗口那一包要等 React 挂载、IPC 拉完七张表才画得出东西，
+   * 让它自己显示「启动中」等于什么都没显示。这一页只有一段内联 HTML + CSS，
+   * WebView2 拿到字节就能画，正好盖住冷启动那段空白。
+   *
+   * 动效参照 biuyyu logo motion 的**节奏**，不套用它的素材与字形：
+   * 一个点弹一下 → 化作笔尖，逐字写出 StuMate → 末尾落一颗珊瑚色的点，3.4s 完成。
+   * 字标用系统字体而不是手绘 SVG 路径：自造的单线字母很容易读成别的字符，
+   * 而启动画面第一眼必须是「产品名」，不是一道猜字谜。
+   * 全部内联、零外部请求 —— 冷启动时 WebView2 的 asset 协议未必已就绪，
+   * 实测首启外链 GIF 会拿到 naturalWidth=0（空画面）。
+   */
+  :root {
+    --splash-bg: #171717;
+    --splash-ink: #EEEEE8;
+    --splash-muted: rgba(238, 238, 232, .38);
+    --splash-line: rgba(238, 238, 232, .09);
+    --splash-accent: #F87454;
+    --splash-ease: cubic-bezier(.33, 0, .2, 1);
+  }
+  html[data-theme="light"] {
+    --splash-bg: #ECECE6;
+    --splash-ink: #171717;
+    --splash-muted: rgba(23, 23, 23, .42);
+    --splash-line: rgba(23, 23, 23, .09);
+  }
+  * { box-sizing: border-box; }
+  html { height: 100%; background: var(--splash-bg); }
+  body {
+    margin: 0; width: 100%; height: 100%; overflow: hidden;
+    background: var(--splash-bg);
+    color: var(--splash-ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+    opacity: 1;
+    transition: opacity 280ms var(--splash-ease), transform 280ms var(--splash-ease);
+  }
+  body.leaving { opacity: 0; transform: scale(1.012); }
+  .edge {
+    position: fixed; inset: 0;
+    border: 1px solid var(--splash-line);
+    pointer-events: none;
+  }
+  .stage {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── 字标 ──────────────────────────────────────────────────────
+   * 每个字一块 inline-block，用 clip-path 从左往右揭开，配一点点上浮，
+   * 连起来就是「落笔写字」；--i 决定各自的起笔时刻。
+   */
+  .mark {
+    display: inline-flex;
+    align-items: baseline;
+    font-family: "Segoe UI Variable Display", "Segoe UI Variable Text",
+                 "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    font-size: 62px;
+    font-weight: 600;
+    letter-spacing: -.015em;
+    line-height: 1;
+    color: var(--splash-ink);
+    white-space: nowrap;
+  }
+  .glyph {
+    display: inline-block;
+    opacity: 0;
+    transform: translateY(5px);
+    clip-path: inset(0 100% 0 0);
+    animation: glyph-in .28s var(--splash-ease)
+               calc(.90s + var(--i) * .30s) both;
+  }
+  @keyframes glyph-in {
+    0%   { opacity: 0; transform: translateY(5px); clip-path: inset(0 100% 0 0); }
+    25%  { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0); clip-path: inset(0 0 0 0); }
+  }
+  .accent {
+    display: inline-block;
+    width: 9px; height: 9px;
+    margin: 0 0 6px 11px;
+    border-radius: 50%;
+    background: var(--splash-accent);
+    transform: scale(0); opacity: 0;
+    animation: accent .2s cubic-bezier(.2,.9,.3,1) 3.15s both;
+  }
+  @keyframes accent {
+    0%   { transform: scale(0); opacity: 0; }
+    55%  { transform: scale(1.12); opacity: 1; }
+    80%  { transform: scale(.97); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* ── 种子点：弹一下 → 飞到字标左端 → 淡出（化作第一笔） ──────────
+   * 四层嵌套各管一个 transform，避免多个动画抢同一属性互相覆盖。
+   */
+  .seed {
+    position: absolute;
+    left: calc(50% - 150px);
+    top: calc(50% - 18px);
+    width: 9px; height: 9px;
+    pointer-events: none;
+  }
+  .seed > div { width: 9px; height: 9px; }
+  .seed-fade { animation: seed-fade .18s ease-out 1.00s both; }
+  @keyframes seed-fade { to { opacity: 0; } }
+  .seed-x { animation: seed-x .42s cubic-bezier(.45,.05,.2,1) .62s both; }
+  @keyframes seed-x { from { transform: translateX(150px); } to { transform: translateX(0); } }
+  .seed-y { animation: seed-y .42s cubic-bezier(.2,.85,.3,1) .62s both; }
+  @keyframes seed-y {
+    0%   { transform: translateY(58px); }
+    45%  { transform: translateY(-4px); }
+    70%  { transform: translateY(2px); }
+    100% { transform: translateY(0); }
+  }
+  .seed-hop { animation: seed-hop .55s cubic-bezier(.33,0,.67,1) both; }
+  @keyframes seed-hop {
+    0%, 20% { transform: translateY(0); }
+    45%     { transform: translateY(-22px); }
+    72%     { transform: translateY(0); }
+    84%     { transform: translateY(-4px); }
+    100%    { transform: translateY(0); }
+  }
+  .seed-dot {
+    display: block; width: 9px; height: 9px;
+    border-radius: 50%;
+    background: currentColor;
+    transform-origin: center;
+    animation: seed-squash 1.4s linear both;
+  }
+  @keyframes seed-squash {
+    0%   { transform: scale(1); }
+    7%   { transform: scale(1.16,.84); }
+    14%  { transform: scale(.88,1.12); }
+    22%  { transform: scale(1); }
+    28%  { transform: scale(1.2,.8); }
+    31%  { transform: scale(.95,1.05); }
+    38%  { transform: scale(1); }
+    55%  { transform: scale(1.08,.94); }
+    72%  { transform: scale(1); }
+    87%  { transform: scale(1.14,.88); }
+    94%, 100% { transform: scale(1); }
+  }
+
+  .meta {
+    position: fixed; left: 22px; right: 22px; bottom: 17px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 10px; font-weight: 600; letter-spacing: .16em;
+    color: var(--splash-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body { transition: none; }
+    .glyph { animation: none; opacity: 1; transform: none; clip-path: none; }
+    .accent { animation: none; transform: none; opacity: 1; }
+    .seed { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="edge"></div>
+  <div class="stage">
+    <div class="mark" id="mark" aria-label="StuMate">
+      <span class="glyph" style="--i:0">S</span><span class="glyph" style="--i:1">t</span><span class="glyph" style="--i:2">u</span><span class="glyph" style="--i:3">M</span><span class="glyph" style="--i:4">a</span><span class="glyph" style="--i:5">t</span><span class="glyph" style="--i:6">e</span><span class="accent" aria-hidden="true"></span>
+    </div>
+    <div class="seed" aria-hidden="true"><div class="seed-fade"><div class="seed-x"><div class="seed-y"><div class="seed-hop"><i class="seed-dot"></i></div></div></div></div></div>
+  </div>
+  <div class="meta"><span>STUMATE LITE</span><span id="version"></span></div>
+<script>
+(function () {
+  // Rust 用 initialization_script 注入，不塞 URL query：
+  // asset 协议会把整个字符串当文件路径，带 query 会停在 about:blank。
+  var cfg = window.__STUMATE_SPLASH__ || {};
+  var mode = cfg.themeMode === 1 || cfg.themeMode === 2
+    ? cfg.themeMode
+    : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? 2 : 1);
+  document.documentElement.dataset.theme = mode === 2 ? "dark" : "light";
+  document.getElementById("version").textContent = "v" + (cfg.version || "");
+
+  function invoke(kind) {
+    try {
+      var ipc = window.__TAURI_INTERNALS__;
+      if (ipc && ipc.invoke) ipc.invoke("splash_signal", { kind: kind });
+    } catch (_) { /* 在普通浏览器里直接打开这一页时，没有 IPC 也能看动画 */ }
+  }
+
+  // 动画 3.35s 收尾，再留 550ms 看清终帧；reduced-motion 只停 900ms。
+  // holdMs 是验收开关：截图时让启动窗多停一会儿，不必改代码。
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var animMs = cfg.holdMs || (reduced ? 900 : 3900);
+  var animSent = false;
+  function animDone() {
+    if (animSent) return;
+    animSent = true;
+    invoke("anim");
+  }
+  window.setTimeout(animDone, animMs);
+
+  // 点一下 / 按任意键跳过等待。只提前投「动画播完」这一票，
+  // 主窗口没装载好仍要等（Rust 侧两票齐了才切）。
+  document.addEventListener("pointerdown", animDone);
+  document.addEventListener("keydown", animDone);
+
+  // Rust 两票齐了会 eval 这个函数。用 eval 而不是 Tauri 事件：
+  // 独立页不必引 @tauri-apps/api，也不必猜事件名与窗口标签。
+  // 淡出跑完再让它关窗、亮出主窗口 —— 直接在 Rust 里 close() 会闪一下。
+  window.__stumateSplashFinish = function () {
+    document.body.classList.add("leaving");
+    window.setTimeout(function () { invoke("close"); }, reduced ? 0 : 300);
+  };
+})();
+</script>
+</body>
+</html>

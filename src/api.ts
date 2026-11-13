@@ -87,6 +87,9 @@ export interface AppInfo {
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
 
+  /** 启动窗「主窗口就绪」票：装载成功或失败都要投，见 src-tauri/src/splash.rs */
+  splashDone: () => invoke<void>("splash_signal", { kind: "main" }),
+
   // 课程表
   classes: () => invoke<ClassEntity[]>("classes_list"),
   saveClass: (entity: ClassEntity) => invoke<ClassEntity>("class_save", { entity }),

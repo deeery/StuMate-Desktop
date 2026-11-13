@@ -49,6 +49,12 @@
           var root = document.getElementById("root");
           if (!root) return;
 
+          // 启动窗还盖在前面，错误页画出来也看不见。先撤窗，再画诊断信息。
+          try {
+            var bridge = window.__TAURI_INTERNALS__;
+            if (bridge && bridge.invoke) bridge.invoke("splash_signal", { kind: "abort" });
+          } catch (_) {}
+
           var ipc = typeof window.__TAURI_INTERNALS__ !== "undefined";
           var lines = errors.length ? errors : ["（没有捕获到异常，可能是渲染卡住或资源未返回）"];
 
