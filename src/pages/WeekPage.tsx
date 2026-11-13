@@ -39,6 +39,9 @@ import {
 import { currentWeek, mondayOf, weekContains, weekStart } from "../model/weekSchedule";
 import { DAY_NAMES, dateOf } from "../model/today";
 import { classColorOf } from "../model/classColor";
+import { todayRecurringFires, type TodayRecurringFire } from "../model/recurring";
+import { extendSpanForFires, minuteOfDay } from "../model/recurringTimeline";
+import { GridRecurringFire, ListRecurringFire } from "../components/RecurringFireMarker";
 import { api, errorText } from "../api";
 
 const DAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -100,7 +103,37 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
     });
   }, [ctx.classes, week, weekMonday]);
 
-  const span = useMemo(() => spanOf(weekClasses) ?? { startMinute: 8 * 60, endMinute: 18 * 60 }, [weekClasses]);
+  /*
+   * 「现在」单独挂一个 60s 时钟：当前时刻线、今日循环提醒标记、纵轴跨度共用它，
+   * 网格不会按分钟重渲染。它必须在 span 之前 —— 今天的相位点要参与纵轴范围计算。
+   */
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // 今天落在这周的第几列（不在本周时为 -1）
+  const todayIndex = DAY_NAMES.findIndex(
+    (_, i) => dateOf(weekMonday + i * 24 * 60 * 60 * 1000) === dateOf(nowMs),
+  );
+
+  /** 只读，与「今日循环」卡片 / 循环提醒页时间线同源 */
+  const todayFires = useMemo(
+    () => todayRecurringFires(ctx.recurring, nowMs),
+    [ctx.recurring, nowMs],
+  );
+
+  const baseSpan = useMemo(
+    () => spanOf(weekClasses) ?? { startMinute: 8 * 60, endMinute: 18 * 60 },
+    [weekClasses],
+  );
+  // 相位点也要落进可见纵轴：spanOf 只看课程，21:00 的提醒会被 overflow:hidden 裁掉。
+  // 今天不在当前周时不扩展 —— 那些点本来就不画，白白拉长只会压扁课程块。
+  const span = useMemo(
+    () => extendSpanForFires(baseSpan, todayFires, todayIndex >= 0),
+    [baseSpan, todayFires, todayIndex],
+  );
 
   // 容器高度 → 每格几小时。留 1 行余量，免得刚好卡在边界上出现半格滚动条
   const rows = Math.max(Math.floor((gridHeight - 24) / 56), 4);
@@ -169,20 +202,7 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
     };
   }, [weekClasses]);
 
-  /*
-   * 「现在到哪了」这根线要用当前时刻，但这一页本身不需要按分钟重渲染 ——
-   * 单独挂一个 60s 的时钟，只有 nowMs 变，网格不会跟着重算。
-   */
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  // 今天落在这周的第几列（不在本周时为 -1），以及当前时刻在时间轴上的位置
-  const todayIndex = DAY_NAMES.findIndex(
-    (_, i) => dateOf(weekMonday + i * 24 * 60 * 60 * 1000) === dateOf(nowMs),
-  );
+  /* nowMs / todayIndex 已在上面（span 需要它们）算好，这里只推当前时刻的位置。 */
   const nowClock = new Date(nowMs);
   const nowMinute = nowClock.getHours() * 60 + nowClock.getMinutes();
   const nowTop =
@@ -437,6 +457,19 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                       <div className="now-line" style={{ top: nowTop }} aria-hidden />
                     ) : null}
 
+                    {/* v1.7.19：今天的循环提醒相位点，横短线 + 左三角，hover 看详情。
+                        与课程块共用同一个 mapping，缩放窗口时不会错位。 */}
+                    {isToday
+                      ? todayFires.map((fire) => (
+                          <GridRecurringFire
+                            key={fire.item.id}
+                            fire={fire}
+                            now={nowMs}
+                            top={mapping.fractionOf(minuteOfDay(fire.fireAt)) * gridHeight}
+                          />
+                        ))
+                      : null}
+
                     {placed.map((p) => {
                       const height = Math.max(p.heightFraction * gridHeight, 22);
                       const active = selectedId === p.cls.id;
@@ -558,6 +591,9 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
           <ListView
             weekClasses={weekClasses}
             selectedId={selectedId}
+            fires={todayIndex >= 0 ? todayFires : []}
+            todayIndex={todayIndex}
+            now={nowMs}
             onSelect={(c) => setSelectedId(c.id)}
             onEdit={setEditing}
           />
@@ -737,11 +773,17 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 function ListView({
   weekClasses,
   selectedId,
+  fires,
+  todayIndex,
+  now,
   onSelect,
   onEdit,
 }: {
   weekClasses: ClassEntity[];
   selectedId: number | null;
+  fires: TodayRecurringFire[];
+  todayIndex: number;
+  now: number;
   onSelect: (c: ClassEntity) => void;
   onEdit: (c: ClassEntity) => void;
 }) {
@@ -751,12 +793,17 @@ function ListView({
         const list = weekClasses
           .filter((c) => c.dayOfWeek === day)
           .sort((a, b) => (minutesOf(a.startTime) ?? 0) - (minutesOf(b.startTime) ?? 0));
-        if (list.length === 0) return null;
+        // 今天没课但有循环提醒时，这一组也要出现
+        const dayFires = i === todayIndex ? fires : [];
+        if (list.length === 0 && dayFires.length === 0) return null;
         return (
           <div key={day} style={{ marginTop: 12 }}>
             <div style={{ fontSize: 11, color: "var(--on-surface-faint)", marginBottom: 4 }}>
               {DAY_CN[i]}
             </div>
+            {dayFires.map((f) => (
+              <ListRecurringFire key={f.item.id} fire={f} now={now} />
+            ))}
             {list.map((c) => (
               <button
                 key={c.id}
@@ -791,7 +838,9 @@ function ListView({
           </div>
         );
       })}
-      {weekClasses.length === 0 ? <div className="empty">这一周没有课</div> : null}
+      {weekClasses.length === 0 && fires.length === 0 ? (
+        <div className="empty">这一周没有课</div>
+      ) : null}
     </div>
   );
 }

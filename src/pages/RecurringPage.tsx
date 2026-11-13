@@ -8,6 +8,7 @@
 
 import { PageTopBar, type AppContextValue } from "../App";
 import { RecurringSection } from "../components/RecurringSection";
+import { RecurringTimeline } from "../components/RecurringFireMarker";
 
 export function RecurringPage({ ctx }: { ctx: AppContextValue }) {
   const enabled = ctx.recurring.filter((r) => r.enabled).length;
@@ -18,8 +19,15 @@ export function RecurringPage({ ctx }: { ctx: AppContextValue }) {
         title="循环提醒"
         subtitle={total === 0 ? "还没有规则" : `${enabled} 条启用 · 共 ${total} 条`}
       />
-      <div className="page-content" style={{ maxWidth: 760 }}>
-        <RecurringSection ctx={ctx} />
+      <div className="page-content">
+        {/* v1.7.19：左规则列表 + 右「今日时间线」。右列只读，复用
+            todayRecurringFires()，不写 recurring.json、不复制一份规律判定。 */}
+        <div className="rec-page-cols">
+          <div className="rec-page-main">
+            <RecurringSection ctx={ctx} />
+          </div>
+          <RecurringTimeline items={ctx.recurring} />
+        </div>
       </div>
     </>
   );
