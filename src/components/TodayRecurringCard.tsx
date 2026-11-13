@@ -41,16 +41,18 @@ export function TodayRecurringCard({
 
   return (
     <section className="card today-rec-card">
-      <div className="today-rec-head">
-        <div className="today-rec-heading">
-          <span className="today-rec-heading-text">今日循环</span>
+      {/* v1.7.20：标题行 / 计数 / 「打开」三个部件改成共享类，与上方
+          「今日截止」用同一套（card-head / card-head-count / card-open-btn）。 */}
+      <div className="card-head">
+        <div className="card-heading">
+          <span>今日循环</span>
           {fires.length > 0 ? (
-            <span className="today-rec-count">{fires.length}</span>
+            <span className="card-head-count">{fires.length}</span>
           ) : null}
         </div>
         <button
           type="button"
-          className="btn ghost sm today-rec-open"
+          className="btn sm card-open-btn"
           onClick={() => onNavigate?.("recurring")}
           title="打开循环提醒页"
         >

@@ -127,7 +127,25 @@ export function TodayPage({
               包一层 flex 列而不是把两节塞进同一张卡 —— 用户要的是「单独窗口」。 */}
           <div className="today-side">
           <section className="card" style={{ padding: "14px 16px 10px" }}>
-            <SectionTitle>今日截止</SectionTitle>
+            {/* v1.7.20：「今日截止」也挂上「打开」，跳到便签页。
+                标题行与下方「今日循环」共用 card-head / card-heading /
+                card-head-count 三个类，两张卡的头部才严丝合缝地同高对齐。 */}
+            <div className="card-head">
+              <div className="card-heading">
+                <span>今日截止</span>
+                {deadlines.length > 0 ? (
+                  <span className="card-head-count">{deadlines.length}</span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="btn sm card-open-btn"
+                onClick={() => onNavigate?.("notes")}
+                title="打开便签页"
+              >
+                打开
+              </button>
+            </div>
             {deadlines.length === 0 ? (
               <div className="empty" style={{ padding: "24px 0" }}>
                 <span className="empty-icon">
@@ -185,22 +203,6 @@ export function TodayPage({
         </div>
       </div>
     </>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        fontSize: 12,
-        fontWeight: 600,
-        color: "var(--on-surface-variant)",
-        marginBottom: 8,
-        letterSpacing: 0.2,
-      }}
-    >
-      {children}
-    </div>
   );
 }
 

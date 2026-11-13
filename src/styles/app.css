@@ -2323,7 +2323,9 @@ html.theme-switching *::after {
   padding: 14px 16px 10px;
 }
 
-.today-rec-head {
+/* v1.7.20：右列两张卡的标题行/计数徽标统一成同一套类，
+ * 「今日截止」也要挂「打开」按钮，两边不能各写一份。 */
+.card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2331,7 +2333,7 @@ html.theme-switching *::after {
   margin-bottom: 8px;
 }
 
-.today-rec-heading {
+.card-heading {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2341,7 +2343,7 @@ html.theme-switching *::after {
   color: var(--on-surface-variant);
 }
 
-.today-rec-count {
+.card-head-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2354,10 +2356,6 @@ html.theme-switching *::after {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   font-weight: 600;
-}
-
-.today-rec-open {
-  flex: 0 0 auto;
 }
 
 .today-rec-empty {
@@ -2643,3 +2641,65 @@ html.theme-switching *::after {
   .rec-fire-tip { animation: none; }
 }
 
+
+/* ── v1.7.20 · 卡片右上角「打开」：做一个看得见边缘的按钮 ─────────────
+ * 原来「打开」是 .btn.ghost（border-color: transparent），压在卡面底色上
+ * 只剩一行 11px 灰字，读起来像标签而不是按钮。这里给它一条真能看见的边：
+ *   · 1px 描边取 --card-btn-edge：浅色 #8c8c8c 对白卡 3.4:1、深色 #7a7a7a
+ *     对 #2b2b2b 约 3.1:1 —— 两套都过 WCAG 1.4.11「非文字控件边界 3:1」，
+ *     深色下也不会糊进卡面（--outline-strong #4a4a4a 只有 1.6:1，不够用）；
+ *   · 上沿 1px 内高光 + 下沿 1px 硬影，给一块「凸起」的实体感；按下时反
+ *     过来（内阴影 + 下沉 0.5px），按压反馈只动 transform，不改变布局边界；
+ *   · hover 把描边换成强调色、底色铺一层 --accent-tint，文字仍用正文色
+ *     —— 11px 的蓝字压在蓝底上没必要，边界变亮已经足够说明「可点」。
+ * 键盘焦点沿用全局 button:focus-visible 的强调色外环，这里不另写。
+ * 回滚 = 删掉本段 + 两处 className 里的 card-open-btn。 */
+:root[data-theme="light"] {
+  --card-btn-bg: #ffffff;
+  --card-btn-edge: #8c8c8c;
+  --card-btn-hi: rgba(255, 255, 255, 0.9);
+  --card-btn-drop: rgba(0, 0, 0, 0.1);
+}
+:root[data-theme="dark"] {
+  /* 深色下卡面本身就是 --surface #2b2b2b，按钮填同色会只剩一个空心框；
+     往上提一档到 #333，配合描边才读得出「凸起的一块」。 */
+  --card-btn-bg: #333333;
+  --card-btn-edge: #7a7a7a;
+  --card-btn-hi: rgba(255, 255, 255, 0.07);
+  --card-btn-drop: rgba(0, 0, 0, 0.45);
+}
+
+/* 选择器写满 .btn.xxx：.btn.sm 是 (0,2,0)，只写 .card-open-btn 会被它的
+ * height / padding 盖掉；文件末尾的同等权重靠先后顺序取胜。 */
+.btn.card-open-btn {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--card-btn-edge);
+  background: var(--card-btn-bg);
+  color: var(--on-surface);
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 var(--card-btn-hi), 0 1px 1px var(--card-btn-drop);
+  transition: background var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-fluent),
+    box-shadow var(--dur-fast) var(--ease-fluent),
+    transform var(--dur-fast) var(--ease-fluent);
+}
+
+.btn.card-open-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: inset 0 1px 0 var(--card-btn-hi), 0 1px 2px var(--card-btn-drop);
+}
+
+.btn.card-open-btn:active {
+  border-color: var(--accent);
+  background: var(--press);
+  transform: translateY(0.5px);
+  box-shadow: inset 0 1px 2px var(--card-btn-drop);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn.card-open-btn { transition: none; }
+  .btn.card-open-btn:active { transform: none; }
+}
