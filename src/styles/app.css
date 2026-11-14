@@ -2786,3 +2786,98 @@ html.theme-switching *::after {
 .status-dot.is-off {
   background: var(--error);
 }
+
+/* ── v1.7.25 · 详情面板宽度过渡，让「表格尺寸」也跟着动 ─────────────
+ * 现象：点中一节课，右边「啪」地出现面板，整张课表同时缩掉一截 —— 尺寸没有
+ * 过渡，只有面板自己在淡入。原因很直接：面板是 `flex: 0 0 268px` 的兄弟节点，
+ * 它一挂上就立刻吃掉 268px + 12px 间距，而课程块按百分比定位，于是列宽和块宽
+ * 一帧内全变了。
+ * 做法：
+ *   · `.week-detail` 宽度从 0 长到 268px（入场），退场再收回 0 —— 网格的可用
+ *     宽度因此是连续变化的，列宽与块宽自己就会平滑跟过去；
+ *   · 内容包一层固定 268px 的 `.week-detail-inner` 并让外层裁切：宽度动画期间
+ *     卡片不重排（否则标题会一行行跳字），视觉上是「从右往里推开」；
+ *   · `.week-split` 的 gap 0 → 12px 同步过渡，否则那 12px 仍是硬跳。
+ * 时长与曲线沿用面板自己的那套（--dur-panel / --ease-panel），退场用
+ * --dur-select-out + accel（收起要利落）。回滚 = 删掉本段 + 还原 WeekPage 里
+ * 容器那行内联 style 与 aside 里的 inner 包裹层。
+ * ─────────────────────────────────────────────────────────────── */
+
+:root {
+  --detail-w: 268px;
+}
+
+.week-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 0;
+  transition: gap var(--dur-panel) var(--ease-panel);
+}
+
+.week-split.has-detail {
+  gap: 12px;
+}
+
+/* 外层只管宽度：给 0 → 268 的动画，并裁掉溢出的固定宽内容 */
+.week-detail {
+  width: 0;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+  /* 滚动与内边距都交给 inner —— 外层要能裁到 0 宽 */
+  padding-right: 0;
+  display: flex;
+  flex-direction: column;
+  animation: wk-detail-in var(--dur-panel) var(--ease-panel) both;
+}
+
+/* 固定宽内容：宽度动画期间它一动不动，只是被外层裁切 */
+.week-detail-inner {
+  width: var(--detail-w);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* 滚动条贴着圆角边会被裁掉，留 2px */
+  padding-right: 2px;
+}
+
+@keyframes wk-detail-in {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+  to {
+    width: var(--detail-w);
+    opacity: 1;
+  }
+}
+
+/* 退场：宽度收回，网格同步变宽。pointer-events 由上面的 .leaving 规则管。
+ * from 必须显式写 —— 元素的静态 width 是 0，只写 to 的话隐式起点也取 0，
+ * 整条动画就等于没动（第一版就踩了这个，退场宽度从 268 一帧跳到 0）。 */
+.week-detail.leaving {
+  animation: wk-detail-out var(--dur-select-out) var(--ease-accel) forwards;
+}
+
+@keyframes wk-detail-out {
+  from {
+    width: var(--detail-w);
+    opacity: 1;
+  }
+  to {
+    width: 0;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .week-split,
+  .week-detail {
+    transition: none;
+    animation-duration: 1ms;
+  }
+}

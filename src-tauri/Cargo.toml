@@ -1,6 +1,6 @@
 [package]
 name = "stumate-lite"
-version = "1.7.24"
+version = "1.7.25"
 description = "StuMate Lite —— Stumate 桌面端的 Tauri 重构版"
 authors = ["StuMate"]
 edition = "2021"

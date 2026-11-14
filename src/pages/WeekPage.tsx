@@ -170,7 +170,10 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
    */
   // v1.7.21：退场时长要跟 CSS 里 `.week-detail.leaving` 的 `--dur-select-out`
   // 同源（Presence 用固定时长兜底，改一处必须改两处）。v1.7.22 一起 160 → 220。
-  const detailPresence = usePresence(selected !== null, 220);
+  // v1.7.25：再**多留 40ms 余量**（220 → 260）。面板现在还会做宽度收起动画，
+  // 定时器与 CSS 动画不是同一刻起跑，等长会在宽度还剩 80px 时就把节点摘掉，
+  // 露出一次可见的末段跳变 —— 多这 40ms 刚好让宽度归零后再卸载。
+  const detailPresence = usePresence(selected !== null, 260);
   const retainedCls = useRef<ClassEntity | null>(null);
   if (selected) retainedCls.current = selected;
   const shownCls = selected ?? retainedCls.current;
@@ -310,10 +313,17 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
           </div>
         ) : null}
 
-        {/* 课表 + 右侧详情面板并排。面板宽度是**瞬时**的（不做抽屉拉开），
-            原因和原版 RightPanelTransition 一样：每帧改宽度会让整张网格重新布局，
-            课程块的 transform 过渡会跟着抖。所以只给面板做 opacity + 位移入场。 */}
-        <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 12 }}>
+        {/* 课表 + 右侧详情面板并排。
+            v1.7.25：面板宽度不再是瞬时的 —— 原来 `flex: 0 0 268px` 一挂上，
+            网格可用宽度当场少 280px，而课程块是按百分比定位的，于是「选中一下、
+            整张表原地缩一圈」，正是用户说的「表格大小没有过渡」。现在面板宽度
+            从 0 撑到 268px，网格跟着连续变窄，块宽自己就会平滑跟过去。
+            `gap` 也交给 CSS 过渡（`.week-split.has-detail`），否则那 12px 仍是硬跳。 */}
+        <div
+          className={`week-split${
+            detailPresence.mounted && !detailPresence.leaving ? " has-detail" : ""
+          }`}
+        >
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {ctx.prefs.weekGrid ? (
           <div
@@ -706,6 +716,9 @@ function ClassDetailPanel({
 
   return (
     <aside className={`week-detail${leaving ? " leaving" : ""}`} aria-label="课程详情">
+      {/* v1.7.25：外面这层只负责「宽度」，内容固定 268px 宽、被外层裁切。
+          不这么拆的话，宽度动画期间两张卡片每帧都在重排，标题会一行行跳字。 */}
+      <div className="week-detail-inner">
       <div className="card" style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {/* 身份色条：临时提醒沿用警示色，和网格里那块的颜色条是同一个语义 */}
@@ -763,6 +776,7 @@ function ClassDetailPanel({
         <div style={{ fontSize: 12, marginTop: 6, color: "var(--on-surface-variant)", lineHeight: 1.6 }}>
           单击课程块查看详情，双击直接编辑。
         </div>
+      </div>
       </div>
     </aside>
   );
