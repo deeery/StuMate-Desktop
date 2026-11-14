@@ -121,6 +121,8 @@ export function Sidebar({
   collapsed,
   onToggleCollapse,
   status,
+  statusOn,
+  statusHint,
   version,
   noteCount,
   recurringCount,
@@ -130,6 +132,10 @@ export function Sidebar({
   collapsed: boolean;
   onToggleCollapse: () => void;
   status: string;
+  /** 状态点是否「亮」—— 提醒服务在跑用 success，没跑用 error（与原版一致） */
+  statusOn?: boolean;
+  /** 悬停说明。原版只有一行文字，这里把数据源 / schema 版本收进 tooltip */
+  statusHint?: string;
   version: string;
   noteCount: number;
   recurringCount: number;
@@ -169,8 +175,8 @@ export function Sidebar({
         <IconSidebar size={16} />
         <span className="nav-label">收起侧栏</span>
       </button>
-      <div className="sidebar-foot" title={status}>
-        <span className="status-dot" />
+      <div className="sidebar-foot" title={statusHint ?? status}>
+        <span className={`status-dot${statusOn === false ? " is-off" : ""}`} />
         <span>{status}</span>
       </div>
     </nav>

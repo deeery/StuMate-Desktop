@@ -168,7 +168,9 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
    *
    * 与 Compose 端 `RightPanelTransition` 的 `retained` 同一个思路。
    */
-  const detailPresence = usePresence(selected !== null);
+  // v1.7.21：退场时长要跟 CSS 里 `.week-detail.leaving` 的 `--dur-select-out`
+  // 同源（Presence 用固定时长兜底，改一处必须改两处）。
+  const detailPresence = usePresence(selected !== null, 160);
   const retainedCls = useRef<ClassEntity | null>(null);
   if (selected) retainedCls.current = selected;
   const shownCls = selected ?? retainedCls.current;
@@ -517,8 +519,9 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                             display: "flex",
                             flexDirection: "column",
                             gap: 0,
-                            transition:
-                              "top 180ms cubic-bezier(0.33,0,0,1), height 180ms cubic-bezier(0.33,0,0,1)",
+                            // v1.7.21：top/height 的过渡搬到 app.css（那里还要并上
+                            // 选中态的 border-color）；内联写死会把那一条盖掉，
+                            // 选中时边框就只能硬切。
                           } as CSSProperties}
                         >
                           {/* 左侧色条：跟随块高（上下各留 4px），不是固定长度的小短杠。
@@ -822,6 +825,9 @@ function ListView({
                   borderLeft:
                     c.id === selectedId ? "2px solid var(--accent)" : "2px solid transparent",
                   paddingLeft: 10,
+                  // v1.7.21：与表格视图同一个选中时长，列表里也是淡进去而不是硬跳
+                  transition:
+                    "background-color var(--dur-select) var(--ease-decel), border-left-color var(--dur-select) var(--ease-decel)",
                 }}
               >
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, width: 84, flex: "0 0 84px", color: "var(--on-surface-variant)" }}>

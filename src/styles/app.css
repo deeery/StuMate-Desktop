@@ -2703,3 +2703,42 @@ html.theme-switching *::after {
   .btn.card-open-btn { transition: none; }
   .btn.card-open-btn:active { transform: none; }
 }
+
+/* ── v1.7.21 · 课表选中反馈放慢到 240ms ───────────────────────────
+ * 原来点中一节课是「描边瞬间变蓝 + 右侧详情面板 160ms 滑入」：描边那一下
+ * 根本没有过渡（内联 transition 只列了 top / height），读起来是硬切，
+ * 面板又比它快，两件事不在一个节拍上。这里把选中反馈收拢到一个时长：
+ *   · --dur-select     240ms：网格块描边淡入、列表行底色 + 左侧色条、
+ *                             详情面板入场；
+ *   · --dur-select-out 160ms：面板退场。
+ * 只延时不动曲线 —— 仍是 --ease-decel（起手快、收尾稳），不会显得拖沓。
+ * 回滚 = 删掉本段 + 还原 WeekPage 里的内联 transition 与 usePresence 第二参。
+ * ─────────────────────────────────────────────────────────────── */
+
+:root {
+  --dur-select: 240ms;
+  --dur-select-out: 160ms;
+}
+
+/* top / height 仍走 180ms（窗口缩放重算网格时跟手），只为选中态补描边过渡 */
+.week-block {
+  transition:
+    top 180ms var(--ease-fluent),
+    height 180ms var(--ease-fluent),
+    border-color var(--dur-select) var(--ease-decel);
+}
+
+/* 面板入场原来吃全局 --dur-enter（160ms），这里单独放慢一档 */
+.week-detail {
+  animation-duration: var(--dur-select);
+}
+
+/* 退场跟着慢一点，和 CSS 之外的 usePresence(…, 160) 必须同源 */
+.week-detail.leaving {
+  animation-duration: var(--dur-select-out);
+}
+
+/* 提醒服务没在跑时状态点转红 —— 对应原版 AppShell 的 success / error 两态 */
+.status-dot.is-off {
+  background: var(--error);
+}

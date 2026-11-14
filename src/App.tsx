@@ -354,7 +354,17 @@ export default function App() {
     theme,
   };
 
-  const status = `${info.sharedWithOriginal ? "共用原版数据" : "独立数据"} · schema v${info.schemaVersion}`;
+  // v1.7.21：左下角改回原版口径。Compose 版那一行显示的是**提醒服务状态**
+  //（`AppShell.kt`：running → 「提醒服务运行中」，否则「提醒服务未启动」），
+  // 不是数据源信息；这里跟着对齐。Lite 没有独立后台进程，提醒轮询就在 WebView
+  // 里跑，所以「服务在不在跑」等价于「允许通知」有没有被关掉（`notifyEnabled`
+  // 是 `useReminder` 唯一的闸门）。
+  // 原「共用原版数据 · schema vN」仍有排障价值，挪到 tooltip 里，不占版面。
+  const remindersOn = prefs.notifyEnabled;
+  const status = remindersOn ? "提醒服务运行中" : "提醒服务未启动";
+  const statusHint = `${status} · ${
+    info.sharedWithOriginal ? "共用原版数据" : "独立数据"
+  } · schema v${info.schemaVersion}`;
 
   // `?solo=1` = 知识库专用窗口：藏掉侧栏，只留「树 + 编辑器」。
   // 读一次即可 —— 窗口创建之后 URL 不会再变，没必要进响应式状态。
@@ -373,6 +383,8 @@ export default function App() {
             collapsed={prefs.sidebarCollapsed}
             onToggleCollapse={() => void setPref("sidebarCollapsed", !prefs.sidebarCollapsed)}
             status={status}
+            statusOn={remindersOn}
+            statusHint={statusHint}
             version={info.version}
             noteCount={notes.length}
             recurringCount={recurring.filter((r) => r.enabled).length}
