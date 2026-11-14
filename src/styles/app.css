@@ -2716,24 +2716,30 @@ html.theme-switching *::after {
  *   --ease-select = cubic-bezier(0.4, 0, 0.2, 1)（Material 标准曲线）
  *   同样在 x=1/3 处 y≈0.46 —— 前中后三段都在动，360ms 才是「看得见的过程」。
  *
- * 时长：
- *   · --dur-select     360ms：网格块描边淡入、列表行底色 + 左侧色条；
- *   · --dur-panel      260ms：右侧详情面板入场（位移 8px + 透明度 0→1）。
- *     **和选中块分开**：块是「停在原地变色」，慢一点才看得清过程；面板是
- *     「从右边滑进来」，同样的 360ms 会显得拖 —— 用户要的是它快一点。
- *   · --dur-select-out 220ms：面板退场（仍用 accel 曲线，收起要利落）。
+ * 时长与曲线（v1.7.24 再软化一档）：
+ *   · --dur-select     480ms：网格块描边 / 底色 / 外环、列表行底色 + 左侧色条。
+ *     360ms 时用户仍觉得「硬」—— 问题不在总时长，在于**前段太集中**：
+ *     cubic-bezier(0.4,0,0.2,1) 在 1/6 处（60ms/360）已经走了 30%，
+ *     肉眼看就是「咔」一下到位。现在换 --ease-select = (0.33,0,0.15,1)，
+ *     起手几乎不动、中段匀速、尾巴拉长，150ms 才走到一半 —— 变化是「化开」的。
+ *   · --dur-panel      260ms：右侧详情面板入场，配 --ease-panel
+ *     (0.4,0,0.2,1)。面板是位移型、要跟手，不能跟着一起软下来。
+ *   · --dur-select-out 220ms：面板退场。
+ * 外环比底色晚 40ms 跟上（`transition-delay`），三个属性不再同时「啪」地一起变；
+ * 40ms 肉眼看不出延迟，只留下一点跟随感。
  * 回滚 = 删掉本段 + 还原 WeekPage 里的内联 transition 与 usePresence 第二参。
  * ─────────────────────────────────────────────────────────────── */
 
 :root {
-  --dur-select: 360ms;
+  --dur-select: 480ms;
   --dur-panel: 260ms;
   --dur-select-out: 220ms;
-  --ease-select: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-select: cubic-bezier(0.33, 0, 0.15, 1);
+  --ease-panel: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 常驻描边 + 选中反馈。top / height 仍走 180ms（窗口缩放重算网格时跟手）；
- * 其余三项才是「选中」这条动画：底色、描边、外环同时走 --dur-select。 */
+ * 其余三项才是「选中」这条动画：底色和描边同时起，外环晚 40ms 跟上。 */
 .week-block {
   border: 1px solid var(--border-rest);
   box-shadow: 0 0 0 0 transparent;
@@ -2742,7 +2748,7 @@ html.theme-switching *::after {
     height 180ms var(--ease-fluent),
     border-color var(--dur-select) var(--ease-select),
     background-color var(--dur-select) var(--ease-select),
-    box-shadow var(--dur-select) var(--ease-select);
+    box-shadow var(--dur-select) var(--ease-select) 40ms;
 }
 
 /* 选中态照搬原版 CourseBlock：
@@ -2762,11 +2768,13 @@ html.theme-switching *::after {
 }
 
 /* 面板入场原来吃全局 --dur-enter（160ms）+ --ease-decel，这里时长与曲线都换。
- * v1.7.23：独立的 --dur-panel（260ms），比选中块的 360ms 快一档 ——
- * 滑入的东西等太久会显得卡，原地变色的东西慢一点才看得见。 */
+ * v1.7.23：独立的 --dur-panel（260ms），比选中块的 480ms 快一档 ——
+ * 滑入的东西等太久会显得卡，原地变色的东西慢一点才看得见。
+ * v1.7.24：曲线单独用 --ease-panel —— 面板是位移，跟着块一起「化开」
+ * 会变成拖沓，它要的是起手就跟手。 */
 .week-detail {
   animation-duration: var(--dur-panel);
-  animation-timing-function: var(--ease-select);
+  animation-timing-function: var(--ease-panel);
 }
 
 /* 退场跟着慢一点，和 CSS 之外的 usePresence(…, 160) 必须同源 */
