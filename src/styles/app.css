@@ -2717,14 +2717,17 @@ html.theme-switching *::after {
  *   同样在 x=1/3 处 y≈0.46 —— 前中后三段都在动，360ms 才是「看得见的过程」。
  *
  * 时长：
- *   · --dur-select     360ms：网格块描边淡入、列表行底色 + 左侧色条、
- *                             详情面板入场（位移 8px + 透明度 0→1）；
+ *   · --dur-select     360ms：网格块描边淡入、列表行底色 + 左侧色条；
+ *   · --dur-panel      260ms：右侧详情面板入场（位移 8px + 透明度 0→1）。
+ *     **和选中块分开**：块是「停在原地变色」，慢一点才看得清过程；面板是
+ *     「从右边滑进来」，同样的 360ms 会显得拖 —— 用户要的是它快一点。
  *   · --dur-select-out 220ms：面板退场（仍用 accel 曲线，收起要利落）。
  * 回滚 = 删掉本段 + 还原 WeekPage 里的内联 transition 与 usePresence 第二参。
  * ─────────────────────────────────────────────────────────────── */
 
 :root {
   --dur-select: 360ms;
+  --dur-panel: 260ms;
   --dur-select-out: 220ms;
   --ease-select: cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -2758,9 +2761,11 @@ html.theme-switching *::after {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-/* 面板入场原来吃全局 --dur-enter（160ms）+ --ease-decel，这里时长与曲线都换 */
+/* 面板入场原来吃全局 --dur-enter（160ms）+ --ease-decel，这里时长与曲线都换。
+ * v1.7.23：独立的 --dur-panel（260ms），比选中块的 360ms 快一档 ——
+ * 滑入的东西等太久会显得卡，原地变色的东西慢一点才看得见。 */
 .week-detail {
-  animation-duration: var(--dur-select);
+  animation-duration: var(--dur-panel);
   animation-timing-function: var(--ease-select);
 }
 

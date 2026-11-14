@@ -189,7 +189,7 @@
   };
 
   var APP_INFO = {
-    version: "1.7.22",
+    version: "1.7.23",
     flavor: "lite",
     dataDir: "C:\\Users\\Administrator\\AppData\\Roaming\\StuMate",
     dbPath: "C:\\Users\\Administrator\\AppData\\Roaming\\StuMate\\class_reminder.db",
