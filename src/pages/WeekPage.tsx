@@ -169,8 +169,8 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
    * 与 Compose 端 `RightPanelTransition` 的 `retained` 同一个思路。
    */
   // v1.7.21：退场时长要跟 CSS 里 `.week-detail.leaving` 的 `--dur-select-out`
-  // 同源（Presence 用固定时长兜底，改一处必须改两处）。
-  const detailPresence = usePresence(selected !== null, 160);
+  // 同源（Presence 用固定时长兜底，改一处必须改两处）。v1.7.22 一起 160 → 220。
+  const detailPresence = usePresence(selected !== null, 220);
   const retainedCls = useRef<ClassEntity | null>(null);
   if (selected) retainedCls.current = selected;
   const shownCls = selected ?? retainedCls.current;
@@ -487,7 +487,12 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                       return (
                         <button
                           key={p.cls.id}
-                          className="week-block"
+                          // v1.7.22：选中态不再只靠 1px 描边变色（几乎看不出来），
+                          // 改成类 + CSS —— 原版是整块底色换 accentTint
+                          // （`bg = if (selected) c.accentTint else c.surface3`）+ 描边加粗，
+                          // 这里照做，只是把 1.5dp 换成「1px 描边 + 1px 外环」，
+                          // 两者都能进 transition。
+                          className={`week-block${active ? " is-selected" : ""}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             // 单击只选中，不弹编辑框 —— 和原版 1.6.x 一致：
@@ -509,9 +514,9 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                             height: height - 2,
                             left: `calc(${p.leftFraction * 100}% + 3px)`,
                             width: `calc(${p.widthFraction * 100}% - 6px)`,
-                            // 底色不在这里写死：.week-block 用它把身份色洗淡铺上去
+                            // 底色不在这里写死：.week-block / .week-block.is-selected
+                            // 在 CSS 里用它把身份色洗淡铺上去（选中时再压一层强调色）
                             "--block-color": barColor,
-                            border: `1px solid ${active ? "var(--accent)" : "var(--border-rest)"}`,
                             borderRadius: 4,
                             padding: "3px 6px 3px 9px",
                             textAlign: "left",
@@ -825,9 +830,10 @@ function ListView({
                   borderLeft:
                     c.id === selectedId ? "2px solid var(--accent)" : "2px solid transparent",
                   paddingLeft: 10,
-                  // v1.7.21：与表格视图同一个选中时长，列表里也是淡进去而不是硬跳
+                  // v1.7.21：与表格视图同一个选中时长、同一条曲线，
+                  // 列表里也是淡进去而不是硬跳
                   transition:
-                    "background-color var(--dur-select) var(--ease-decel), border-left-color var(--dur-select) var(--ease-decel)",
+                    "background-color var(--dur-select) var(--ease-select), border-left-color var(--dur-select) var(--ease-select)",
                 }}
               >
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, width: 84, flex: "0 0 84px", color: "var(--on-surface-variant)" }}>

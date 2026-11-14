@@ -2704,33 +2704,64 @@ html.theme-switching *::after {
   .btn.card-open-btn:active { transform: none; }
 }
 
-/* ── v1.7.21 · 课表选中反馈放慢到 240ms ───────────────────────────
+/* ── v1.7.21 起 · 课表选中反馈（v1.7.22 改时长 + 改曲线）─────────────
  * 原来点中一节课是「描边瞬间变蓝 + 右侧详情面板 160ms 滑入」：描边那一下
- * 根本没有过渡（内联 transition 只列了 top / height），读起来是硬切，
- * 面板又比它快，两件事不在一个节拍上。这里把选中反馈收拢到一个时长：
- *   · --dur-select     240ms：网格块描边淡入、列表行底色 + 左侧色条、
- *                             详情面板入场；
- *   · --dur-select-out 160ms：面板退场。
- * 只延时不动曲线 —— 仍是 --ease-decel（起手快、收尾稳），不会显得拖沓。
+ * 根本没有过渡（内联 transition 只列了 top / height），读起来是硬切。
+ *
+ * **v1.7.22 的关键发现**：只把时长从 160 拉到 240 再拉到 360，观感几乎没变。
+ * 因为原来用的 `--ease-decel` = cubic-bezier(0.1, 0.9, 0.2, 1) 是极端前重的
+ * 曲线 —— 在 x=1/3 处 y 已经到 0.93，也就是说 360ms 里的前 120ms 就跑完了
+ * 93%，剩下 240ms 只是把最后 7% 慢慢磨完。**拉时长只会让尾巴变长，过程还是
+ * 一眨眼。** 所以这里换一条把位移摊开的曲线：
+ *   --ease-select = cubic-bezier(0.4, 0, 0.2, 1)（Material 标准曲线）
+ *   同样在 x=1/3 处 y≈0.46 —— 前中后三段都在动，360ms 才是「看得见的过程」。
+ *
+ * 时长：
+ *   · --dur-select     360ms：网格块描边淡入、列表行底色 + 左侧色条、
+ *                             详情面板入场（位移 8px + 透明度 0→1）；
+ *   · --dur-select-out 220ms：面板退场（仍用 accel 曲线，收起要利落）。
  * 回滚 = 删掉本段 + 还原 WeekPage 里的内联 transition 与 usePresence 第二参。
  * ─────────────────────────────────────────────────────────────── */
 
 :root {
-  --dur-select: 240ms;
-  --dur-select-out: 160ms;
+  --dur-select: 360ms;
+  --dur-select-out: 220ms;
+  --ease-select: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* top / height 仍走 180ms（窗口缩放重算网格时跟手），只为选中态补描边过渡 */
+/* 常驻描边 + 选中反馈。top / height 仍走 180ms（窗口缩放重算网格时跟手）；
+ * 其余三项才是「选中」这条动画：底色、描边、外环同时走 --dur-select。 */
 .week-block {
+  border: 1px solid var(--border-rest);
+  box-shadow: 0 0 0 0 transparent;
   transition:
     top 180ms var(--ease-fluent),
     height 180ms var(--ease-fluent),
-    border-color var(--dur-select) var(--ease-decel);
+    border-color var(--dur-select) var(--ease-select),
+    background-color var(--dur-select) var(--ease-select),
+    box-shadow var(--dur-select) var(--ease-select);
 }
 
-/* 面板入场原来吃全局 --dur-enter（160ms），这里单独放慢一档 */
+/* 选中态照搬原版 CourseBlock：
+ *   bg = if (selected) accentTint else surface3，描边 accent 且更粗一点。
+ * 底色在**身份色洗过的那层之上**再压 16% 强调色 —— 既保留「这是哪门课」，
+ * 又让选中一眼可见（原来只把 1px 描边从灰换成蓝，等于没动）。
+ * 「1px 描边 + 1px 外环」拼出原版 1.5dp 的粗细感，两者都能平滑过渡；
+ * 直接改 border-width 会让块内文字左右各挪 0.25px，反而抖。 */
+.week-block.is-selected {
+  background: color-mix(
+    in srgb,
+    var(--accent) 16%,
+    color-mix(in srgb, var(--block-color) var(--class-wash), var(--surface3))
+  );
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* 面板入场原来吃全局 --dur-enter（160ms）+ --ease-decel，这里时长与曲线都换 */
 .week-detail {
   animation-duration: var(--dur-select);
+  animation-timing-function: var(--ease-select);
 }
 
 /* 退场跟着慢一点，和 CSS 之外的 usePresence(…, 160) 必须同源 */
