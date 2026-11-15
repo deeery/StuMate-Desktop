@@ -17,13 +17,28 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { RecurringItem, TodayRecurringFire } from "../model/recurring";
+import type { DayRecurringFire, RecurringItem, TodayRecurringFire } from "../model/recurring";
 import { describeNext, describeRule, todayRecurringFires } from "../model/recurring";
 import { DAY_MINUTES, clockOfDay, layoutTimelineFires } from "../model/recurringTimeline";
 
 const TIP_WIDTH = 236;
 const TIMELINE_HEIGHT = 480;
 const TICKS = [0, 3, 6, 9, 12, 15, 18, 21, 24];
+
+/**
+ * 标记只关心这几件事：哪条规则、几点、是不是已经过去、副信息写什么。
+ * 课表（`DayRecurringFire`）与时间线（`TodayRecurringFire`）各自算的次数口径不同
+ * （「当天 N 次」vs「今天还剩 N 次」），所以在调用处折成 `countText`，
+ * 组件不必知道数据来自哪一套坐标系。
+ */
+export interface FireView {
+  item: RecurringItem;
+  fireAt: number;
+  /** 已过去的相位点：课表整周视图里会画，淡一档 */
+  past?: boolean;
+  /** 浮层副信息里的次数短句 */
+  countText?: string;
+}
 
 interface TipPos {
   left: number;
@@ -56,7 +71,7 @@ function FireTip({
   now,
 }: {
   pos: TipPos;
-  fire: TodayRecurringFire;
+  fire: FireView;
   now: number;
 }) {
   return createPortal(
@@ -66,9 +81,12 @@ function FireTip({
         <span className="rec-fire-tip-title">{fire.item.title}</span>
       </div>
       <div className="rec-fire-tip-meta">
-        {describeRule(fire.item.rule)} · 今天 {fire.remainingToday} 次
+        {describeRule(fire.item.rule)}
+        {fire.countText ? ` · ${fire.countText}` : ""}
       </div>
-      <div className="rec-fire-tip-due">{describeNext(fire.fireAt, now)}</div>
+      <div className={`rec-fire-tip-due${fire.past ? " is-past" : ""}`}>
+        {fire.past ? "这一次已经过去" : describeNext(fire.fireAt, now)}
+      </div>
       {fire.item.body ? <div className="rec-fire-tip-body">{fire.item.body}</div> : null}
     </div>,
     document.body,
@@ -83,7 +101,7 @@ function FireBadge({
   label,
   style,
 }: {
-  fire: TodayRecurringFire;
+  fire: FireView;
   now: number;
   variant: "grid" | "list" | "timeline";
   label?: string;
@@ -93,7 +111,7 @@ function FireBadge({
   return (
     <>
       <span
-        className={`rec-fire-mark rec-fire-mark--${variant}`}
+        className={`rec-fire-mark rec-fire-mark--${variant}${fire.past ? " is-past" : ""}`}
         style={style}
         tabIndex={0}
         aria-label={`循环提醒 ${clockOfDay(fire.fireAt)}：${fire.item.title}`}
@@ -111,31 +129,54 @@ function FireBadge({
   );
 }
 
-/** 课表 · 表格视图：今天那一列内，按 `mapping.fractionOf(分钟) * gridHeight` 定位 */
+/** 课表 · 表格视图：某一列内按 `mapping.fractionOf(分钟) * gridHeight` 定位 */
 export function GridRecurringFire({
   fire,
   now,
   top,
 }: {
-  fire: TodayRecurringFire;
+  fire: DayRecurringFire;
   now: number;
   top: number;
 }) {
-  return <FireBadge fire={fire} now={now} variant="grid" style={{ top }} />;
+  return (
+    <FireBadge
+      fire={{
+        item: fire.item,
+        fireAt: fire.fireAt,
+        past: fire.past,
+        // 一天内有多于一次才提，写「当天 1 次」是废话
+        countText: fire.dayCount > 1 ? `当天 ${fire.dayCount} 次` : undefined,
+      }}
+      now={now}
+      variant="grid"
+      style={{ top }}
+    />
+  );
 }
 
-/** 课表 · 列表视图：今天分组里的一行，与课程行同样的 38px 节奏 */
+/** 课表 · 列表视图：当天分组里的一行，与课程行同样的 38px 节奏 */
 export function ListRecurringFire({
   fire,
   now,
 }: {
-  fire: TodayRecurringFire;
+  fire: DayRecurringFire;
   now: number;
 }) {
   return (
-    <div className="rec-fire-list-row">
+    <div className={`rec-fire-list-row${fire.past ? " is-past" : ""}`}>
       <span className="rec-fire-list-time">{clockOfDay(fire.fireAt)}</span>
-      <FireBadge fire={fire} now={now} variant="list" label={fire.item.title} />
+      <FireBadge
+        fire={{
+          item: fire.item,
+          fireAt: fire.fireAt,
+          past: fire.past,
+          countText: fire.dayCount > 1 ? `当天 ${fire.dayCount} 次` : undefined,
+        }}
+        now={now}
+        variant="list"
+        label={fire.item.title}
+      />
     </div>
   );
 }
@@ -184,7 +225,11 @@ export function RecurringTimeline({ items }: { items: RecurringItem[] }) {
                 <span className="rec-fire-guide" style={{ height: Math.max(top - rawTop, 1) }} aria-hidden />
               ) : null}
               <FireBadge
-                fire={fire}
+                fire={{
+                  item: fire.item,
+                  fireAt: fire.fireAt,
+                  countText: `今天 ${fire.remainingToday} 次`,
+                }}
                 now={now}
                 variant="timeline"
                 label={`${clockOfDay(fire.fireAt)} · ${fire.item.title}`}

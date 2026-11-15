@@ -39,8 +39,8 @@ import {
 import { currentWeek, mondayOf, weekContains, weekStart } from "../model/weekSchedule";
 import { DAY_NAMES, dateOf } from "../model/today";
 import { classColorOf } from "../model/classColor";
-import { todayRecurringFires, type TodayRecurringFire } from "../model/recurring";
-import { extendSpanForFires, minuteOfDay } from "../model/recurringTimeline";
+import { firesOnDay, startOfDay, type DayRecurringFire } from "../model/recurring";
+import { extendSpanForFires, minuteOfDay, spreadSlots } from "../model/recurringTimeline";
 import { GridRecurringFire, ListRecurringFire } from "../components/RecurringFireMarker";
 import { api, errorText } from "../api";
 
@@ -118,21 +118,31 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
     (_, i) => dateOf(weekMonday + i * 24 * 60 * 60 * 1000) === dateOf(nowMs),
   );
 
-  /** 只读，与「今日循环」卡片 / 循环提醒页时间线同源 */
-  const todayFires = useMemo(
-    () => todayRecurringFires(ctx.recurring, nowMs),
-    [ctx.recurring, nowMs],
+  /*
+   * v1.7.27：整周七列都画循环提醒。
+   * 原来只算「今天还有剩的相位点」，于是下午打开课表一片空白 —— 用户以为
+   * 功能没生效。课表本来就是一周视图，每天 08:00 的提醒应该在七列里都看得见；
+   * 已过去的那次由 `past` 标出来，界面上淡一档。
+   * `weekFires[i]` 对应 DAY_NAMES[i]，长度恒为 7。
+   */
+  const weekFires = useMemo(
+    () =>
+      DAY_NAMES.map((_, i) =>
+        firesOnDay(ctx.recurring, startOfDay(weekMonday + i * 24 * 60 * 60 * 1000), nowMs),
+      ),
+    [ctx.recurring, weekMonday, nowMs],
   );
+  const allFires = useMemo(() => weekFires.flat(), [weekFires]);
 
   const baseSpan = useMemo(
     () => spanOf(weekClasses) ?? { startMinute: 8 * 60, endMinute: 18 * 60 },
     [weekClasses],
   );
   // 相位点也要落进可见纵轴：spanOf 只看课程，21:00 的提醒会被 overflow:hidden 裁掉。
-  // 今天不在当前周时不扩展 —— 那些点本来就不画，白白拉长只会压扁课程块。
+  // 一整周都没有标记时不扩展 —— 白白拉长只会压扁课程块。
   const span = useMemo(
-    () => extendSpanForFires(baseSpan, todayFires, todayIndex >= 0),
-    [baseSpan, todayFires, todayIndex],
+    () => extendSpanForFires(baseSpan, allFires, allFires.length > 0),
+    [baseSpan, allFires],
   );
 
   // 容器高度 → 每格几小时。留 1 行余量，免得刚好卡在边界上出现半格滚动条
@@ -142,6 +152,32 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
   const mapping = useMemo(() => mappingOf(span, null), [span]);
   const marks = useMemo(() => roundMarks(span, perRow * 60), [span, perRow]);
   const bands = useMemo(() => zebraBands(span), [span]);
+
+  /**
+   * 某一列的循环提醒标记（v1.7.27）。
+   * 位置来自与课程块同一个 `mapping`，所以缩放窗口、换每格小时数都不会错位；
+   * `spreadSlots` 只负责把同刻/近刻的点往下错开，`top` 已含下推量。
+   */
+  const dayFireSlots = (dayIndex: number) => {
+    const fires: DayRecurringFire[] = weekFires[dayIndex] ?? [];
+    if (fires.length === 0) return null;
+    const slots = spreadSlots(
+      fires.map((f) => ({
+        item: f,
+        rawTop: mapping.fractionOf(minuteOfDay(f.fireAt)) * gridHeight,
+      })),
+      18,
+      Math.max(gridHeight - 4, 0),
+    );
+    return slots.map((slot) => (
+      <GridRecurringFire
+        key={slot.item.item.id}
+        fire={slot.item}
+        now={nowMs}
+        top={slot.top}
+      />
+    ));
+  };
 
   // 换周之后原来那节课可能不在这一周了，选中态要跟着清掉，
   // 否则会把「上一周选过的 id」带过来，看起来像选中了一块空白。
@@ -469,18 +505,13 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                       <div className="now-line" style={{ top: nowTop }} aria-hidden />
                     ) : null}
 
-                    {/* v1.7.19：今天的循环提醒相位点，横短线 + 左三角，hover 看详情。
-                        与课程块共用同一个 mapping，缩放窗口时不会错位。 */}
-                    {isToday
-                      ? todayFires.map((fire) => (
-                          <GridRecurringFire
-                            key={fire.item.id}
-                            fire={fire}
-                            now={nowMs}
-                            top={mapping.fractionOf(minuteOfDay(fire.fireAt)) * gridHeight}
-                          />
-                        ))
-                      : null}
+                    {/* v1.7.27：循环提醒在**整周七列**都画「横短线 + 左三角」。
+                        之前只在今天列、且只在「今天还有剩余相位点」时画，白天
+                        打开课表基本一片空白。与课程块共用同一个 mapping，
+                        缩放窗口/换周都不会错位。
+                        同列两条规则撞在同一分钟时按 18px 最小间距下推（误差不到
+                        当天跨度的 3%，浮层里始终显示真实时刻）。 */}
+                    {dayFireSlots(dayIndex)}
 
                     {placed.map((p) => {
                       const height = Math.max(p.heightFraction * gridHeight, 22);
@@ -609,8 +640,7 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
           <ListView
             weekClasses={weekClasses}
             selectedId={selectedId}
-            fires={todayIndex >= 0 ? todayFires : []}
-            todayIndex={todayIndex}
+            firesByDay={weekFires}
             now={nowMs}
             onSelect={(c) => setSelectedId(c.id)}
             onEdit={setEditing}
@@ -795,16 +825,15 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 function ListView({
   weekClasses,
   selectedId,
-  fires,
-  todayIndex,
+  firesByDay,
   now,
   onSelect,
   onEdit,
 }: {
   weekClasses: ClassEntity[];
   selectedId: number | null;
-  fires: TodayRecurringFire[];
-  todayIndex: number;
+  /** v1.7.27：整周七组各自的相位点，不再只给「今天」那一组 */
+  firesByDay: DayRecurringFire[][];
   now: number;
   onSelect: (c: ClassEntity) => void;
   onEdit: (c: ClassEntity) => void;
@@ -815,8 +844,8 @@ function ListView({
         const list = weekClasses
           .filter((c) => c.dayOfWeek === day)
           .sort((a, b) => (minutesOf(a.startTime) ?? 0) - (minutesOf(b.startTime) ?? 0));
-        // 今天没课但有循环提醒时，这一组也要出现
-        const dayFires = i === todayIndex ? fires : [];
+        // 这一天没课但有循环提醒时，这一组也要出现
+        const dayFires = firesByDay[i] ?? [];
         if (list.length === 0 && dayFires.length === 0) return null;
         return (
           <div key={day} style={{ marginTop: 12 }}>
@@ -864,7 +893,7 @@ function ListView({
           </div>
         );
       })}
-      {weekClasses.length === 0 && fires.length === 0 ? (
+      {weekClasses.length === 0 && firesByDay.every((f) => f.length === 0) ? (
         <div className="empty">这一周没有课</div>
       ) : null}
     </div>

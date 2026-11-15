@@ -28,22 +28,22 @@ export function clockOfDay(ms: number): string {
 }
 
 /**
- * 把今天的循环提醒相位点纳入课表时间跨度。
+ * 把循环提醒的相位点纳入课表时间跨度。
  *
  * 课表的 `spanOf()` 只看本周课程，若提醒在 21:00 而最晚一节课 18:00 下课，
  * 标记会被 `overflow:hidden` 直接裁掉 —— 用户会以为功能没生效。
  * 所以把相位点作为「事件」一起定范围，两端各留 30 分钟余量再圆整到整小时，
  * `hoursPerRow()` 会自动挑合适的刻度步长。
  *
- * `todayVisible=false`（今天不在当前查看的周）时不扩展：那些点本来就不画，
- * 白白拉长时间轴只会把课程块压扁。
+ * v1.7.27：入参放宽成「有 fireAt 就行」，且第三参改为「有没有可见标记」——
+ * 课表现在整周七列都会画标记，不再只有「今天在不在本周」这一个条件。
  */
 export function extendSpanForFires(
   span: Span,
-  fires: TodayRecurringFire[],
-  todayVisible: boolean,
+  fires: { fireAt: number }[],
+  anyVisible: boolean,
 ): Span {
-  if (!todayVisible || fires.length === 0) return span;
+  if (!anyVisible || fires.length === 0) return span;
 
   let from = span.startMinute;
   let to = span.endMinute;
@@ -70,6 +70,48 @@ export interface TimelineFire {
   rawTop: number;
   /** 与真实时刻对应的位置有偏移：画一条引导短线说明「这里被挤开了」 */
   shifted: boolean;
+}
+
+/** 已排好的一个点：原样带回去，加算好的坐标 */
+export interface SpreadSlot<T> {
+  item: T;
+  /** 下推后的位置 */
+  top: number;
+  /** 真实位置 */
+  rawTop: number;
+  shifted: boolean;
+}
+
+/**
+ * 把一批「已有真实位置」的点按下推规则排开，防止同刻/近刻的点叠在一起。
+ *
+ * 时间线（24h 竖轴）和课表网格（span 坐标系）的**位置算法不同**，但「挤在一起
+ * 就把后面的往下推、并记一笔 shifted 好画引导线」这件事是同一件。所以这里
+ * 只接受算好的 `rawTop`，不关心它是怎么来的 —— 两处共用同一套防重叠。
+ *
+ * 不传 `maxTop` 时不设上限（课表网格会传 `gridHeight - 4`，免得最后一个点
+ * 被推出可视区）。输入会先按 rawTop 稳定排序。
+ */
+export function spreadSlots<T>(
+  raws: { item: T; rawTop: number }[],
+  minGap = 26,
+  maxTop = Infinity,
+): SpreadSlot<T>[] {
+  const sorted = [...raws].sort((a, b) => a.rawTop - b.rawTop);
+  let last = -Infinity;
+  const out: SpreadSlot<T>[] = [];
+
+  for (const { item, rawTop } of sorted) {
+    const adjusted = Math.min(Math.max(rawTop, last + minGap), maxTop);
+    out.push({
+      item,
+      top: adjusted,
+      rawTop: Math.min(rawTop, maxTop),
+      shifted: adjusted > rawTop + 0.5,
+    });
+    last = adjusted;
+  }
+  return out;
 }
 
 /**

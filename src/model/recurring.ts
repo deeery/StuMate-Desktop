@@ -395,6 +395,78 @@ export interface TodayRecurringFire {
 /** 单条规则一天最多数到这里。真实间隔最小 1 分钟也不过 1440，500 足够表意 */
 const MAX_TODAY_FIRES = 500;
 
+/** 课表整周视图的一格：某一天、某条规则、该天的首个相位点 */
+export interface DayRecurringFire {
+  item: RecurringItem;
+  /** 该规则这一天的**首个**相位点（epoch ms）。间隔型一天有几十个点，
+   *  每格只标第一个 —— 否则「每 30 分钟」会把一列糊成一条线，
+   *  具体次数放进浮层的「当天 N 次」。 */
+  fireAt: number;
+  /** 该规则这一天共有几个相位点（封顶 99，避免「每 1 分钟」写成 1440） */
+  dayCount: number;
+  /** 该相位点是否已经过去。只有**今天**才判：整周视图里，前天 08:00 早于此刻
+   *  并不代表「过期任务」，它只是那一周的规律，不该整片淡化。 */
+  past: boolean;
+}
+
+/** 单条规则一天最多数到 99：显示用，超过就是「99+」的语义 */
+const MAX_DAY_COUNT = 99;
+
+/**
+ * 课表整周视图用：给定某一天的 00:00，列出**每条启用规则在这一天的首个相位点**。
+ *
+ * 为什么不像 `todayRecurringFires` 那样只取「还有剩」的：课表是一周视图，
+ * 用户扫的是「周的节奏」——每天 08:00 的提醒应该在七列里都看得见，
+ * 而不是下午打开就全没了。只有**今天**已过的那一次会标成 `past`（界面上淡
+ * 一档），其余日期正常色：前天 08:00 早于此刻并不代表"过期"。
+ *
+ * 返回按 fireAt 升序；同刻按 id 稳定排序（与浮窗、时间线口径一致）。
+ * 纯函数：不读盘、不碰 `lastFiredAt`。
+ */
+export function firesOnDay(
+  items: RecurringItem[],
+  dayStart: number,
+  now: number,
+): DayRecurringFire[] {
+  const dayEnd = addDays(dayStart, 1) - 1;
+  // 只有「今天」才分已过 / 待触发。别的日期（本周前两天、下一周）一律按正常色画 ——
+  // 否则「前天 08:00 早于此刻」会让整周七列全变成灰的，看着像全都过期了。
+  const isToday = dayStart === startOfDay(now);
+  const out: DayRecurringFire[] = [];
+
+  for (const item of items) {
+    if (!item.enabled) continue;
+
+    // 该天首个相位点：从「前一天最后一毫秒」往后找，得到 ≥ dayStart 的最早点。
+    // 用 nextFireAt 而不是自己按规则展开，是为了三类规律（每天/每 N 天/间隔）
+    // 与提醒判定、时间线共用同一套相位计算 —— 三处各写一份必然有一天对不上。
+    const first = nextFireAt(item.rule, dayStart - 1);
+    if (first === null || first > dayEnd) continue;
+
+    const hardEnd =
+      item.endAt === null ? dayEnd : Math.min(dayEnd, endExclusive(item.endAt) - 1);
+    if (first > hardEnd) continue;
+
+    let count = 0;
+    let t: number | null = first;
+    while (t !== null && t <= hardEnd && count < MAX_DAY_COUNT) {
+      count += 1;
+      t = nextFireAt(item.rule, t);
+    }
+
+    out.push({
+      item,
+      fireAt: first,
+      dayCount: count,
+      // 严格小于才算过去：正好到点这一刻仍按「待触发」画，避免踩点闪一下变灰
+      past: isToday && first < now,
+    });
+  }
+
+  out.sort((a, b) => a.fireAt - b.fireAt || a.item.id.localeCompare(b.item.id));
+  return out;
+}
+
 /**
  * 今日页右列用：只列**今天之内还有相位点**的启用规则，按触发时刻升序。
  *

@@ -10,6 +10,7 @@ import {
   dateInputToMillis,
   describeNext,
   describeRule,
+  firesOnDay,
   lastFireAtOrBefore,
   millisToDateInput,
   nextFireAt,
@@ -315,5 +316,101 @@ describe("跳过本次 / 下次触发 / 文案", () => {
     expect(describeRule({ kind: "everyDays", days: 2, at: "08:00", anchorDay: SUN })).toBe(
       "每 2 天 08:00",
     );
+  });
+});
+
+/**
+ * v1.7.27：课表整周视图按「天」取相位点。
+ *
+ * 与 `todayRecurringFires` 的关键差别：那边问「今天还剩几次」，只返回未来的；
+ * 这边问「这一天有哪些次」，**已过去的也要返回**（`past` 标出来），否则下午
+ * 打开课表一片空白 —— 这正是本版要修的现象。
+ */
+describe("firesOnDay · 某一天的相位点（课表整周视图）", () => {
+  it("每天 08:00：当天一个点，08:00 之前 past=false、之后 past=true", () => {
+    const daily = item({
+      rule: { kind: "weekly", weekdays: [], at: "08:00" },
+      id: "daily",
+    });
+    const day = MON;
+
+    const before = firesOnDay([daily], day, at(2026, 11, 9, 7, 0));
+    expect(before).toHaveLength(1);
+    expect(before[0].fireAt).toBe(at(2026, 11, 9, 8, 0));
+    expect(before[0].dayCount).toBe(1);
+    expect(before[0].past).toBe(false);
+
+    const after = firesOnDay([daily], day, at(2026, 11, 9, 16, 46));
+    expect(after[0].past).toBe(true);
+  });
+
+  it("规则不覆盖这一天时不出现（每周三 ≠ 周一）", () => {
+    const wed = item({ rule: { kind: "weekly", weekdays: [3], at: "08:00" } });
+    expect(firesOnDay([wed], MON, MON)).toHaveLength(0);
+    expect(firesOnDay([wed], at(2026, 11, 11), at(2026, 11, 11))).toHaveLength(1);
+  });
+
+  it("间隔型只取当天首个点，次数写进 dayCount", () => {
+    // anchor 是 11-08 09:00、每 45 分钟：900 分钟正好 20 步，
+    // 所以 11-09 00:00 恰好落在相位上；当天从 00:00 起共 32 个点（00:00~23:15）
+    const every45 = item({ id: "i45" });
+    const fires = firesOnDay([every45], MON, MON);
+    expect(fires).toHaveLength(1);
+    expect(fires[0].fireAt).toBe(at(2026, 11, 9, 0, 0));
+    expect(fires[0].dayCount).toBe(32);
+  });
+
+  it("停用的规则不出现", () => {
+    const off = item({ enabled: false });
+    expect(firesOnDay([off], MON, MON)).toHaveLength(0);
+  });
+
+  it("endAt 之后不再有相位点", () => {
+    const ended = item({
+      rule: { kind: "weekly", weekdays: [], at: "08:00" },
+      endAt: at(2026, 11, 10),
+    });
+    // 结束日当天仍然触发，次日就没有了
+    expect(firesOnDay([ended], MON, MON)).toHaveLength(1);
+    expect(firesOnDay([ended], at(2026, 11, 11), at(2026, 11, 11))).toHaveLength(0);
+  });
+
+  it("同刻按 id 稳定排序", () => {
+    const a = item({ id: "bbb", rule: { kind: "weekly", weekdays: [], at: "08:00" } });
+    const b = item({ id: "aaa", rule: { kind: "weekly", weekdays: [], at: "08:00" } });
+    const fires = firesOnDay([a, b], MON, MON);
+    expect(fires.map((f) => f.item.id)).toEqual(["aaa", "bbb"]);
+  });
+
+  it("与 todayRecurringFires 互补：已过的一天这边有、那边没有", () => {
+    const daily = item({ rule: { kind: "weekly", weekdays: [], at: "08:00" } });
+    const now = at(2026, 11, 9, 16, 46);
+    expect(todayRecurringFires([daily], now)).toHaveLength(0);
+    expect(firesOnDay([daily], startOfDay(now), now)).toHaveLength(1);
+  });
+});
+
+describe("firesOnDay · past 只在「今天」判定", () => {
+  it("本周已过去的日期不淡化（前天 08:00 不算过期任务）", () => {
+    const daily = item({ rule: { kind: "weekly", weekdays: [], at: "08:00" } });
+    const now = at(2026, 11, 15, 16, 46); // 周日 16:46
+    const friday = firesOnDay([daily], at(2026, 11, 13), now);
+    expect(friday).toHaveLength(1);
+    expect(friday[0].past).toBe(false);
+
+    const today = firesOnDay([daily], startOfDay(now), now);
+    expect(today[0].past).toBe(true);
+  });
+
+  it("同一周内七列只有今天可能为 past", () => {
+    const daily = item({ rule: { kind: "weekly", weekdays: [], at: "08:00" } });
+    const now = at(2026, 11, 15, 16, 46);
+    const monday = at(2026, 11, 9);
+    const all = Array.from({ length: 7 }, (_, i) =>
+      firesOnDay([daily], startOfDay(monday + i * 86_400_000), now),
+    );
+    expect(all.map((f) => f[0].past)).toEqual([
+      false, false, false, false, false, false, true,
+    ]);
   });
 });

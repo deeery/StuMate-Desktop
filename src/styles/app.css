@@ -2961,3 +2961,50 @@ html.theme-switching *::after {
     transparent
   );
 }
+
+/* ── v1.7.27 · 循环提醒在课表整周显示：今天已过的那一次淡一档 ─────────
+ * 整周七列都会画标记（之前只在今天列、且只在「还有剩余相位点」时画，
+ * 下午打开课表就一片空白）。只有**今天**已过的才淡化 —— 前天 08:00 早于此刻
+ * 不代表"过期任务"，把那一列也压淡会让整周看着像全过期了。
+ * 淡化方式是「同色相的半透明」而不是「换成中性灰」：第一版换 --outline-strong
+ * 后浅色主题下几乎看不见（灰线压在浅灰底上），等于把标记藏了。现在三角与横线
+ * 都用 --rec-fire-line（珊瑚色 50%），整体再降到 0.85；悬停/聚焦回到全色。
+ * 回滚 = 删掉本段 + RecurringFireMarker.tsx 里 `is-past` 那处 className。
+ * ─────────────────────────────────────────────────────────────── */
+
+.rec-fire-mark.is-past {
+  opacity: 0.85;
+}
+.rec-fire-mark.is-past .rec-fire-tri {
+  border-right-color: var(--rec-fire-line);
+}
+.rec-fire-mark.is-past .rec-fire-line {
+  /* 线本来就只有 50% 的珊瑚色，这里再收一档，和三角同一个色阶 */
+  background: var(--rec-fire-line);
+  opacity: 0.8;
+}
+.rec-fire-mark.is-past:hover,
+.rec-fire-mark.is-past:focus-visible {
+  opacity: 1;
+}
+.rec-fire-mark.is-past:hover .rec-fire-tri,
+.rec-fire-mark.is-past:focus-visible .rec-fire-tri {
+  border-right-color: var(--rec-fire);
+}
+.rec-fire-mark.is-past:hover .rec-fire-line,
+.rec-fire-mark.is-past:focus-visible .rec-fire-line {
+  background: var(--rec-fire);
+  opacity: 1;
+}
+
+.rec-fire-list-row.is-past {
+  border-left-color: var(--rec-fire-line);
+}
+.rec-fire-list-row.is-past .rec-fire-list-time {
+  color: var(--on-surface-faint);
+}
+
+/* 浮层里「这一次已经过去」比倒计时弱一档 —— 它是个状态说明，不是催促 */
+.rec-fire-tip-due.is-past {
+  color: var(--on-surface-faint);
+}
