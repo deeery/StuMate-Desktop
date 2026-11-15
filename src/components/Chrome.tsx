@@ -157,6 +157,10 @@ export function Sidebar({
           <button
             key={item.key}
             className={`nav-item${page === item.key ? " active" : ""}`}
+            // v1.7.26：图标按页取一档身份色（CSS 里 `[data-nav=…]` 绑 --nav-hue）。
+            // 用 data 而不是内联 style，是因为颜色要区分淡 / 浓 / hover 三态，
+            // 得由 CSS 算；内联只能给一个定值。
+            data-nav={item.key}
             onClick={() => onNavigate(item.key)}
             title={collapsed ? item.label : undefined}
           >

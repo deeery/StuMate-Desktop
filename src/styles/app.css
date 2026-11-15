@@ -2881,3 +2881,83 @@ html.theme-switching *::after {
     animation-duration: 1ms;
   }
 }
+
+/* ── v1.7.26 · 侧栏图标：默认淡彩，高亮加深 ────────────────────────
+ * 六个一级页各绑一档已有的身份色（tokens 里的 `--class-0..7`，深浅主题各一套），
+ * 不再复用文字色 —— 原来图标跟 `currentColor` 走，六个齿轮/日历长得一个样，
+ * 扫侧栏只能靠读字。
+ * 三档浓度用 `color-mix` 往侧栏底色（--surface2）里洗出来，不新增色值：
+ *   · 默认 66%：看得出是哪种颜色，但明显压着、不抢文字；
+ *   · hover 84%：指针扫过时先亮一档，给点反馈；
+ *   · 选中 100%（原色）：比默认那档浓，这就是「高亮加深」。
+ * 只给 svg 上色，不动 `.nav-item` 的 color —— 文字、条数徽标、状态点保持原来的
+ * 灰/正文色，否则整条导航会变成彩色文字墙。
+ * 「收起侧栏」没有 data-nav，`var(--nav-hue)` 未定义 → 整条 color-mix 失效、
+ * 落到继承色，它照旧是灰的（它不是页面，不该有身份色）。
+ * 回滚 = 删掉本段 + Chrome.tsx 里那行 data-nav。
+ * ─────────────────────────────────────────────────────────────── */
+
+.nav-item[data-nav="today"] { --nav-hue: var(--class-4); }
+.nav-item[data-nav="week"] { --nav-hue: var(--class-0); }
+.nav-item[data-nav="notes"] { --nav-hue: var(--class-3); }
+.nav-item[data-nav="knowledge"] { --nav-hue: var(--class-1); }
+.nav-item[data-nav="recurring"] { --nav-hue: var(--class-6); }
+/* 设置用绿而不是 --class-7：那档是蓝灰（#5c6b7a / #9db2c4），洗到 66% 之后
+   和旁边的灰文字几乎分不出来，「淡彩」等于没上色。绿色是这套色板里唯一还
+   空着的一档，六项色相正好全不同。 */
+.nav-item[data-nav="settings"] { --nav-hue: var(--class-2); }
+
+.nav-item svg {
+  color: color-mix(in srgb, var(--nav-hue) 66%, var(--surface2));
+  transition: color var(--dur-fast) var(--ease-fluent);
+}
+
+.nav-item:hover svg {
+  color: color-mix(in srgb, var(--nav-hue) 84%, var(--surface2));
+}
+
+.nav-item.active svg {
+  color: var(--nav-hue);
+}
+
+/* 选中项左侧那根竖条也跟页走：图标已经是橙的、竖条还是蓝的，冷暖会撞。
+   未定义 --nav-hue 时（收起侧栏）回落到 --accent，形状与原来一致。 */
+.nav-item.active::before {
+  background: var(--nav-hue, var(--accent));
+}
+
+/* 选中底色也跟页走：图标、竖条都已经是这页的色相，底色还锁在强调蓝的话，
+   橙 / 金 / 紫那几页就会「冷底配暖图标」。浓度按主题分开定 —— 深色底本来就深，
+   同样的比例看不出来。 */
+:root[data-theme="light"] {
+  --nav-active-wash: 12%;
+}
+:root[data-theme="dark"] {
+  --nav-active-wash: 20%;
+}
+
+.nav-item.active {
+  background: color-mix(
+    in srgb,
+    var(--nav-hue, var(--accent)) var(--nav-active-wash),
+    transparent
+  );
+}
+
+/* 选中底色也跟页走：图标、竖条都已经是这页的色相，底色还锁在强调蓝的话，
+   橙 / 金 / 紫那几页就会「冷底配暖图标」。浓度按主题分开定 —— 深色底本来就深，
+   同样的比例看不出来。 */
+:root[data-theme="light"] {
+  --nav-active-wash: 12%;
+}
+:root[data-theme="dark"] {
+  --nav-active-wash: 20%;
+}
+
+.nav-item.active {
+  background: color-mix(
+    in srgb,
+    var(--nav-hue, var(--accent)) var(--nav-active-wash),
+    transparent
+  );
+}
