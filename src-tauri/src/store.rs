@@ -28,6 +28,7 @@ pub struct Paths {
     pub mindmap: PathBuf,
     pub links: PathBuf,
     pub recurring: PathBuf,
+    pub note_links: PathBuf,
 }
 
 impl Paths {
@@ -46,6 +47,7 @@ impl Paths {
             mindmap: data_dir.join("mindmap.json"),
             links: data_dir.join("knowledge_links.json"),
             recurring: data_dir.join("recurring.json"),
+            note_links: data_dir.join("note_links.json"),
             data_dir,
         }
     }
@@ -180,6 +182,26 @@ pub fn save_recurring(paths: &Paths, items: Value) -> Result<(), String> {
     write_json_atomic(&paths.recurring, &payload)
 }
 
+/// 便签 ↔ 课程 / 循环提醒的关联。
+///
+/// 同样整项 `Value` 透传：模型只在 `src/model/noteLinks.ts` 一处。
+/// **刻意不进数据库**：`notes` 表与原版 / 安卓共用，加列要 bump schema，
+/// 而安卓端是 `fallbackToDestructiveMigration()` —— 清库的代价远大于这层关联。
+/// 坏档当空档但不删原文件（与 recurring / mindmap 同一策略）。
+pub fn load_note_links(paths: &Paths) -> Value {
+    match read_json(&paths.note_links) {
+        Some(Value::Object(o)) if o.get("links").map(|v| v.is_array()).unwrap_or(false) => {
+            Value::Object(o)
+        }
+        _ => serde_json::json!({ "version": 1, "links": [] }),
+    }
+}
+
+pub fn save_note_links(paths: &Paths, links: Value) -> Result<(), String> {
+    let payload = serde_json::json!({ "version": 1, "links": links });
+    write_json_atomic(&paths.note_links, &payload)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,7 +218,24 @@ mod tests {
             mindmap: dir.join("mindmap.json"),
             links: dir.join("knowledge_links.json"),
             recurring: dir.join("recurring.json"),
+            note_links: dir.join("note_links.json"),
         }
+    }
+
+    #[test]
+    fn note_links_roundtrip_leaves_no_tmp_file() {
+        let p = temp_paths("notelinks");
+        // 没有文件时给空列表，而不是让前端拿到 null
+        assert_eq!(load_note_links(&p)["links"].as_array().unwrap().len(), 0);
+        save_note_links(
+            &p,
+            serde_json::json!([{ "noteId": 7, "classId": 3, "ruleId": "r1" }]),
+        )
+        .unwrap();
+        let loaded = load_note_links(&p);
+        assert_eq!(loaded["links"][0]["noteId"], 7);
+        assert_eq!(loaded["links"][0]["ruleId"], "r1");
+        assert!(!p.data_dir.join("note_links.json.tmp").exists());
     }
 
     #[test]

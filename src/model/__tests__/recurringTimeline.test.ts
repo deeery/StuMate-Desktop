@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { RecurringItem, TodayRecurringFire } from "../recurring";
+import type { DayRecurringFire, RecurringItem, TodayRecurringFire } from "../recurring";
 import {
   DAY_MINUTES,
   clockOfDay,
   extendSpanForFires,
   layoutTimelineFires,
+  mergeWeekFires,
   minuteOfDay,
 } from "../recurringTimeline";
 
@@ -96,5 +97,76 @@ describe("layoutTimelineFires · 24h 竖轴排点", () => {
     const got = layoutTimelineFires([at("a", 12)], 480, 26);
     expect(got[0].minute).toBe(720);
     expect(got[0].top).toBeCloseTo(240, 5);
+  });
+});
+
+/**
+ * 课表整周视图的「连续日期共用一条线」：七列各画一个三角时，
+ * 列边界会把同一件事切成七段；合并后一段只有三角 + 一条穿过列边界的线。
+ */
+describe("mergeWeekFires · 连续日期合成一段", () => {
+  /** 构造某一天的相位点：day 0..6（周一..周日），hh/mm 为当天时刻 */
+  function dayFire(id: string, day: number, hh: number, mm = 0, dayCount = 1): DayRecurringFire {
+    const fireAt = new Date(2026, 10, 9 + day, hh, mm).getTime();
+    const item: RecurringItem = {
+      id,
+      title: id,
+      body: "",
+      enabled: true,
+      rule: { kind: "weekly", weekdays: [], at: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}` },
+      endAt: null,
+      lastFiredAt: 0,
+      createdAt: fireAt,
+    };
+    return { item, fireAt, dayCount, past: false };
+  }
+
+  const empty = () => [[], [], [], [], [], [], []] as DayRecurringFire[][];
+
+  it("每天都触发 → 一整段 0..6，只有一个三角", () => {
+    const byDay = empty();
+    for (let d = 0; d < 7; d += 1) byDay[d].push(dayFire("a", d, 8));
+    const runs = mergeWeekFires(byDay);
+    expect(runs).toHaveLength(1);
+    expect([runs[0].startDay, runs[0].endDay]).toEqual([0, 6]);
+  });
+
+  it("周一/周二连续 + 周四单独 → 两段", () => {
+    const byDay = empty();
+    byDay[0].push(dayFire("a", 0, 8));
+    byDay[1].push(dayFire("a", 1, 8));
+    byDay[3].push(dayFire("a", 3, 8));
+    const runs = mergeWeekFires(byDay);
+    expect(runs.map((r) => [r.startDay, r.endDay])).toEqual([
+      [0, 1],
+      [3, 3],
+    ]);
+  });
+
+  it("日期连续但时刻不同（间隔型首点漂移）不合并", () => {
+    const byDay = empty();
+    byDay[0].push(dayFire("a", 0, 8));
+    byDay[1].push(dayFire("a", 1, 9));
+    expect(mergeWeekFires(byDay).map((r) => [r.startDay, r.endDay])).toEqual([
+      [0, 0],
+      [1, 1],
+    ]);
+  });
+
+  it("两条规则交错时按起始日排序，互不粘连", () => {
+    const byDay = empty();
+    byDay[0].push(dayFire("b", 0, 10));
+    byDay[1].push(dayFire("a", 1, 8));
+    byDay[2].push(dayFire("b", 2, 10));
+    const runs = mergeWeekFires(byDay);
+    expect(runs.map((r) => `${r.item.id}:${r.startDay}-${r.endDay}`)).toEqual([
+      "b:0-0",
+      "a:1-1",
+      "b:2-2",
+    ]);
+  });
+
+  it("空周返回空数组", () => {
+    expect(mergeWeekFires(empty())).toEqual([]);
   });
 });

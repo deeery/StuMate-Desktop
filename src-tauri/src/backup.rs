@@ -433,6 +433,7 @@ mod tests {
             mindmap: dir.join("mindmap.json"),
             links: dir.join("knowledge_links.json"),
             recurring: dir.join("recurring.json"),
+            note_links: dir.join("note_links.json"),
         };
         let db = crate::db::Db::open(&paths.db).unwrap();
         (dir, paths, db)

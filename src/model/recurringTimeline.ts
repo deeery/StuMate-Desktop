@@ -11,7 +11,7 @@
  */
 
 import type { Span } from "./timeAxis";
-import type { TodayRecurringFire } from "./recurring";
+import type { DayRecurringFire, RecurringItem, TodayRecurringFire } from "./recurring";
 
 export const DAY_MINUTES = 24 * 60;
 
@@ -116,7 +116,6 @@ export function spreadSlots<T>(
 
 /**
  * 24 小时全天竖轴上的排点。
- *
  * 一分钟一条的规则会让相邻点挤成一条线，所以按时间升序依次下推到 `minGap`，
  * 并在 `shifted` 上记一笔（UI 画一条引导线，不假装那个点真的在别的时间）。
  * 最后一个点不会被推出容器。
@@ -147,4 +146,64 @@ export function layoutTimelineFires(
     last = adjusted;
   }
   return out;
+}
+
+/**
+ * 课表整周视图里的一段循环提醒（v1.7.28）。
+ *
+ * 同一条规则、同一时刻、日期**连续**的若干天共用一条横线和一个三角形：
+ * 每天各画一个三角时，七列之间被 1px 分隔线切断，看着像七个独立提醒，
+ * 而「每天 08:00」本来是一件事。合成一段之后，线会穿过列边界，
+ * 三角只留在起始那一列的左端。
+ *
+ * 时刻不同就不合并 —— 间隔型规则（每 45 分钟）每天的首个相位点会逐日漂移，
+ * 连成一条平线会假装它们发生在同一时刻。
+ */
+export interface WeeklyFireRun {
+  item: RecurringItem;
+  /** 段内第一天，0 = 周一 */
+  startDay: number;
+  /** 段内最后一天，0 = 周一 */
+  endDay: number;
+  /** 起始那天的首个相位点（浮层/面板显示的时刻） */
+  fireAt: number;
+  /** 起始那天的相位点个数 */
+  dayCount: number;
+}
+
+/** 把「按天分组的相位点」折成「按连续日期分段」的标记，供课表整周视图使用 */
+export function mergeWeekFires(byDay: DayRecurringFire[][]): WeeklyFireRun[] {
+  const byRule = new Map<string, { day: number; fire: DayRecurringFire }[]>();
+  byDay.forEach((fires, day) => {
+    for (const fire of fires) {
+      const list = byRule.get(fire.item.id);
+      if (list) list.push({ day, fire });
+      else byRule.set(fire.item.id, [{ day, fire }]);
+    }
+  });
+
+  const runs: WeeklyFireRun[] = [];
+  for (const list of byRule.values()) {
+    list.sort((a, b) => a.day - b.day);
+    let run: WeeklyFireRun | null = null;
+    for (const { day, fire } of list) {
+      const sameClock = run !== null && clockOfDay(fire.fireAt) === clockOfDay(run.fireAt);
+      if (run && day === run.endDay + 1 && sameClock) {
+        run.endDay = day;
+        continue;
+      }
+      if (run) runs.push(run);
+      run = {
+        item: fire.item,
+        startDay: day,
+        endDay: day,
+        fireAt: fire.fireAt,
+        dayCount: fire.dayCount,
+      };
+    }
+    if (run) runs.push(run);
+  }
+
+  // 稳定顺序：先按起始日，再按规则 id —— 同一行上的多段不会因 Map 顺序抖动
+  return runs.sort((a, b) => a.startDay - b.startDay || a.item.id.localeCompare(b.item.id));
 }

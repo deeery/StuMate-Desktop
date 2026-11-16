@@ -18,8 +18,10 @@ import { PageTopBar, type AppContextValue } from "../App";
 import { Select } from "../components/ui";
 import { usePresence } from "../components/Presence";
 import { IconEdit, IconNote, IconPlus, IconSearch, IconTrash } from "../components/Icons";
-import type { NoteEntity } from "../model/types";
+import type { ClassEntity, NoteEntity, NoteLink } from "../model/types";
 import { EMPTY_NOTE } from "../model/types";
+import type { RecurringItem } from "../model/recurring";
+import { dropNoteLink, linkOf, upsertLink } from "../model/noteLinks";
 import {
   NOTE_TYPES,
   NOTE_TYPE_DEADLINE,
@@ -52,7 +54,14 @@ const COL_ACTION = 64;
 /** 「分类」下拉里代表「全部」的取值。用字符串是为了和 `typeFilter === null` 区分开 */
 const ALL_TYPES = "__all__";
 
-export function NotesPage({ ctx }: { ctx: AppContextValue }) {
+export function NotesPage({
+  ctx,
+  focusNote,
+}: {
+  ctx: AppContextValue;
+  /** 从课程 / 循环提醒详情栏「点关联便签」跳过来时要选中的那一条 */
+  focusNote?: { id: number; seq: number } | null;
+}) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortMode>("manual");
@@ -60,6 +69,23 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [now, setNow] = useState(Date.now());
+
+  /*
+   * 跨页跳转：切到这一页时选中详情栏点的那条便签。
+   * 用 `seq` 判「这一跳有没有处理过」—— 只依赖 `ctx.notes` 的话，保存后
+   * reloadNotes 会让 effect 重跑一次，把用户刚改选的另一条又抢回去。
+   * 查询与筛选一并清空：被筛掉的便签即使选中了也看不见，用户会以为跳转失败。
+   */
+  const focusSeen = useRef(0);
+  useEffect(() => {
+    if (!focusNote || focusSeen.current === focusNote.seq) return;
+    if (!ctx.notes.some((n) => n.id === focusNote.id)) return;
+    focusSeen.current = focusNote.seq;
+    setQuery("");
+    setTypeFilter(null);
+    setCreating(false);
+    setSelectedId(focusNote.id);
+  }, [focusNote, ctx.notes]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -111,9 +137,12 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
     setSelectedId(null);
   };
 
-  const save = async (entity: NoteEntity) => {
+  const save = async (entity: NoteEntity, link: NoteLink) => {
     try {
-      await api.saveNote(entity);
+      // 先落便签本身：新建时 id 由数据库生成，关联要用落盘后的真实 id
+      const saved = await api.saveNote(entity);
+      const noteId = saved?.id ?? entity.id;
+      await ctx.saveNoteLinks(upsertLink(ctx.noteLinks, { ...link, noteId }));
       await ctx.reloadNotes();
       closePanel();
       ctx.toast("已保存");
@@ -125,6 +154,8 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
   const remove = async (id: number) => {
     try {
       await api.deleteNote(id);
+      // 便签没了，关联也顺手清掉 —— 否则文件里会攒一堆指向不存在 id 的行
+      await ctx.saveNoteLinks(dropNoteLink(ctx.noteLinks, id));
       await ctx.reloadNotes();
       closePanel();
       ctx.toast("已删除");
@@ -269,6 +300,9 @@ export function NotesPage({ ctx }: { ctx: AppContextValue }) {
             leaving={panelPresence.leaving}
             entity={shownEntity}
             isNew={panelEntity ? creating : retainedIsNew.current}
+            link={linkOf(ctx.noteLinks, shownEntity.id)}
+            classes={ctx.classes}
+            rules={ctx.recurring}
             onSave={save}
             onDelete={remove}
             onCancel={closePanel}
@@ -625,6 +659,9 @@ function NoteEditorPanel({
   entity,
   isNew,
   leaving,
+  link,
+  classes,
+  rules,
   onSave,
   onDelete,
   onCancel,
@@ -632,11 +669,16 @@ function NoteEditorPanel({
   entity: NoteEntity;
   isNew: boolean;
   leaving?: boolean;
-  onSave: (n: NoteEntity) => void;
+  /** 这一条现在关联的课程 / 循环提醒（没有就是 0 / 空串） */
+  link: NoteLink;
+  classes: ClassEntity[];
+  rules: RecurringItem[];
+  onSave: (n: NoteEntity, link: NoteLink) => void;
   onDelete: (id: number) => void;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<NoteEntity>(entity);
+  const [linkDraft, setLinkDraft] = useState<NoteLink>(link);
   const patch = (p: Partial<NoteEntity>) => setDraft((d) => ({ ...d, ...p }));
 
   const type = NOTE_TYPES[draft.typeIndex] ?? NOTE_TYPES[0];
@@ -654,7 +696,7 @@ function NoteEditorPanel({
       customLabel: type.editableLabel ? draft.customLabel : "",
       deadlineAt: isDeadline ? draft.deadlineAt : 0,
     };
-    onSave(next);
+    onSave(next, linkDraft);
   };
 
   return (
@@ -758,6 +800,31 @@ function NoteEditorPanel({
             选了 Deadline 但没填时间
           </div>
         ) : null}
+
+        {/* 关联：一门课、一条循环提醒各最多一个。
+            关联本身存 Lite 专属的 note_links.json，不改共用数据库的 notes 表。 */}
+        <PanelLabel top>关联课程</PanelLabel>
+        <Select<number>
+          value={linkDraft.classId}
+          options={[
+            { value: 0, label: "不关联" },
+            ...classes.map((c) => ({ value: c.id, label: c.title })),
+          ]}
+          onChange={(classId) => setLinkDraft((l) => ({ ...l, classId }))}
+        />
+
+        <PanelLabel top>关联循环提醒</PanelLabel>
+        <Select<string>
+          value={linkDraft.ruleId}
+          options={[
+            { value: "", label: "不关联" },
+            ...rules.map((r) => ({ value: r.id, label: r.title })),
+          ]}
+          onChange={(ruleId) => setLinkDraft((l) => ({ ...l, ruleId }))}
+        />
+        <div style={{ fontSize: 11, color: "var(--on-surface-faint)", marginTop: 8 }}>
+          关联后，对应课程 / 提醒的右侧详情里会列出这条便签
+        </div>
       </div>
 
       <div className="divider" style={{ margin: "12px 0" }} />

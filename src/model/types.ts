@@ -44,6 +44,21 @@ export interface NoteEntity {
   deletedAt: number;
 }
 
+/**
+ * 便签 ↔ 课程 / 循环提醒的关联（Lite 专属，存 `note_links.json`）。
+ *
+ * 为什么不做成 `notes` 表的新列：库与原版 / 安卓共用，`bump schema` 会让安卓端
+ * 的 `fallbackToDestructiveMigration()` 直接清库。关联是 Lite 独有的呈现层信息，
+ * 放旁路文件既不动 schema，也不影响两侧读写同一批便签。
+ */
+export interface NoteLink {
+  noteId: number;
+  /** 关联课程 id；0 = 未关联 */
+  classId: number;
+  /** 关联循环提醒规则 id；空串 = 未关联 */
+  ruleId: string;
+}
+
 export interface KnowledgeEntity {
   id: number;
   /** 科目名；空串 = 未分类 */

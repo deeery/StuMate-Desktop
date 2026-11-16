@@ -87,9 +87,17 @@ button {
 
 /* 收起态：标识留在原来的水平位置上（16 → 11，差 5px 由 padding 过渡吃掉）。
    不能继续用 justify-content:center —— 文字宽度收到 0 的过程中，
-   居中的那一组会带着图标一起向右漂，看起来像整排导航在左右跳。 */
+   居中的那一组会带着图标一起向右漂，看起来像整排导航在左右跳。
+
+   盒宽必须钉成栏宽、gap 必须归零：三个文字 span 虽然被压成 0 宽，gap 仍按
+   「四个孩子之间有 3 道缝」计进 min-content（26 + 3×10 + 22 = 78）。78 > 48，
+   作为 column flex item 收缩不下去，再被 .sidebar.rail 的 align-items:center
+   一居中，整块就往左探到 x=-15，26px 的标识被左侧裁掉一截 —— 这就是
+   「收缩侧栏后图标歪了」的现场。 */
 .sidebar.rail .brand-row {
+  width: var(--sidebar-rail);
   padding: 8px 11px 16px;
+  gap: 0;
   justify-content: flex-start;
 }
 
@@ -181,7 +189,12 @@ button {
 .sidebar.rail {
   width: var(--sidebar-rail);
   flex-basis: var(--sidebar-rail);
-  align-items: center;
+  /* 贴左，不是居中。子项（品牌行 / 导航项 / 底栏）收起态都是 width:48 而栏宽
+     是 212 → 48 过渡过去的：居中会把 48 宽的盒子摆到当时的栏心
+     （x = (212-48)/2 = 82），等栏宽缩到 48 才回到 x=0 —— 实测第一帧
+     图标中心从 24 跳到 106，再用 220ms 滑回 24，整排导航「甩」一下。
+     贴左后子项从第一帧就落在 x=0，动画期间只有栏的右边缘在动。 */
+  align-items: flex-start;
 }
 
 .nav-item {
@@ -279,7 +292,12 @@ button {
 }
 
 .sidebar.rail .sidebar-foot {
+  /* 与 brand-row 同一个坑：20 + 7 + gap 8 = 35 的 fit-content 盒被 rail 居中，
+     状态点从栏心 24 漂到 30（右偏 6px）。钉成栏宽 + gap 归零后，
+     点落在 23.5，与上面那排 17px 导航图标的中心线对齐。 */
+  width: var(--sidebar-rail);
   justify-content: flex-start;
+  gap: 0;
   padding: 10px 0 10px 20px;
 }
 
@@ -2517,25 +2535,58 @@ html.theme-switching *::after {
   border-left: 1px dashed var(--rec-fire-line);
 }
 
-/* 标记本体：文字 → 左端朝左的三角形 → 一条横短线 */
+/* 标记本体：文字 → 朝上的三角形 → 一条横短线 */
 .rec-fire-mark {
   display: flex;
   align-items: center;
-  gap: 4px;
   min-width: 0;
   cursor: help;
   color: var(--rec-fire);
   outline: none;
 }
 .rec-fire-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/*
+ * 三角形朝上，**下沿与横线严格对齐**：两者不留空隙，三角坐在横线左端，
+ * 底边压在横线的**下沿**上（8px 高的盒子在 2px 横线上居中后，底边落在线心
+ * 下方 4px；translateY(-3px) 把它抬到线心下方 1px = 横线下沿）。
+ * 想改成朝下，把 border-bottom 换成 border-top、translateY 取反即可。
+ *
+ * 悬停放大时原点取底边中心（`transform-origin: 50% 100%`）：下沿仍钉在横线上，
+ * 三角形只往上长 —— 否则一放大就整体浮起来、和横线错开。
+ */
 .rec-fire-tri {
+  position: relative;
   flex: 0 0 auto;
   width: 0;
   height: 0;
-  border-top: 6px solid transparent;
-  border-bottom: 6px solid transparent;
-  border-right: 9px solid var(--rec-fire);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 8px solid var(--rec-fire);
+  transform: translateY(-3px);
+  transform-origin: 50% 100%;
+  transition: transform var(--dur-select-out) var(--ease-decel),
+    border-bottom-color var(--dur-select-out) var(--ease-decel);
 }
+/*
+ * 三角形本体只有 10×8，命中区太小。伪元素在它四周补一圈透明热区：
+ * 「鼠标在三角形周围」也算悬停，放大与浮层都从这一圈触发。
+ * 0×0 边框盒的 padding box 落在尖顶中心，`left/top` 负向偏移 + 显式尺寸
+ * 才能往四周扩（只写 left/right 时零宽容器算不出宽度，右侧那一半会丢）。
+ */
+.rec-fire-tri::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: -9px;
+  width: 18px;
+  height: 19px;
+}
+.rec-fire-mark:hover .rec-fire-tri,
+.rec-fire-mark:focus-visible .rec-fire-tri {
+  transform: translateY(-3px) scale(1.3);
+}
+/* 可点击（能弹出右侧详情）时鼠标改成手型，与「悬停看简略」区分开 */
+.rec-fire-mark.is-clickable { cursor: pointer; }
 .rec-fire-line {
   flex: 1 1 auto;
   min-width: 8px;
@@ -2546,6 +2597,7 @@ html.theme-switching *::after {
 .rec-fire-label {
   flex: 0 1 auto;
   min-width: 0;
+  margin-right: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2556,6 +2608,19 @@ html.theme-switching *::after {
 .rec-fire-mark:focus-visible .rec-fire-line { background: var(--rec-fire); }
 .rec-fire-mark:hover .rec-fire-label { color: var(--rec-fire); }
 .rec-fire-mark--timeline .rec-fire-label { max-width: 96px; text-align: right; }
+
+/* 表格视图：整周共用的标记层。横跨纵轴右侧的七列 —— 连续日期共用的那段线
+   要用百分比跨过列边界，不能各列自己画一截。容器不吃鼠标事件（只有三角是
+   热区），否则会挡住课程块点击。 */
+.rec-fire-overlay {
+  position: absolute;
+  left: 56px;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  pointer-events: none;
+}
 
 /* 表格视图：今天那一列内横向铺开。容器不吃鼠标事件 —— 否则一条 100% 宽的
    透明 span 会把下面课程块的点击整条挡掉；只有三角形是热区（也正是需求里
@@ -2570,10 +2635,20 @@ html.theme-switching *::after {
 }
 .rec-fire-mark--grid .rec-fire-tri { pointer-events: auto; cursor: help; }
 .rec-fire-mark--grid .rec-fire-tri {
-  border-top-width: 7px;
-  border-bottom-width: 7px;
-  border-right-width: 10px;
+  border-left-width: 6px;
+  border-right-width: 6px;
+  /* 高度必须落成整数 CSS px：9px 在 dpr 1.5 下会被吸成 13 设备像素
+     （= 8.67 CSS px），下沿就比横线高出 0.17px。取 8px 则 1/1.5/2 三档都能整除，
+     再配合 -3px 才是字面意义上的「严格对齐」。 */
+  border-bottom-width: 8px;
+  transform: translateY(-3px);
 }
+.rec-fire-mark--grid:hover .rec-fire-tri,
+.rec-fire-mark--grid:focus-visible .rec-fire-tri {
+  /* 放大仍以下沿为原点：下沿不动，只往上长 */
+  transform: translateY(-3px) scale(1.3);
+}
+.rec-fire-mark--grid.is-clickable .rec-fire-tri { cursor: pointer; }
 
 /* 列表视图：一行 38px，与课程行同节奏 */
 .rec-fire-list-row {
@@ -2639,6 +2714,14 @@ html.theme-switching *::after {
 }
 @media (prefers-reduced-motion: reduce) {
   .rec-fire-tip { animation: none; }
+}
+/* 悬停只给「简略信息」（时刻 / 标题 / 规律 / 是否已过），完整内容放到点击后的
+   右侧详情栏；宽度因此不再固定 236px，按内容收缩，不挡住邻列课程块。 */
+.rec-fire-tip--brief {
+  width: auto;
+  min-width: 132px;
+  max-width: 240px;
+  padding: 7px 10px;
 }
 
 
@@ -2856,6 +2939,47 @@ html.theme-switching *::after {
   }
 }
 
+/* 面板已经展开时只是**换内容**（课程 ↔ 循环提醒、或换另一门课）：新节点直接
+ * 落在终态 —— 不重播 0→268 的宽度展开与淡入，否则每点一次右边的表都会重新
+ * 缩一圈。`width` 必须显式写：静态宽度是 0，只关动画会让面板直接塌掉。
+ * 位置在 `.leaving` 之前，退场时仍以 `.leaving` 的 wk-detail-out 为准。 */
+.week-detail.no-enter {
+  animation: none;
+  width: var(--detail-w);
+  opacity: 1;
+}
+
+/* 关联便签行：整行可点，跳到便签页并选中它。用中性底做 hover，
+   不抢课程块 / 标记的身份色 */
+.linked-note {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--on-surface);
+  background: transparent;
+  transition: background-color var(--dur-select-out) var(--ease-decel);
+}
+.linked-note:hover {
+  background: var(--surface2);
+}
+.linked-note-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.linked-note-meta {
+  flex: 0 0 auto;
+  font: 10.5px/1.4 var(--font-mono);
+  color: var(--on-surface-faint);
+}
+
 /* 退场：宽度收回，网格同步变宽。pointer-events 由上面的 .leaving 规则管。
  * from 必须显式写 —— 元素的静态 width 是 0，只写 to 的话隐式起点也取 0，
  * 整条动画就等于没动（第一版就踩了这个，退场宽度从 268 一帧跳到 0）。 */
@@ -2976,7 +3100,7 @@ html.theme-switching *::after {
   opacity: 0.85;
 }
 .rec-fire-mark.is-past .rec-fire-tri {
-  border-right-color: var(--rec-fire-line);
+  border-bottom-color: var(--rec-fire-line);
 }
 .rec-fire-mark.is-past .rec-fire-line {
   /* 线本来就只有 50% 的珊瑚色，这里再收一档，和三角同一个色阶 */
@@ -2989,7 +3113,7 @@ html.theme-switching *::after {
 }
 .rec-fire-mark.is-past:hover .rec-fire-tri,
 .rec-fire-mark.is-past:focus-visible .rec-fire-tri {
-  border-right-color: var(--rec-fire);
+  border-bottom-color: var(--rec-fire);
 }
 .rec-fire-mark.is-past:hover .rec-fire-line,
 .rec-fire-mark.is-past:focus-visible .rec-fire-line {

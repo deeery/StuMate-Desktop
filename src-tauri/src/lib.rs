@@ -276,6 +276,22 @@ fn recurring_save(state: State<'_, AppState>, items: Vec<Value>) -> Result<(), S
     store::save_recurring(&state.paths, value)
 }
 
+// ── 便签关联（`note_links.json`，Lite 专属旁路存档）────────────────
+//
+// 结构只在 `src/model/noteLinks.ts` 一处，Rust 整项透传。刻意不给 `notes` 表
+// 加列：库与安卓共用，bump schema 会让对方的 fallbackToDestructiveMigration 清库。
+
+#[tauri::command]
+fn note_links_load(state: State<'_, AppState>) -> Value {
+    store::load_note_links(&state.paths)
+}
+
+#[tauri::command]
+fn note_links_save(state: State<'_, AppState>, links: Vec<Value>) -> Result<(), String> {
+    let value = serde_json::to_value(links).map_err(|e| e.to_string())?;
+    store::save_note_links(&state.paths, value)
+}
+
 // ── 备份 ──────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -958,6 +974,8 @@ pub fn run() {
             links_save,
             recurring_load,
             recurring_save,
+            note_links_load,
+            note_links_save,
             backup_export,
             backup_inspect,
             backup_import,

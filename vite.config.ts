@@ -47,7 +47,21 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    watch: { ignored: ["**/src-tauri/**"] },
+    // 只盯源码。构建产物、浏览器预览产物、截图脚本目录，以及任何原子写的临时目录
+    // 都不该进 watcher —— 2026-11-16 实测：宿主的原子写会在 tools/ 下建
+    // `.<文件名>.<pid>.<uuid>.tmpdir/<文件名>.tmp`，chokidar 一看到就去 watch 那个
+    // 正被占用中的 .tmp，直接抛 EBUSY 把整个 vite 进程带走（beforeDevCommand 非零
+    // 退出 → tauri dev 跟着死，窗口变成连不上 5173 的空壳）。排除之后不再复发。
+    watch: {
+      ignored: [
+        "**/src-tauri/**",
+        "**/dist/**",
+        "**/dist-preview/**",
+        "**/design-preview/**",
+        "**/tools/**",
+        "**/*.tmpdir/**",
+      ],
+    },
   },
   build: {
     // WebView2 是 Chromium，可以直接用较新的语法，不必降到 ES5

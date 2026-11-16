@@ -19,6 +19,7 @@ import type {
   LinkRef,
   MindNode,
   NoteEntity,
+  NoteLink,
   Prefs,
 } from "./model/types";
 import { TodayPage } from "./pages/TodayPage";
@@ -40,6 +41,8 @@ export interface AppContextValue {
   links: LinkRef[];
   /** 循环提醒规则（recurring.json，Lite 专属） */
   recurring: RecurringItem[];
+  /** 便签 ↔ 课程 / 循环提醒关联（note_links.json，Lite 专属） */
+  noteLinks: NoteLink[];
   reloadClasses: () => Promise<void>;
   reloadNotes: () => Promise<void>;
   reloadKnowledge: () => Promise<void>;
@@ -49,6 +52,8 @@ export interface AppContextValue {
   saveLinks: (links: LinkRef[]) => Promise<void>;
   /** 就地保存规则列表：轮询每秒都可能改 lastFiredAt，不能等全量 reload */
   saveRecurring: (items: RecurringItem[]) => Promise<void>;
+  /** 就地保存便签关联 */
+  saveNoteLinks: (links: NoteLink[]) => Promise<void>;
   toast: (text: string, tone?: "info" | "error") => void;
   theme: "light" | "dark";
 }
@@ -61,7 +66,13 @@ export default function App() {
   const [knowledge, setKnowledge] = useState<KnowledgeEntity[]>([]);
   const [links, setLinks] = useState<LinkRef[]>([]);
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
+  const [noteLinks, setNoteLinks] = useState<NoteLink[]>([]);
   const [page, setPage] = useState<PageKey>("today");
+  /**
+   * 跨页定位便签：课程 / 循环提醒详情栏里点一条关联便签时，切到便签页并选中它。
+   * 用 `{ id, seq }` 而不是裸 id —— 连点同一条时 seq 变化才能重新触发选中效果。
+   */
+  const [noteFocus, setNoteFocus] = useState<{ id: number; seq: number } | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const toastSeq = useRef(1);
@@ -100,6 +111,10 @@ export default function App() {
     const payload = await api.recurringLoad();
     setRecurring(Array.isArray(payload?.items) ? payload.items : []);
   }, []);
+  const reloadNoteLinks = useCallback(async () => {
+    const payload = await api.noteLinksLoad();
+    setNoteLinks(Array.isArray(payload?.links) ? payload.links : []);
+  }, []);
   const saveLinks = useCallback(async (next: LinkRef[]) => {
     await api.linksSave(next);
     setLinks(next);
@@ -107,6 +122,14 @@ export default function App() {
   const saveRecurring = useCallback(async (next: RecurringItem[]) => {
     await api.recurringSave(next);
     setRecurring(next);
+  }, []);
+  const saveNoteLinks = useCallback(async (next: NoteLink[]) => {
+    await api.noteLinksSave(next);
+    setNoteLinks(next);
+  }, []);
+  const openNote = useCallback((id: number) => {
+    setNoteFocus((f) => ({ id, seq: (f?.seq ?? 0) + 1 }));
+    setPage("notes");
   }, []);
 
   useEffect(() => {
@@ -120,6 +143,7 @@ export default function App() {
           knowledgeList,
           linkPayload,
           recurringPayload,
+          noteLinkPayload,
         ] = await Promise.all([
           api.appInfo(),
           api.prefs(),
@@ -128,6 +152,7 @@ export default function App() {
           api.knowledge(),
           api.linksLoad(),
           api.recurringLoad(),
+          api.noteLinksLoad(),
         ]);
         setInfo(appInfo);
         setPrefs(prefsValue);
@@ -136,6 +161,7 @@ export default function App() {
         setKnowledge(knowledgeList);
         setLinks(Array.isArray(linkPayload?.links) ? linkPayload.links : []);
         setRecurring(Array.isArray(recurringPayload?.items) ? recurringPayload.items : []);
+        setNoteLinks(Array.isArray(noteLinkPayload?.links) ? noteLinkPayload.links : []);
       } catch (err) {
         setBootError(errorText(err));
       } finally {
@@ -343,6 +369,7 @@ export default function App() {
     knowledge,
     links,
     recurring,
+    noteLinks,
     reloadClasses,
     reloadNotes,
     reloadKnowledge,
@@ -350,6 +377,7 @@ export default function App() {
     reloadRecurring,
     saveLinks,
     saveRecurring,
+    saveNoteLinks,
     toast,
     theme,
   };
@@ -396,8 +424,8 @@ export default function App() {
               时中间那一段不可读，代价还是一次双份测量）。 */}
           <div className="page-stage" key={page}>
             {page === "today" && <TodayPage ctx={ctx} onNavigate={setPage} />}
-            {page === "week" && <WeekPage ctx={ctx} />}
-            {page === "notes" && <NotesPage ctx={ctx} />}
+            {page === "week" && <WeekPage ctx={ctx} onOpenNote={openNote} />}
+            {page === "notes" && <NotesPage ctx={ctx} focusNote={noteFocus} />}
             {page === "knowledge" && <KnowledgePage ctx={ctx} solo={solo} />}
             {page === "recurring" && <RecurringPage ctx={ctx} />}
             {page === "settings" && <SettingsPage ctx={ctx} onNavigate={setPage} />}

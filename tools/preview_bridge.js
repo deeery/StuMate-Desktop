@@ -213,8 +213,16 @@
         return APP_INFO;
       case "prefs_get":
         return prefs;
-      case "pref_set":
+      // 真的落盘那一步写不了，但**返回值必须是改过之后的一份**：App.tsx 的
+      // `setPref` 拿返回值直接 `setPrefs(next)`，这里回原对象的话，界面上
+      // 任何「改设置」都点了没反应（侧栏收起点了不收，正是这么被坑的）。
+      case "pref_set": {
+        var patch = arguments[1] || {};
+        var nextPrefs = Object.assign({}, prefs);
+        if (patch.key) nextPrefs[patch.key] = patch.value;
+        prefs = nextPrefs;
         return prefs;
+      }
       case "classes_list":
         return classes;
       case "class_save":

@@ -39,9 +39,32 @@ import {
 import { currentWeek, mondayOf, weekContains, weekStart } from "../model/weekSchedule";
 import { DAY_NAMES, dateOf } from "../model/today";
 import { classColorOf } from "../model/classColor";
-import { firesOnDay, startOfDay, type DayRecurringFire } from "../model/recurring";
-import { extendSpanForFires, minuteOfDay, spreadSlots } from "../model/recurringTimeline";
+import { notesOfClass, notesOfRule } from "../model/noteLinks";
+import type { NoteEntity } from "../model/types";
+import { deadlineTimeLabel, hasDeadline } from "../model/notes";
+import {
+  describeNext,
+  describeRule,
+  firesOnDay,
+  startOfDay,
+  upcomingFireAt,
+  type DayRecurringFire,
+  type RecurringItem,
+} from "../model/recurring";
+import {
+  clockOfDay,
+  extendSpanForFires,
+  mergeWeekFires,
+  minuteOfDay,
+  type WeeklyFireRun,
+} from "../model/recurringTimeline";
 import { GridRecurringFire, ListRecurringFire } from "../components/RecurringFireMarker";
+import {
+  RuleDialog,
+  draftOf,
+  itemOf,
+  type Draft,
+} from "../components/RecurringSection";
 import { api, errorText } from "../api";
 
 const DAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -55,7 +78,14 @@ function toDateInput(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-export function WeekPage({ ctx }: { ctx: AppContextValue }) {
+export function WeekPage({
+  ctx,
+  onOpenNote,
+}: {
+  ctx: AppContextValue;
+  /** 详情栏里点「关联便签」→ 切到便签页并选中那一条（由 App 注入） */
+  onOpenNote?: (id: number) => void;
+}) {
   const week1Monday = ctx.prefs.week1Monday;
   const nowWeek = currentWeek(week1Monday);
   const [week, setWeek] = useState<number>(() => nowWeek ?? 1);
@@ -73,6 +103,17 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
    * 视觉上等于没有，却让 mapping 的计算多绕一层。选中与布局现在彻底解耦。
    */
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  /**
+   * 循环提醒标记的选中态。和课程选中**互斥**：右侧只有一块详情栏，
+   * 两种内容同时挂进去会打架（课程有编辑/删除，提醒是另一套字段）。
+   * v1.7.28：选中的是「一段连续日期」（`WeeklyFireRun`），不再是单天。
+   */
+  const [selectedFire, setSelectedFire] = useState<{
+    run: WeeklyFireRun;
+    past: boolean;
+  } | null>(null);
+  /** 从详情栏点「编辑」时打开同一个规则对话框（复用 RecurringSection 的表单） */
+  const [ruleDraft, setRuleDraft] = useState<Draft | null>(null);
   const [gridRef, setGridRef] = useState<HTMLDivElement | null>(null);
   const [gridHeight, setGridHeight] = useState(640);
   // 「校准周数」对话框：原版把这个入口放在页面顶栏，不再塞一条常驻提示条
@@ -154,35 +195,48 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
   const bands = useMemo(() => zebraBands(span), [span]);
 
   /**
-   * 某一列的循环提醒标记（v1.7.27）。
-   * 位置来自与课程块同一个 `mapping`，所以缩放窗口、换每格小时数都不会错位；
-   * `spreadSlots` 只负责把同刻/近刻的点往下错开，`top` 已含下推量。
+   * 循环提醒标记的排布（v1.7.28）。
+   *
+   * 先把「按天」折成「按连续日期分段」：同一条规则、同一时刻、日期相连的几天
+   * 共用一条线和一个三角，线穿过列边界。位置仍来自与课程块同一个 `mapping`，
+   * 所以缩放窗口、换每格小时数都不会错位。
+   *
+   * 防重叠只发生在**横向范围相交**的两段之间（18px 最小间距）；七列里互不相干
+   * 的标记不该互相挤。`past` 的口径不变：只有**今天**那一次已经过去才淡化。
    */
-  const dayFireSlots = (dayIndex: number) => {
-    const fires: DayRecurringFire[] = weekFires[dayIndex] ?? [];
-    if (fires.length === 0) return null;
-    const slots = spreadSlots(
-      fires.map((f) => ({
-        item: f,
-        rawTop: mapping.fractionOf(minuteOfDay(f.fireAt)) * gridHeight,
-      })),
-      18,
-      Math.max(gridHeight - 4, 0),
-    );
-    return slots.map((slot) => (
-      <GridRecurringFire
-        key={slot.item.item.id}
-        fire={slot.item}
-        now={nowMs}
-        top={slot.top}
-      />
-    ));
-  };
+  const fireRuns = useMemo(() => mergeWeekFires(weekFires), [weekFires]);
+
+  const fireSlots = useMemo(() => {
+    const maxTop = Math.max(gridHeight - 4, 0);
+    const pastOf = (run: WeeklyFireRun) => {
+      if (todayIndex < 0 || run.endDay !== todayIndex) return false;
+      return Boolean(weekFires[todayIndex]?.find((f) => f.item.id === run.item.id)?.past);
+    };
+    const raw = fireRuns
+      .map((run) => ({
+        run,
+        rawTop: mapping.fractionOf(minuteOfDay(run.fireAt)) * gridHeight,
+      }))
+      .sort((a, b) => a.rawTop - b.rawTop);
+
+    const out: { run: WeeklyFireRun; top: number; past: boolean }[] = [];
+    for (const { run, rawTop } of raw) {
+      let top = Math.min(rawTop, maxTop);
+      for (const placed of out) {
+        const overlaps =
+          placed.run.startDay <= run.endDay && run.startDay <= placed.run.endDay;
+        if (overlaps && top - placed.top < 18) top = Math.min(placed.top + 18, maxTop);
+      }
+      out.push({ run, top, past: pastOf(run) });
+    }
+    return out;
+  }, [fireRuns, mapping, gridHeight, todayIndex, weekFires]);
 
   // 换周之后原来那节课可能不在这一周了，选中态要跟着清掉，
   // 否则会把「上一周选过的 id」带过来，看起来像选中了一块空白。
   useEffect(() => {
     setSelectedId(null);
+    setSelectedFire(null);
   }, [week]);
 
   /*
@@ -209,15 +263,45 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
   // v1.7.25：再**多留 40ms 余量**（220 → 260）。面板现在还会做宽度收起动画，
   // 定时器与 CSS 动画不是同一刻起跑，等长会在宽度还剩 80px 时就把节点摘掉，
   // 露出一次可见的末段跳变 —— 多这 40ms 刚好让宽度归零后再卸载。
-  const detailPresence = usePresence(selected !== null, 260);
-  const retainedCls = useRef<ClassEntity | null>(null);
-  if (selected) retainedCls.current = selected;
-  const shownCls = selected ?? retainedCls.current;
+  const detailPresence = usePresence(selected !== null || selectedFire !== null, 260);
+  /*
+   * 面板已经展开时只是换内容（课程 ↔ 循环提醒、或换另一条规则）——
+   * **不重播** 0→268 的宽度展开与淡入，否则每点一次整张表都会重新缩一圈。
+   * `detailWasOpen` 记的是「上一次渲染时面板是否已挂载」，所以只能在 effect 里写：
+   * 首次打开那一帧还要读到 false（否则连第一次都不给动画）。
+   */
+  const detailWasOpen = useRef(false);
+  useEffect(() => {
+    detailWasOpen.current = detailPresence.mounted;
+  }, [detailPresence.mounted]);
+  const detailEnter = !detailWasOpen.current;
+  /**
+   * 面板内容有两种来源（课程 / 循环提醒），退场时要保留「最后一份」，
+   * 所以把两者折成一个带 kind 的目标，而不是两个平行的 retained ref ——
+   * 两个 ref 并存时，切到另一种内容会先闪一帧旧的。
+   */
+  type DetailTarget =
+    | { kind: "class"; cls: ClassEntity }
+    | { kind: "fire"; run: WeeklyFireRun; past: boolean };
+  const liveTarget: DetailTarget | null = selected
+    ? { kind: "class", cls: selected }
+    : selectedFire
+      ? { kind: "fire", run: selectedFire.run, past: selectedFire.past }
+      : null;
+  const retainedTarget = useRef<DetailTarget | null>(null);
+  if (liveTarget) retainedTarget.current = liveTarget;
+  const shownTarget = liveTarget ?? retainedTarget.current;
 
   const editPresence = usePresence(editing !== null);
   const retainedEdit = useRef<ClassEntity | null>(null);
   if (editing) retainedEdit.current = editing;
   const shownEdit = editing ?? retainedEdit.current;
+
+  // 规则对话框（从循环提醒详情栏进「编辑」）—— 与课程对话框同一套退场保留
+  const rulePresence = usePresence(ruleDraft !== null);
+  const retainedRule = useRef<Draft | null>(null);
+  if (ruleDraft) retainedRule.current = ruleDraft;
+  const shownRule = ruleDraft ?? retainedRule.current;
 
   const calPresence = usePresence(calOpen);
 
@@ -280,6 +364,36 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
       // 删掉的是当前选中项时，面板会挂着一个已经不存在的课程 —— 一起清掉
       setSelectedId((id) => (id === entity.id ? null : id));
       ctx.toast("已删除");
+    } catch (err) {
+      ctx.toast(errorText(err), "error");
+    }
+  };
+
+  /**
+   * 规则保存 / 删除：走和循环提醒页同一个 `ctx.saveRecurring`，
+   * 表单也是同一个 `RuleDialog`（`draftOf` / `itemOf`）。这里不重写规则模型。
+   */
+  const saveRule = async () => {
+    if (!ruleDraft) return;
+    const item = itemOf(ruleDraft, Date.now());
+    const exists = ctx.recurring.some((r) => r.id === item.id);
+    const next = exists
+      ? ctx.recurring.map((r) => (r.id === item.id ? item : r))
+      : [...ctx.recurring, item];
+    try {
+      await ctx.saveRecurring(next);
+      setRuleDraft(null);
+      ctx.toast(exists ? "规则已更新" : "规则已创建");
+    } catch (err) {
+      ctx.toast(errorText(err), "error");
+    }
+  };
+
+  const removeRule = async (item: RecurringItem) => {
+    try {
+      await ctx.saveRecurring(ctx.recurring.filter((r) => r.id !== item.id));
+      setSelectedFire(null);
+      ctx.toast("规则已删除");
     } catch (err) {
       ctx.toast(errorText(err), "error");
     }
@@ -431,7 +545,10 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
               style={{ flex: 1, minHeight: 0, display: "flex", position: "relative", overflow: "hidden" }}
               onClick={(e) => {
                 // 点空白处取消选中
-                if (e.target === e.currentTarget) setSelectedId(null);
+                if (e.target === e.currentTarget) {
+                  setSelectedId(null);
+                  setSelectedFire(null);
+                }
               }}
             >
               {/* 纵轴刻度 */}
@@ -505,13 +622,9 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                       <div className="now-line" style={{ top: nowTop }} aria-hidden />
                     ) : null}
 
-                    {/* v1.7.27：循环提醒在**整周七列**都画「横短线 + 左三角」。
-                        之前只在今天列、且只在「今天还有剩余相位点」时画，白天
-                        打开课表基本一片空白。与课程块共用同一个 mapping，
-                        缩放窗口/换周都不会错位。
-                        同列两条规则撞在同一分钟时按 18px 最小间距下推（误差不到
-                        当天跨度的 3%，浮层里始终显示真实时刻）。 */}
-                    {dayFireSlots(dayIndex)}
+                    {/* v1.7.28：循环提醒标记不再画在列里，而是画在整周共用的
+                        覆盖层上（见下方 .rec-fire-overlay）—— 连续的日子要共用
+                        一条线，线的两端落在首日与末日的列边界上。 */}
 
                     {placed.map((p) => {
                       const height = Math.max(p.heightFraction * gridHeight, 22);
@@ -539,6 +652,7 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                             // 单击只选中，不弹编辑框 —— 和原版 1.6.x 一致：
                             // 「单击看详情，双击编辑」。原来点一下就 setEditing，
                             // 等于所有选中都被对话框盖住，选中态根本看不见。
+                            setSelectedFire(null);
                             setSelectedId(p.cls.id);
                           }}
                           onDoubleClick={(e) => {
@@ -634,6 +748,28 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
                   </div>
                 );
               })}
+
+              {/* v1.7.28：整周共用的循环提醒层。放在七列之上、纵轴右侧，
+                  每段按 startDay..endDay 折算成百分比，所以线能连续穿过列边界；
+                  容器不吃鼠标事件，只有三角是热区（否则会挡住课程块点击）。 */}
+              <div className="rec-fire-overlay">
+                {fireSlots.map(({ run, top, past }) => (
+                  <GridRecurringFire
+                    key={`${run.item.id}-${run.startDay}`}
+                    run={run}
+                    now={nowMs}
+                    top={top}
+                    past={past}
+                    left={`calc(${(run.startDay / 7) * 100}% + 3px)`}
+                    right={`calc(${((6 - run.endDay) / 7) * 100}% + 3px)`}
+                    onOpen={() => {
+                      // 与课程选中互斥：右侧详情栏一次只讲一件事
+                      setSelectedId(null);
+                      setSelectedFire({ run, past });
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         ) : (
@@ -642,20 +778,57 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
             selectedId={selectedId}
             firesByDay={weekFires}
             now={nowMs}
-            onSelect={(c) => setSelectedId(c.id)}
+            onSelect={(c) => {
+              setSelectedFire(null);
+              setSelectedId(c.id);
+            }}
             onEdit={setEditing}
+            onOpenFire={(fire, dayIndex) => {
+              setSelectedId(null);
+              // 列表里一天一行，不画跨天连线，选中就是「这一天的这一次」
+              setSelectedFire({
+                run: {
+                  item: fire.item,
+                  startDay: dayIndex,
+                  endDay: dayIndex,
+                  fireAt: fire.fireAt,
+                  dayCount: fire.dayCount,
+                },
+                past: fire.past,
+              });
+            }}
           />
         )}
           </div>
-          {detailPresence.mounted && shownCls ? (
-            <ClassDetailPanel
-              leaving={detailPresence.leaving}
-              cls={shownCls}
-              stats={weekStats}
-              onEdit={() => setEditing(shownCls)}
-              onDelete={() => void remove(shownCls)}
-              onClose={() => setSelectedId(null)}
-            />
+          {detailPresence.mounted && shownTarget ? (
+            shownTarget.kind === "class" ? (
+              <ClassDetailPanel
+                leaving={detailPresence.leaving}
+                enter={detailEnter}
+                cls={shownTarget.cls}
+                stats={weekStats}
+                notes={notesOfClass(ctx.notes, ctx.noteLinks, shownTarget.cls.id)}
+                now={nowMs}
+                onOpenNote={onOpenNote}
+                onEdit={() => setEditing(shownTarget.cls)}
+                onDelete={() => void remove(shownTarget.cls)}
+                onClose={() => setSelectedId(null)}
+              />
+            ) : (
+              <RecurringDetailPanel
+                key={shownTarget.run.item.id}
+                leaving={detailPresence.leaving}
+                enter={detailEnter}
+                run={shownTarget.run}
+                past={shownTarget.past}
+                now={nowMs}
+                notes={notesOfRule(ctx.notes, ctx.noteLinks, shownTarget.run.item.id)}
+                onOpenNote={onOpenNote}
+                onEdit={() => setRuleDraft(draftOf(shownTarget.run.item))}
+                onDelete={() => void removeRule(shownTarget.run.item)}
+                onClose={() => setSelectedFire(null)}
+              />
+            )
           ) : null}
         </div>
       </div>
@@ -668,6 +841,16 @@ export function WeekPage({ ctx }: { ctx: AppContextValue }) {
           onClose={() => setEditing(null)}
           onSave={save}
           onDelete={remove}
+        />
+      ) : null}
+
+      {rulePresence.mounted && shownRule ? (
+        <RuleDialog
+          leaving={rulePresence.leaving}
+          draft={shownRule}
+          patch={(p) => setRuleDraft((d) => (d ? { ...d, ...p } : d))}
+          onClose={() => setRuleDraft(null)}
+          onSave={() => void saveRule()}
         />
       ) : null}
 
@@ -729,6 +912,10 @@ function ClassDetailPanel({
   cls,
   stats,
   leaving,
+  enter = true,
+  notes,
+  now,
+  onOpenNote,
   onEdit,
   onDelete,
   onClose,
@@ -736,6 +923,12 @@ function ClassDetailPanel({
   cls: ClassEntity;
   stats: { courses: number; hours: string; busiest: string };
   leaving?: boolean;
+  /** false = 面板本来就在，只是换了内容：直接落在终态，不重播展开动画 */
+  enter?: boolean;
+  /** 关联到这门课的便签（note_links.json 反查） */
+  notes: NoteEntity[];
+  now: number;
+  onOpenNote?: (id: number) => void;
   onEdit: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -745,7 +938,10 @@ function ClassDetailPanel({
   const when = `${isTemp ? cls.date : dayLabel} ${cls.startTime} – ${cls.endTime}`;
 
   return (
-    <aside className={`week-detail${leaving ? " leaving" : ""}`} aria-label="课程详情">
+    <aside
+      className={`week-detail${leaving ? " leaving" : ""}${enter ? "" : " no-enter"}`}
+      aria-label="课程详情"
+    >
       {/* v1.7.25：外面这层只负责「宽度」，内容固定 268px 宽、被外层裁切。
           不这么拆的话，宽度动画期间两张卡片每帧都在重排，标题会一行行跳字。 */}
       <div className="week-detail-inner">
@@ -793,6 +989,9 @@ function ClassDetailPanel({
         </div>
       </div>
 
+      {/* 详细内容下方：挂着这门课的便签 */}
+      <LinkedNotesCard notes={notes} now={now} onOpenNote={onOpenNote} />
+
       <div className="card" style={{ padding: 16 }}>
         <div className="detail-section-label">本周统计</div>
         <dl style={{ margin: "8px 0 0" }}>
@@ -809,6 +1008,189 @@ function ClassDetailPanel({
       </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * 右侧循环提醒详情栏 —— 点课表上的三角打开（v1.7.28）。
+ *
+ * 与课程详情面板同一副骨架（268dp 裸列 + 两张卡、同样的宽度过渡）。
+ * v1.7.28 起**可编辑**：编辑复用循环提醒页的同一个 `RuleDialog`，
+ * 删除走同一个 `ctx.saveRecurring`，不在课表页另写一套规则逻辑。
+ */
+function RecurringDetailPanel({
+  run,
+  past,
+  now,
+  leaving,
+  enter = true,
+  notes,
+  onOpenNote,
+  onEdit,
+  onDelete,
+  onClose,
+}: {
+  run: WeeklyFireRun;
+  past: boolean;
+  now: number;
+  leaving?: boolean;
+  /** false = 面板本来就在，只是换了内容：直接落在终态，不重播展开动画 */
+  enter?: boolean;
+  /** 关联到这条规则的便签 */
+  notes: NoteEntity[];
+  onOpenNote?: (id: number) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const item = run.item;
+  const days = run.endDay - run.startDay + 1;
+  const clock = clockOfDay(run.fireAt);
+  const when =
+    days > 1
+      ? `${DAY_CN[run.startDay]}–${DAY_CN[run.endDay]} ${clock}`
+      : `${DAY_CN[run.startDay]} ${clock}`;
+  // 删除沿用循环提醒页的二次确认：第一次点只改文案，第二次才真删
+  const [confirm, setConfirm] = useState(false);
+
+  return (
+    <aside
+      className={`week-detail${leaving ? " leaving" : ""}${enter ? "" : " no-enter"}`}
+      aria-label="循环提醒详情"
+    >
+      <div className="week-detail-inner">
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            {/* 珊瑚色条：与网格里那枚标记是同一个色号，指认同一条规则 */}
+            <span
+              aria-hidden
+              style={{ width: 4, height: 30, borderRadius: 2, background: "var(--rec-fire)" }}
+            />
+            <button
+              className="icon-btn"
+              style={{ marginLeft: "auto", width: 24, height: 24 }}
+              title="取消选中"
+              onClick={onClose}
+            >
+              <IconClose size={12} />
+            </button>
+          </div>
+
+          <div style={{ fontSize: 16, fontWeight: 600, marginTop: 10, color: "var(--on-surface)" }}>
+            {item.title}
+          </div>
+          <div style={{ fontSize: 12.5, marginTop: 4, color: "var(--on-surface-variant)" }}>
+            {when}
+          </div>
+
+          <dl style={{ margin: "12px 0 0" }}>
+            <DetailRow label="规律" value={describeRule(item.rule)} />
+            <DetailRow
+              label="本周"
+              value={days > 1 ? `${days} 天` : run.dayCount > 1 ? `当天 ${run.dayCount} 次` : "1 次"}
+            />
+            <DetailRow
+              label="状态"
+              value={past ? "这一次已经过去" : describeNext(upcomingFireAt(item, now), now)}
+            />
+            <DetailRow label="类型" value="循环提醒" />
+          </dl>
+
+          {item.body ? (
+            <>
+              <div className="detail-section-label" style={{ marginTop: 14 }}>
+                正文
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  marginTop: 6,
+                  color: "var(--on-surface-variant)",
+                  lineHeight: 1.6,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                {item.body}
+              </div>
+            </>
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <button className="btn primary" onClick={onEdit}>
+              <IconEdit size={13} /> 编辑
+            </button>
+            <button
+              className="btn danger"
+              onClick={() => {
+                if (!confirm) {
+                  setConfirm(true);
+                  return;
+                }
+                onDelete();
+              }}
+            >
+              <IconTrash size={13} /> {confirm ? "确定删除？" : "删除"}
+            </button>
+          </div>
+        </div>
+
+        <LinkedNotesCard notes={notes} now={now} onOpenNote={onOpenNote} />
+
+        <div className="card" style={{ padding: 16 }}>
+          <div className="detail-section-label">说明</div>
+          <div style={{ fontSize: 12, marginTop: 6, color: "var(--on-surface-variant)", lineHeight: 1.6 }}>
+            循环提醒只保存在本机 Lite：错过的不补弹，下一次始终按原相位触发。
+            启停与「立即试一次」在侧栏「循环提醒」页。
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * 「关联便签」卡：课程详情与循环提醒详情共用。
+ * 关联关系由便签侧决定（便签编辑面板里的两个下拉），这里只做反查与跳转。
+ */
+function LinkedNotesCard({
+  notes,
+  now,
+  onOpenNote,
+}: {
+  notes: NoteEntity[];
+  now: number;
+  onOpenNote?: (id: number) => void;
+}) {
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div className="detail-section-label">
+        关联便签{notes.length > 0 ? ` · ${notes.length}` : ""}
+      </div>
+      {notes.length === 0 ? (
+        <div
+          style={{ fontSize: 12, marginTop: 6, color: "var(--on-surface-faint)", lineHeight: 1.6 }}
+        >
+          还没有便签挂在这里。在便签编辑面板里选「关联课程 / 关联循环提醒」即可。
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
+          {notes.map((n) => (
+            <button
+              key={n.id}
+              className="linked-note"
+              onClick={() => onOpenNote?.(n.id)}
+              title="在便签页打开"
+            >
+              <span className="linked-note-title">{n.title}</span>
+              {hasDeadline(n) ? (
+                <span className="linked-note-meta">{deadlineTimeLabel(n.deadlineAt, now)}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -829,6 +1211,7 @@ function ListView({
   now,
   onSelect,
   onEdit,
+  onOpenFire,
 }: {
   weekClasses: ClassEntity[];
   selectedId: number | null;
@@ -837,6 +1220,7 @@ function ListView({
   now: number;
   onSelect: (c: ClassEntity) => void;
   onEdit: (c: ClassEntity) => void;
+  onOpenFire: (fire: DayRecurringFire, dayIndex: number) => void;
 }) {
   return (
     <div className="card" style={{ padding: "6px 16px 12px" }}>
@@ -853,7 +1237,12 @@ function ListView({
               {DAY_CN[i]}
             </div>
             {dayFires.map((f) => (
-              <ListRecurringFire key={f.item.id} fire={f} now={now} />
+              <ListRecurringFire
+                key={f.item.id}
+                fire={f}
+                now={now}
+                onOpen={() => onOpenFire(f, i)}
+              />
             ))}
             {list.map((c) => (
               <button

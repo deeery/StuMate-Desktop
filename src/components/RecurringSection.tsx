@@ -11,6 +11,9 @@
  * 3. **v1.7.16 起这里是侧栏独立页的主体**（v1.7.15 时是设置页的一个 Section）。
  *    页面标题交给 `PageTopBar`，本组件只画卡片内的规则列表；设置页只留一个
  *    跳转入口，不再把整张列表渲染两遍。
+ *
+ * v1.7.28：`Draft` / `draftOf` / `itemOf` / `RuleDialog` 对外导出，课表右侧的
+ * 循环提醒详情栏复用同一个表单 —— 编辑规则只有一份对话框实现。
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -45,7 +48,7 @@ const WEEKDAYS: { value: number; label: string }[] = [
   { value: 0, label: "日" },
 ];
 
-interface Draft {
+export interface Draft {
   id: string;
   title: string;
   body: string;
@@ -84,7 +87,7 @@ function newDraft(now: number): Draft {
   };
 }
 
-function draftOf(item: RecurringItem): Draft {
+export function draftOf(item: RecurringItem): Draft {
   const rule = item.rule;
   return {
     id: item.id,
@@ -113,7 +116,7 @@ function makeId(): string {
   }
 }
 
-function itemOf(d: Draft, now: number): RecurringItem {
+export function itemOf(d: Draft, now: number): RecurringItem {
   let rule: RecurringRule;
   switch (d.mode) {
     case "daily":
@@ -298,7 +301,7 @@ export function RecurringSection({ ctx }: { ctx: AppContextValue }) {
   );
 }
 
-function RuleDialog({
+export function RuleDialog({
   draft,
   patch,
   leaving,

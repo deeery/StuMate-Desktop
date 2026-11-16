@@ -13,6 +13,7 @@ import type {
   LinkRef,
   MindNode,
   NoteEntity,
+  NoteLink,
   Prefs,
 } from "./model/types";
 import { mindNodeFromDisk, mindNodeToDisk } from "./model/mindMap";
@@ -129,6 +130,11 @@ export const api = {
     invoke<{ version: number; items: RecurringItem[] }>("recurring_load"),
   /** 整份写回。规则模型只有前端一份，Rust 不解析字段 */
   recurringSave: (items: RecurringItem[]) => invoke<void>("recurring_save", { items }),
+
+  // 便签 ↔ 课程 / 循环提醒关联（note_links.json，Lite 专属旁路存档）
+  noteLinksLoad: () =>
+    invoke<{ version: number; links: NoteLink[] }>("note_links_load"),
+  noteLinksSave: (links: NoteLink[]) => invoke<void>("note_links_save", { links }),
 
   // 备份
   backupExport: (modules: string[], path: string) =>
