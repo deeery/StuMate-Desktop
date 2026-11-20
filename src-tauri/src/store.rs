@@ -55,7 +55,11 @@ impl Paths {
 
 pub fn read_json(path: &Path) -> Option<Value> {
     let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    // Windows PowerShell 的 `Set-Content -Encoding utf8`、以及不少编辑器会
+    // 给 UTF-8 加 BOM，而 serde_json 不认 BOM：整份解析失败后调用方只能
+    // 回落默认值 —— 用户看到的是「设置莫名其妙全丢了」。这里统一剥掉。
+    let text = text.trim_start_matches('\u{feff}');
+    serde_json::from_str(text).ok()
 }
 
 /// 原子写：先写 `.tmp` 再 rename。rename 在同一分区上是原子的。
@@ -78,8 +82,13 @@ pub fn default_prefs() -> Map<String, Value> {
     m.insert("advanceMinutes".into(), Value::from(30));
     m.insert("autoStart".into(), Value::from(false));
     m.insert("showPopup".into(), Value::from(true));
+    // v1.7.28：提醒呈现方式 0 全局浮窗 / 1 窗口内横幅 / 2 不弹。
+    // `showPopup` 保留只为向下兼容（旧版本读它），两者由 `pref_set` 保持同步。
+    m.insert("reminderMode".into(), Value::from(0));
     m.insert("firstRun".into(), Value::from(true));
     m.insert("themeMode".into(), Value::from(0));
+    // v1.7.28：主题色。存 id（见前端 model/accent.ts），认不出来的值前端回落 blue。
+    m.insert("accent".into(), Value::from("blue"));
     m.insert("week1Monday".into(), Value::from(0));
     m.insert("weekGrid".into(), Value::from(true));
     m.insert("sidebarCollapsed".into(), Value::from(false));
@@ -90,6 +99,9 @@ pub fn default_prefs() -> Map<String, Value> {
     // 知识库：库根（真正的库在 `<库根>/Stumate/`）+ 是否已把旧数据库条目铺成文件
     m.insert("vaultRoot".into(), Value::from(""));
     m.insert("vaultMigrated".into(), Value::from(false));
+    // 知识库是实验性功能：默认关闭，入口藏在「设置 → 实验性功能」里。
+    // 原版没有这个概念，所以下面播种旧设置时也不搬这个键。
+    m.insert("experimentalKnowledge".into(), Value::from(false));
     m
 }
 
@@ -103,8 +115,30 @@ pub fn load_prefs(paths: &Paths) -> Value {
     // 三个键，文件一旦存在就再也不会补全 —— 结果设置页上「提前提醒」一直是空输入框、
     // 「允许通知」一直是关的，看上去像功能没做，其实是键根本没读进来。
     if let Some(Value::Object(saved)) = read_json(&paths.settings) {
+        // 知识库在 v1.7.28 变成实验性功能（默认关闭）。已经在用它的人不该一升级
+        // 就少掉侧栏入口 —— 文件里没有这个键、但库根非空，就当作已启用；
+        // 从没选过库根的新装用户照默认（关闭）走。
+        let had_flag = saved.contains_key("experimentalKnowledge");
+        let had_vault = matches!(
+            saved.get("vaultRoot"),
+            Some(Value::String(s)) if !s.is_empty()
+        );
+        // v1.7.28：`reminderMode` 也是新键。旧文件里没有它时，按老的
+        // `showPopup`（开 = 全局浮窗，关 = 不弹）迁移一次 —— 升级前后观感一致。
+        // 只在读取时推导，不在这里落盘：用户没动设置就不该改写他的文件。
+        let had_mode = saved.contains_key("reminderMode");
         for (k, v) in saved {
             base.insert(k, v);
+        }
+        if !had_mode {
+            let show = base
+                .get("showPopup")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            base.insert("reminderMode".into(), Value::from(if show { 0 } else { 2 }));
+        }
+        if !had_flag && had_vault {
+            base.insert("experimentalKnowledge".into(), Value::from(true));
         }
         return Value::Object(base);
     }
@@ -129,6 +163,12 @@ pub fn load_prefs(paths: &Paths) -> Value {
                 base.insert(key.to_string(), v.clone());
             }
         }
+        // 原版没有 `reminderMode`：按刚搬过来的 `showPopup` 推导一次
+        let show = base
+            .get("showPopup")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        base.insert("reminderMode".into(), Value::from(if show { 0 } else { 2 }));
     }
     Value::Object(base)
 }

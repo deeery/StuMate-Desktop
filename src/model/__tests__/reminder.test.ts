@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideReminder, overlayView, pickFocus, type ReminderAlert } from "../reminder";
+import { decideReminder, overlayView, pickFocus, reminderModeOf, type ReminderAlert } from "../reminder";
 import { EMPTY_CLASS, type ClassEntity } from "../types";
 
 function cls(id: number, patch: Partial<ClassEntity> = {}): ClassEntity {
@@ -153,5 +153,38 @@ describe("提醒卡：倒计时与进度", () => {
   it("进度不超过 1", () => {
     const view = overlayView(alert({ ongoing: true }), at(11, 40));
     expect(view.progress).toBeLessThanOrEqual(1);
+  });
+});
+
+
+describe("提醒方式：三档解析（v1.7.28）", () => {
+  it("显式三档原样返回", () => {
+    expect(reminderModeOf({ reminderMode: 0 })).toBe(0);
+    expect(reminderModeOf({ reminderMode: 1 })).toBe(1);
+    expect(reminderModeOf({ reminderMode: 2 })).toBe(2);
+  });
+
+  it("手改设置文件写成字符串也认", () => {
+    expect(reminderModeOf({ reminderMode: "1" })).toBe(1);
+    expect(reminderModeOf({ reminderMode: "2" })).toBe(2);
+  });
+
+  it("旧设置没有 reminderMode 时按 showPopup 迁移", () => {
+    // 升级前的语义：开关打开 = 全局浮窗，关掉 = 不弹
+    expect(reminderModeOf({ showPopup: true })).toBe(0);
+    expect(reminderModeOf({ showPopup: false })).toBe(2);
+  });
+
+  it("越界 / 乱写 / 缺字段都落到一个合法档位，不会静默不提醒", () => {
+    expect(reminderModeOf({ reminderMode: 7 })).toBe(0);
+    expect(reminderModeOf({ reminderMode: null })).toBe(0);
+    expect(reminderModeOf({ reminderMode: "窗口内" })).toBe(0);
+    expect(reminderModeOf({})).toBe(0);
+    expect(reminderModeOf(null)).toBe(0);
+    expect(reminderModeOf(undefined)).toBe(0);
+  });
+
+  it("显式档位优先于旧的 showPopup", () => {
+    expect(reminderModeOf({ reminderMode: 1, showPopup: false })).toBe(1);
   });
 });

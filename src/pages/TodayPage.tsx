@@ -52,6 +52,13 @@ export function TodayPage({
   const ongoing = today.find((c) => ongoingAt(c, now));
   const next = upcoming.find((c) => c.startMillis > now);
   const idle = isIdle(upcoming, now, ctx.prefs.advanceMinutes);
+  /**
+   * 「收工」：今天有课、且一节都没剩。它不只是主卡上的一句话 ——
+   * 主卡（上面那个小窗口）整块换成成功色底（v1.7.28），这样一天过完是
+   * 「一眼看得见」的状态，而不是再去读一遍卡片文案。
+   * 今天压根没课时**不算**收工，那是空态。
+   */
+  const wrappedUp = today.length > 0 && upcoming.length === 0;
 
   const deadlines = useMemo(() => {
     const endOfDay = new Date(now);
@@ -72,12 +79,15 @@ export function TodayPage({
         subtitle={`${monthDayOf(now)}${WEEKDAY_CN[todayIndex]}${week ? ` · 第 ${week} 周` : ""}`}
       />
 
+      {/* v1.7.28：收工态**只染上面那张主卡**，页面底色保持原样。
+          整页铺绿会把右侧两张卡（今日截止 / 今日循环）从底上「浮不起来」，
+          而且那些卡里可能还有今天要动手的事，不该被一片绿压下去。 */}
       <div className="page-content">
         <HeroCard
           ongoing={ongoing}
           next={next}
           idle={idle}
-          allDone={today.length > 0 && upcoming.length === 0}
+          allDone={wrappedUp}
           empty={today.length === 0}
           now={now}
           advanceMinutes={ctx.prefs.advanceMinutes}
@@ -284,7 +294,7 @@ function HeroCard({
 
   return (
     <section
-      className="card"
+      className={`card today-hero${allDone ? " is-done" : ""}`}
       style={{
         // 内边距 / 行距 / 字号全部照抄原版 `HeroOngoing`：
         // 18×20 内边距、状态行→标题 8、标题→副行 4，标题 22sp、副行 13sp、时间 26sp。
@@ -295,8 +305,12 @@ function HeroCard({
         alignItems: "flex-start",
         justifyContent: "space-between",
         gap: 18,
-        background: inClass ? "var(--hero-bg)" : "var(--surface)",
-        borderColor: inClass ? "var(--hero-border)" : undefined,
+        background: inClass
+          ? "var(--hero-bg)"
+          : allDone
+            ? "var(--hero-done-bg)"
+            : "var(--surface)",
+        borderColor: inClass ? "var(--hero-border)" : allDone ? "var(--hero-done-border)" : undefined,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>

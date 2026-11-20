@@ -14,9 +14,11 @@ import { usePresence } from "../components/Presence";
 import { IconFolder, IconTrash } from "../components/Icons";
 import { api, errorText } from "../api";
 import { currentWeek, mondayOf } from "../model/weekSchedule";
-import { decideReminder } from "../model/reminder";
+import { decideReminder, reminderModeOf } from "../model/reminder";
 import { parseTimetablePdf, type ParsedCourse } from "../model/timetablePdf";
 import { EMPTY_CLASS } from "../model/types";
+import { ACCENTS, accentOf, accentSwatch } from "../model/accent";
+import { THEME_OPTIONS } from "../model/theme";
 
 const MODULE_LABELS: Record<string, string> = {
   courses: "课程表",
@@ -71,14 +73,17 @@ export function SettingsPage({
   const setNumber = (key: string, value: number) => void ctx.setPref(key, value);
 
   /**
-   * 预览提醒浮窗。
+   * 预览提醒。
    *
    * 有今天的课就预览「真课」，没有就造一节 10 分钟后开始的示例课 ——
-   * 用户点这个按钮是想看"浮窗长什么样、弹在哪块屏"，不是想验证今天有没有课，
+   * 用户点这个按钮是想看"提醒长什么样、弹在哪块屏"，不是想验证今天有没有课，
    * 所以宁可给示例也不能什么都不弹。
    *
    * 提前量传 24 小时：预览时不该受「提前提醒」设置限制，
    * 否则用户把提前量设成 5 分钟、今天最后一节课已经上完了，就什么都看不到。
+   *
+   * v1.7.28：预览要跟着「提醒方式」走 —— 选了窗口内却弹全局浮窗，
+   * 用户看到的东西和他选的不是一回事。
    */
   async function previewOverlay() {
     const now = Date.now();
@@ -96,6 +101,16 @@ export function SettingsPage({
       endMillis: now + 105 * 60_000,
       ongoing: false,
     };
+    const mode = reminderModeOf(prefs);
+    if (mode === 2) {
+      ctx.toast("当前是「不提醒」，先在上面选一种提醒方式", "info");
+      return;
+    }
+    if (mode === 1) {
+      // 窗口内横幅只在本窗口里播 14 秒，不需要走 IPC，也不会有第二个窗口
+      ctx.showReminderBanner(alert);
+      return;
+    }
     try {
       await api.overlayShow(alert);
     } catch (err) {
@@ -185,16 +200,38 @@ export function SettingsPage({
       <PageTopBar title="设置" subtitle="Lite 版" />
       <div className="page-content" style={{ maxWidth: 760 }}>
         <Section title="外观">
-          <Row label="主题">
+          {/* v1.7.28：五档。后两档不是新色板，而是**按主题色现算**出整套同色系深浅
+              （底、卡片、分隔线、文字同一个色相，只差 L/C）—— 所以它跟下面
+              那个「主题色」是联动的：换了色，这两档的整套配色跟着换。 */}
+          <Row
+            label="主题"
+            hint="「主题色（亮/暗）」按主题色生成一整套同色系深浅，不是灰底上加一层色"
+          >
             <Select<number>
               value={prefs.themeMode}
-              options={[
-                { value: 0, label: "跟随系统" },
-                { value: 1, label: "浅色" },
-                { value: 2, label: "深色" },
-              ]}
+              options={THEME_OPTIONS}
               onChange={(v) => void setNumber("themeMode", v)}
             />
+          </Row>
+          <Row label="主题色" hint="强调色用在按钮、选中态、正在上课的主卡；深浅主题各有一套配色，会自动换">
+            <div className="accent-swatches">
+              {ACCENTS.map((a) => {
+                const active = accentOf(prefs.accent).id === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className={`accent-swatch${active ? " is-active" : ""}`}
+                    style={{ background: accentSwatch(a, ctx.theme) }}
+                    title={a.name}
+                    aria-label={a.name}
+                    aria-pressed={active}
+                    onClick={() => void ctx.setPref("accent", a.id)}
+                  />
+                );
+              })}
+              <span className="accent-swatch-label">{accentOf(prefs.accent).name}</span>
+            </div>
           </Row>
           <Toggle
             label="课表默认用网格视图"
@@ -224,23 +261,32 @@ export function SettingsPage({
               <span style={{ fontSize: 12, color: "var(--on-surface-faint)" }}>分钟</span>
             </div>
           </Row>
+          {/* v1.7.28：三档「提醒方式」取代原来的 showPopup 布尔开关。
+              浮窗从屏幕（或窗口）上沿滑入的动效在两端各自实现：
+              全局 = Rust 侧挪窗口，窗口内 = CSS 关键帧。 */}
+          <Row
+            label="提醒方式"
+            hint="全局提醒＝独立置顶浮窗，切到别的应用也看得见；窗口内提醒＝从本窗口顶部滑下一条横幅；不提醒＝不弹浮窗"
+          >
+            <Select<number>
+              value={reminderModeOf(prefs)}
+              options={[
+                { value: 0, label: "全局提醒" },
+                { value: 1, label: "窗口内提醒" },
+                { value: 2, label: "不提醒" },
+              ]}
+              onChange={(v) => void ctx.setPref("reminderMode", v)}
+            />
+          </Row>
           <Toggle
             label="允许通知"
-            hint="桌面端的通知只是用户意愿，不涉及系统权限"
+            hint="系统通知与上面的浮窗互不影响；全屏游戏或演示模式下两种通道都会被抑制"
             checked={prefs.notifyEnabled}
             onChange={(v) => void ctx.setPref("notifyEnabled", v)}
           />
-          {/* v1.7.15 补上的「有实现、无 UI」开关：showPopup 一直在 default_prefs
-              里，useReminder 也一直消费它，但此前用户根本配不了。 */}
-          <Toggle
-            label="显示置顶提醒卡片"
-            hint="关掉后只发系统通知；全屏游戏或演示模式下两种通道都会被抑制"
-            checked={prefs.showPopup}
-            onChange={(v) => void ctx.setPref("showPopup", v)}
-          />
           <Row
-            label="预览提醒浮窗"
-            hint="不用等上课，立刻看一眼浮窗长什么样、弹在哪块屏"
+            label="预览提醒"
+            hint="不用等上课，立刻看一眼提醒长什么样、弹在哪块屏（跟着上面的提醒方式走）"
           >
             <button className="btn" onClick={() => void previewOverlay()}>
               预览
@@ -342,6 +388,29 @@ export function SettingsPage({
           </div>
         </Section>
 
+        <Section title="实验性功能">
+          {/* v1.7.28：知识库从「侧栏常驻」改成默认关闭的实验性功能。
+              理由：文件树 / 编辑器 / 思维导图还在改，数据格式也没定死；
+              把它摆在便签旁边，会被当成已完成的功能来信任。 */}
+          <Toggle
+            label="知识库"
+            hint="本地 Markdown 库：文件树 + 编辑器 + 思维导图。还在打磨，数据格式可能变；关掉只是把入口从侧栏收起来，库文件一律不动"
+            checked={prefs.experimentalKnowledge === true}
+            onChange={(v) => void ctx.setPref("experimentalKnowledge", v)}
+          />
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--on-surface-faint)",
+              padding: "2px 0 8px",
+              lineHeight: 1.6,
+            }}
+          >
+            实验性功能默认不出现在侧栏。打开后立刻生效，不必重启；
+            关掉之后已经选好的库目录、库里的文件都保留，重新打开还是原来那份。
+          </div>
+        </Section>
+
         <Section title="数据">
           <Row label="数据目录" hint={ctx.info.dataDir}>
             <button className="btn" onClick={() => void api.openDataDir().catch(() => undefined)}>
@@ -361,28 +430,32 @@ export function SettingsPage({
               </button>
             </div>
           </Row>
-          <Row
-            label="知识库目录"
-            hint={
-              prefs.vaultRoot
-                ? `库在 ${prefs.vaultRoot}\\Stumate\\，一篇笔记就是一个 .md 文件。换库时会先看新库里有没有笔记，空的才会把旧数据铺过去`
-                : "还没设置。知识库页会引导你选一个目录；选一个已经在用网盘同步的目录，同步就不用再管了"
-            }
-          >
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn" onClick={() => void pickVaultRoot(ctx)}>
-                选择目录…
-              </button>
-              {prefs.vaultRoot ? (
-                <button
-                  className="btn"
-                  onClick={() => void api.openExternal(`${prefs.vaultRoot}\\Stumate`)}
-                >
-                  打开
+          {/* 库目录只在知识库启用时才有意义；关着的时候摆一行「还没设置」
+              只会让人以为哪坏了。已选的路径仍然保存在偏好里。 */}
+          {prefs.experimentalKnowledge ? (
+            <Row
+              label="知识库目录"
+              hint={
+                prefs.vaultRoot
+                  ? `库在 ${prefs.vaultRoot}\\Stumate\\，一篇笔记就是一个 .md 文件。换库时会先看新库里有没有笔记，空的才会把旧数据铺过去`
+                  : "还没设置。知识库页会引导你选一个目录；选一个已经在用网盘同步的目录，同步就不用再管了"
+              }
+            >
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn" onClick={() => void pickVaultRoot(ctx)}>
+                  选择目录…
                 </button>
-              ) : null}
-            </div>
-          </Row>
+                {prefs.vaultRoot ? (
+                  <button
+                    className="btn"
+                    onClick={() => void api.openExternal(`${prefs.vaultRoot}\\Stumate`)}
+                  >
+                    打开
+                  </button>
+                ) : null}
+              </div>
+            </Row>
+          ) : null}
           <Row
             label="清空数据"
             hint="物理删除三张表的全部行，不可撤销。附件与导图不受影响"

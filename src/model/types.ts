@@ -100,14 +100,42 @@ export interface LinkRef {
   addedAt: number;
 }
 
-export type ThemeMode = 0 | 1 | 2; // 0 跟随系统 / 1 浅色 / 2 深色
+/**
+ * 主题档位（v1.7.28 从三档扩到五档）：
+ * 0 跟随系统 / 1 浅色 / 2 深色 / 3 主题色（亮）/ 4 主题色（暗）。
+ *
+ * 3、4 仍是「亮」「暗」两套明暗，只是把中性面按 `--accent` 掺一遍配色；
+ * 判定收在 `model/theme.ts` 的两个纯函数里，别在组件里自己 switch。
+ */
+export type ThemeMode = 0 | 1 | 2 | 3 | 4;
+
+/**
+ * 提醒的呈现方式（v1.7.28）。
+ *
+ * 0 全局提醒：独立置顶浮窗，**跨应用**可见（原 `showPopup` 的语义）；
+ * 1 窗口内提醒：主窗口顶部的横幅，从窗口上沿滑入，不另开窗口；
+ * 2 不提醒：不弹任何浮窗（系统通知由 `notifyEnabled` 单独决定）。
+ *
+ * 为什么不复用 `showPopup` 布尔值：三档是「在哪弹」的选择，不是「弹不弹」的
+ * 开关。布尔值塞不进第三种状态，而再加一个布尔（`inWindowPopup`）会出现
+ * 两个都为 true 的非法组合。旧值 `showPopup` 只在读取时做一次性迁移。
+ */
+export type ReminderMode = 0 | 1 | 2;
 
 export interface Prefs {
   advanceMinutes: number;
   autoStart: boolean;
+  /** @deprecated v1.7.28 起由 `reminderMode` 取代；保留只为向下兼容旧设置文件 */
   showPopup: boolean;
+  reminderMode: ReminderMode;
   firstRun: boolean;
   themeMode: ThemeMode;
+  /**
+   * 主题色（强调色）的 id，取值见 `model/accent.ts` 的 `ACCENTS`。
+   * 存 id 而不是 hex：深浅两套色跟主题走，存 hex 就只能存其中一套。
+   * 认不出来的值回落 `blue`。
+   */
+  accent: string;
   week1Monday: number;
   weekGrid: boolean;
   sidebarCollapsed: boolean;
@@ -122,6 +150,11 @@ export interface Prefs {
   vaultRoot: string;
   /** 旧数据库条目是否已经铺成文件。只在第一次启用知识库时跑一次 */
   vaultMigrated: boolean;
+  /**
+   * 知识库是**实验性功能**（v1.7.28 起）：默认关闭，侧栏不出现入口，
+   * 要在设置 →「实验性功能」里手动打开。关掉只藏入口，库文件与库根都不动。
+   */
+  experimentalKnowledge: boolean;
   [key: string]: unknown;
 }
 

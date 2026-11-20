@@ -1,9 +1,16 @@
 /**
- * 便签页：左侧表格 + 右侧编辑面板（与原版 `NotesPage.kt` 同一套版式）。
+ * 便签页：左侧表格 + 右侧「详情 / 编辑」同一列（与原版 `NotesPage.kt` 同一套版式）。
  *
  * 这一页在 v1.7.11 之前是「表格 + 弹窗」：点一行弹一个居中对话框。原版不是这样 ——
  * 原版点行只是**选中**，编辑发生在右列那块 340dp 的面板里，表格本身一直是可见的。
  * 差别不只是好看：弹窗盖住表格后没法对照上下条，也看不到「刚才那行现在什么状态」。
+ *
+ * v1.7.28：右列改成**两步走**，与课表页（`WeekPage` 的 `ClassDetailPanel` → 编辑对话框）
+ * 对齐 ——
+ *   1. 点一行只打开**只读详情**（268 宽）；
+ *   2. 详情里点「编辑」（或双击行 / 点行尾铅笔）才进编辑表单（340 宽）。
+ * 为什么要拆：以前点一行直接是十几个输入框，想「看一眼这条写了什么」也得先面对表单，
+ * 而且手一抖点到输入框就先改了草稿。详情是读，编辑是写，两件事分开。
  *
  * 拖动排序的几何全部走 `model/notes.ts`（v1.7.5 把那段从 Compose 闭包里抽出来
  * 修掉了三个缺陷：冻结的 index、拿自己行高当步长、筛选下标喂给全量列表）。
@@ -17,7 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageTopBar, type AppContextValue } from "../App";
 import { Select } from "../components/ui";
 import { usePresence } from "../components/Presence";
-import { IconEdit, IconNote, IconPlus, IconSearch, IconTrash } from "../components/Icons";
+import { IconClose, IconEdit, IconNote, IconPlus, IconSearch, IconTrash } from "../components/Icons";
 import type { ClassEntity, NoteEntity, NoteLink } from "../model/types";
 import { EMPTY_NOTE } from "../model/types";
 import type { RecurringItem } from "../model/recurring";
@@ -65,8 +72,10 @@ export function NotesPage({
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortMode>("manual");
-  /** 右列面板当前编辑哪一条；`null` 且 `creating` 为假时面板收起 */
+  /** 右列「只读详情」看的是哪一条（点一行进来的就是这个） */
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  /** 右列「编辑表单」改的是哪一条；`null` 表示没在改已有便签（新建看 `creating`） */
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [now, setNow] = useState(Date.now());
 
@@ -84,6 +93,7 @@ export function NotesPage({
     setQuery("");
     setTypeFilter(null);
     setCreating(false);
+    setEditingId(null);
     setSelectedId(focusNote.id);
   }, [focusNote, ctx.notes]);
 
@@ -113,6 +123,7 @@ export function NotesPage({
   const canDrag = sort === "manual";
 
   const selected = ctx.notes.find((n) => n.id === selectedId) ?? null;
+  const editing = ctx.notes.find((n) => n.id === editingId) ?? null;
 
   // 选中的那条被删掉 / 被筛掉时，面板跟着收起。
   // ⚠️ 区分「被筛掉」和「库里还没有」：首帧 notes 是空数组，那时不能判成删除。
@@ -122,19 +133,46 @@ export function NotesPage({
     if (!visible.some((n) => n.id === selectedId)) setSelectedId(null);
   }, [visible, selectedId, ctx.notes.length]);
 
+  // 正在编辑的那条被删掉（自己按删除也走这里）时退出编辑。
+  // 这里用**未筛选**的 ctx.notes：搜索把行筛掉了不等于这条没了，不该打断手上的编辑。
+  useEffect(() => {
+    if (editingId === null || ctx.notes.length === 0) return;
+    if (!ctx.notes.some((n) => n.id === editingId)) setEditingId(null);
+  }, [ctx.notes, editingId]);
+
+  /** 点一行 = 打开只读详情（仿课表：单击只选中，不直接进编辑） */
   const select = (note: NoteEntity) => {
     setCreating(false);
+    setEditingId(null);
     setSelectedId(note.id);
+  };
+
+  /** 进编辑：详情栏「编辑」、双击行、或行尾铅笔。编辑完退回这一条的详情 */
+  const startEdit = (note: NoteEntity) => {
+    setCreating(false);
+    setSelectedId(note.id);
+    setEditingId(note.id);
   };
 
   const startCreate = () => {
     setSelectedId(null);
+    setEditingId(null);
     setCreating(true);
   };
 
   const closePanel = () => {
     setCreating(false);
+    setEditingId(null);
     setSelectedId(null);
+  };
+
+  /**
+   * 编辑表单的「取消」：改已有便签 → 退回这一条的详情，而不是整块收起
+   * （收起会像「点错了跳转」）；新建没有详情可退，直接收起。
+   */
+  const cancelEdit = () => {
+    setCreating(false);
+    setEditingId(null);
   };
 
   const save = async (entity: NoteEntity, link: NoteLink) => {
@@ -143,8 +181,16 @@ export function NotesPage({
       const saved = await api.saveNote(entity);
       const noteId = saved?.id ?? entity.id;
       await ctx.saveNoteLinks(upsertLink(ctx.noteLinks, { ...link, noteId }));
+      // 新建后清掉搜索与分类筛选：否则刚存下的那条可能正好被筛掉，详情栏一闪就没了
+      if (creating) {
+        setQuery("");
+        setTypeFilter(null);
+      }
       await ctx.reloadNotes();
-      closePanel();
+      // 存完落回详情而不是收起：用户想立刻确认「存成什么样了」
+      setCreating(false);
+      setEditingId(null);
+      setSelectedId(noteId);
       ctx.toast("已保存");
     } catch (err) {
       ctx.toast(errorText(err), "error");
@@ -177,29 +223,56 @@ export function NotesPage({
   );
 
   const deadlineCount = ctx.notes.filter(hasDeadline).length;
-  const panelOpen = creating || selected !== null;
+
+  /**
+   * 右列三种内容互斥，共用同一列（`--dock-w` 决定宽度：详情 268 / 编辑 340）：
+   *   · 详情 —— 点一行只**看**，字段全只读（仿课表 `ClassDetailPanel`）；
+   *   · 编辑 —— 详情栏点「编辑」、双击行、或行尾铅笔才进来（仿课表双击进对话框）；
+   *   · 新建 —— 顶栏「新建便签」直接进编辑，没有详情可看。
+   */
+  type PanelTarget =
+    | { kind: "detail"; note: NoteEntity }
+    | { kind: "editor"; entity: NoteEntity; isNew: boolean };
+  const liveTarget: PanelTarget | null = creating
+    ? { kind: "editor", entity: { ...EMPTY_NOTE }, isNew: true }
+    : editing
+      ? { kind: "editor", entity: editing, isNew: false }
+      : selected
+        ? { kind: "detail", note: selected }
+        : null;
 
   /**
    * 面板的「退场保留」。
    *
-   * 关闭时 `creating` / `selectedId` **同一帧**就置空了，但面板还要再画 120ms。
+   * 关闭时三个 state **同一帧**就置空了，但面板还要再画一段退场动画。
    * 直接读当前值会让它先塌成空白再淡出（一帧白框），所以用 ref 记住最后一份
-   * 可渲染的内容与身份（key / isNew）。只在「当前值为空」时才回退到记忆值 ——
+   * 可渲染的内容与身份。只在「当前值为空」时才回退到记忆值 ——
    * 否则切到另一条便签时会先闪一帧上一条。
    *
    * 与 Compose 端 `RightPanelTransition` 的 `retained` 是同一个思路。
    */
-  const panelEntity = creating ? { ...EMPTY_NOTE } : selected;
-  const retainedEntity = useRef<NoteEntity | null>(null);
-  const retainedKey = useRef("creating");
-  const retainedIsNew = useRef(true);
-  if (panelEntity) {
-    retainedEntity.current = panelEntity;
-    retainedKey.current = creating ? "creating" : `edit-${panelEntity.id}`;
-    retainedIsNew.current = creating;
-  }
-  const panelPresence = usePresence(panelOpen);
-  const shownEntity = panelEntity ?? retainedEntity.current;
+  const retainedTarget = useRef<PanelTarget | null>(null);
+  if (liveTarget) retainedTarget.current = liveTarget;
+  const shownTarget = liveTarget ?? retainedTarget.current;
+  const panelOpen = liveTarget !== null;
+  const panelPresence = usePresence(panelOpen, 260);
+  /** 详情 268 / 编辑 340：右列宽度（外层 `--dock-w`，内层固定这么宽） */
+  const dockWidth = shownTarget?.kind === "editor" ? 340 : 268;
+  /** 抽屉真的在场上（退场期间不算）—— 只有这时两列之间才该留 12px 缝 */
+  const dockShowing = panelPresence.mounted && !panelPresence.leaving;
+
+  /**
+   * 展开动画只播一次。
+   *
+   * 右列宽度 0 → `--dock-w` 走关键帧 `note-dock-in`。换档（详情 268 ↔ 编辑 340）
+   * 时若还挂着这条动画，宽度会被关键帧的 `to` 钉住，transition 根本不跑；
+   * 所以首次展开一结束就切到 `.no-enter`（静态宽度 + transition），
+   * 之后换档才是平滑让出/收回那 72px。收起时随节点卸载一起复位。
+   */
+  const [dockEntered, setDockEntered] = useState(false);
+  useEffect(() => {
+    if (!panelPresence.mounted) setDockEntered(false);
+  }, [panelPresence.mounted]);
 
   return (
     <>
@@ -216,60 +289,65 @@ export function NotesPage({
         </button>
       </PageTopBar>
 
-      <div
-        className="page-content"
-        style={{ overflow: "hidden", display: "flex", gap: 16 }}
-      >
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          {/* ── 工具行 ──
-              原版把它放在卡片**外面**、表格上方，并用 Spacer 把排序按钮推到最右。
-              v1.7.11 之前这几件控件是塞在卡片顶部的，读起来像「表头的一部分」。 */}
-          <div className="notes-toolrow">
-            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-              <span
-                style={{
-                  position: "absolute",
-                  left: 8,
-                  color: "var(--on-surface-faint)",
-                  display: "flex",
-                }}
-              >
-                <IconSearch size={13} />
-              </span>
-              <input
-                className="input"
-                style={{ width: 260, paddingLeft: 28 }}
-                placeholder="搜索便签..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
-            <Select<string>
-              value={typeFilter === null ? ALL_TYPES : String(typeFilter)}
-              options={[
-                { value: ALL_TYPES, label: "分类：全部" },
-                ...NOTE_TYPES.map((t, i) => ({ t, i }))
-                  .filter(({ t }) => t.kind !== "none")
-                  .map(({ t, i }) => ({ value: String(i), label: `分类：${t.label}` })),
-              ]}
-              onChange={(v) => setTypeFilter(v === ALL_TYPES ? null : Number(v))}
-            />
-            <span style={{ flex: 1 }} />
-            {/* 排序在原版里是右对齐的一行文字按钮（不是下拉）：
-                「按截止时间排序」。手动排序是默认态，所以按钮文字表示「点下去做什么」。 */}
-            <button
-              className="notes-sort"
-              onClick={() => setSort((s) => (s === "deadline" ? "manual" : "deadline"))}
+      <div className="page-content" style={{ display: "flex", flexDirection: "column" }}>
+        {/* ── 工具行 ──
+            原版把它放在卡片**外面**、表格上方，并用 Spacer 把排序按钮推到最右。
+            v1.7.11 之前这几件控件是塞在卡片顶部的，读起来像「表头的一部分」。
+            v1.7.28：提到左右两列**之上**（与课表 `.week-toolbar` 同一层级）——
+            之前它在左列里面，右列第一张卡片就顶到页头上沿，两列顶线差 42px。 */}
+        <div className="notes-toolrow">
+          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <span
+              style={{
+                position: "absolute",
+                left: 8,
+                color: "var(--on-surface-faint)",
+                display: "flex",
+              }}
             >
-              {sort === "deadline" ? "按手动顺序" : "按截止时间排序"}
-            </button>
+              <IconSearch size={13} />
+            </span>
+            <input
+              className="input"
+              style={{ width: 260, paddingLeft: 28 }}
+              placeholder="搜索便签..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </div>
+          <Select<string>
+            value={typeFilter === null ? ALL_TYPES : String(typeFilter)}
+            options={[
+              { value: ALL_TYPES, label: "分类：全部" },
+              ...NOTE_TYPES.map((t, i) => ({ t, i }))
+                .filter(({ t }) => t.kind !== "none")
+                .map(({ t, i }) => ({ value: String(i), label: `分类：${t.label}` })),
+            ]}
+            onChange={(v) => setTypeFilter(v === ALL_TYPES ? null : Number(v))}
+          />
+          <span style={{ flex: 1 }} />
+          {/* 排序在原版里是右对齐的一行文字按钮（不是下拉）：
+              「按截止时间排序」。手动排序是默认态，所以按钮文字表示「点下去做什么」。 */}
+          <button
+            className="notes-sort"
+            onClick={() => setSort((s) => (s === "deadline" ? "manual" : "deadline"))}
+          >
+            {sort === "deadline" ? "按手动顺序" : "按截止时间排序"}
+          </button>
+        </div>
 
+        {/* 表格 + 右列并排。右列宽度从 0 撑到 `--dock-w`，`gap` 也交给 CSS 过渡，
+            所以收放时左侧表格是**连续**变宽变窄的（与课表 `.week-split` 同一套抽屉）。 */}
+        <div
+          className={`note-split${dockShowing ? " has-panel" : ""}`}
+          style={{ flex: 1, minHeight: 0, display: "flex" }}
+        >
           {/* ── 表格卡片 ── */}
           <div
             className="card"
             style={{
               flex: 1,
+              minWidth: 0,
               minHeight: 0,
               display: "flex",
               flexDirection: "column",
@@ -284,30 +362,60 @@ export function NotesPage({
               canDrag={canDrag}
               selectedId={creating ? null : selectedId}
               onSelect={select}
-              onEdit={select}
+              onEdit={startEdit}
               onDelete={remove}
               onReorder={commitOrder}
             />
           </div>
-        </div>
 
-        {/* ── 右侧编辑面板 ──
-            和原版一样宽 340、与表格间隔 16。收起时**整块不渲染**（不是 display:none）：
-            这样面板里的输入状态不会在后台偷偷留着，下次选中新条目时不会看到上一条的残留。 */}
-        {panelPresence.mounted && shownEntity ? (
-          <NoteEditorPanel
-            key={retainedKey.current}
-            leaving={panelPresence.leaving}
-            entity={shownEntity}
-            isNew={panelEntity ? creating : retainedIsNew.current}
-            link={linkOf(ctx.noteLinks, shownEntity.id)}
-            classes={ctx.classes}
-            rules={ctx.recurring}
-            onSave={save}
-            onDelete={remove}
-            onCancel={closePanel}
-          />
-        ) : null}
+          {/* ── 右列：详情 / 编辑 ──
+              同一列、同一块 DOM：外层 `.note-dock` 只管宽度（`--dock-w`，从 0 撑开），
+              内层固定宽、超出裁掉，所以详情 ↔ 编辑换档只是旁边表格让出 72px。
+              收起时**整块不渲染**（不是 display:none）：这样输入状态不会在后台偷偷留着，
+              下次选中新条目时不会看到上一条的残留。 */}
+          {panelPresence.mounted && shownTarget ? (
+            <div
+              className={`note-dock${dockEntered && !panelPresence.leaving ? " no-enter" : ""}${
+                panelPresence.leaving ? " leaving" : ""
+              }`}
+              style={{ "--dock-w": `${dockWidth}px` } as React.CSSProperties}
+              onAnimationEnd={(e) => {
+                // 只认外层自己的展开动画：内层卡片的 enter-fade 会冒泡上来
+                if (e.target === e.currentTarget && !panelPresence.leaving) {
+                  setDockEntered(true);
+                }
+              }}
+            >
+              <div className="note-dock-inner">
+                {shownTarget.kind === "detail" ? (
+                  <NoteDetailPanel
+                    key={`detail-${shownTarget.note.id}`}
+                    note={shownTarget.note}
+                    link={linkOf(ctx.noteLinks, shownTarget.note.id)}
+                    classes={ctx.classes}
+                    rules={ctx.recurring}
+                    now={now}
+                    onEdit={() => startEdit(shownTarget.note)}
+                    onDelete={() => remove(shownTarget.note.id)}
+                    onClose={closePanel}
+                  />
+                ) : (
+                  <NoteEditorPanel
+                    key={shownTarget.isNew ? "creating" : `edit-${shownTarget.entity.id}`}
+                    entity={shownTarget.entity}
+                    isNew={shownTarget.isNew}
+                    link={linkOf(ctx.noteLinks, shownTarget.entity.id)}
+                    classes={ctx.classes}
+                    rules={ctx.recurring}
+                    onSave={save}
+                    onDelete={remove}
+                    onCancel={cancelEdit}
+                  />
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </>
   );
@@ -503,6 +611,7 @@ function NoteList({
             <div
               className={`note-row${sel ? " on" : ""}`}
               onClick={() => onSelect(note)}
+              onDoubleClick={() => onEdit(note)}
               style={{
                 display: "flex",
                 alignItems: "stretch",
@@ -647,18 +756,149 @@ function NoteList({
 }
 
 /**
+ * 右侧只读详情（v1.7.28）—— 仿课表页 `ClassDetailPanel` 那副骨架：
+ * 一张身份卡（色条 + 关闭 + 标题 + 字段表 + 编辑/删除），正文另起一张卡。
+ *
+ * 为什么要它：以前点一行直接就是十五个输入框，「看一眼这条写了什么」也得先面对表单，
+ * 手一抖碰到输入框就改了草稿。详情是**读**，编辑是**写**，分开之后点错也不会改到东西。
+ */
+function NoteDetailPanel({
+  note,
+  link,
+  classes,
+  rules,
+  now,
+  onEdit,
+  onDelete,
+  onClose,
+}: {
+  note: NoteEntity;
+  /** 这一条现在关联的课程 / 循环提醒（没有就是 0 / 空串） */
+  link: NoteLink;
+  classes: ClassEntity[];
+  rules: RecurringItem[];
+  now: number;
+  onEdit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const color = `var(--note-${((note.colorIndex % 8) + 8) % 8})`;
+  const cls = classes.find((c) => c.id === link.classId) ?? null;
+  const rule = rules.find((r) => r.id === link.ruleId) ?? null;
+  const deadline = hasDeadline(note)
+    ? `${deadlineTimeLabel(note.deadlineAt, now)} · ${deadlineCountdown(note.deadlineAt, now)}`
+    : "—";
+
+  return (
+    <div className="enter-fade" style={{ width: "100%" }}>
+      <div className="card" style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {/* 便签色条：与表格行首那条是同一个色号，指认的就是同一条便签 */}
+          <span aria-hidden style={{ width: 4, height: 30, borderRadius: 2, background: color }} />
+          <button
+            className="icon-btn"
+            style={{ marginLeft: "auto", width: 24, height: 24 }}
+            title="取消选中"
+            onClick={onClose}
+          >
+            <IconClose size={12} />
+          </button>
+        </div>
+
+        <div style={{ fontSize: 16, fontWeight: 600, marginTop: 10, color: "var(--on-surface)" }}>
+          {note.title || "（无标题）"}
+        </div>
+        <div style={{ fontSize: 12.5, marginTop: 4, color: "var(--on-surface-variant)" }}>
+          {typeLabel(note) || "未分类"}
+        </div>
+
+        <dl style={{ margin: "12px 0 0" }}>
+          <NoteDetailRow
+            label="截止"
+            value={deadline}
+            danger={hasDeadline(note) && note.deadlineAt < now}
+          />
+          <NoteDetailRow label="创建" value={dateLabel(note.createdAt)} />
+          <NoteDetailRow label="课程" value={cls?.title || "—"} />
+          <NoteDetailRow label="提醒" value={rule?.title || "—"} />
+        </dl>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button className="btn primary" onClick={onEdit}>
+            <IconEdit size={13} /> 编辑
+          </button>
+          <button className="btn danger" onClick={onDelete}>
+            <IconTrash size={13} /> 删除
+          </button>
+        </div>
+      </div>
+
+      {note.content.trim() ? (
+        <div className="card" style={{ padding: 16 }}>
+          <div className="detail-section-label">内容</div>
+          <div
+            style={{
+              fontSize: 12.5,
+              marginTop: 8,
+              color: "var(--on-surface)",
+              lineHeight: 1.65,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {note.content}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="card" style={{ padding: 16 }}>
+        <div className="detail-section-label">操作提示</div>
+        <div style={{ fontSize: 12, marginTop: 6, color: "var(--on-surface-variant)", lineHeight: 1.6 }}>
+          单击便签查看详情，双击直接编辑。
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 详情里的一行「标签 : 值」（与课表页 `DetailRow` 同一套样式类，但那边没导出） */
+function NoteDetailRow({
+  label,
+  value,
+  danger,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className="detail-row">
+      <dt>{label}</dt>
+      <dd style={danger ? { color: "var(--error)" } : undefined}>{value}</dd>
+    </div>
+  );
+}
+
+/** epoch ms → `2026/11/16`（详情里的「创建」用，不显示时分） */
+function dateLabel(millis: number): string {
+  if (!millis) return "—";
+  const d = new Date(millis);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
+}
+
+/**
  * 右侧编辑面板（原版 `NoteEditorPanel`）。
  *
  * 三个约束是踩出来的，别改回去：
  * - 表单区**必须可滚**。选「Deadline」+「自定义」时字段从 4 组涨到 6 组，
  *   600dp 高的窗口装不下，溢出后保存按钮会被挤出可视区（点不到）。
  * - 所以按钮固定贴在底部，不能靠 `flex` 把 spacer 撑开 —— 内容一长 spacer 先归零。
- * - 宽度固定 340，与表格之间靠父级 16px gap 分隔，面板自己不画背景（原版也是裸列）。
+ * - 宽度由父级 `.note-dock` 给（340），面板自己不画背景（原版也是裸列）。
  */
 function NoteEditorPanel({
   entity,
   isNew,
-  leaving,
   link,
   classes,
   rules,
@@ -668,13 +908,13 @@ function NoteEditorPanel({
 }: {
   entity: NoteEntity;
   isNew: boolean;
-  leaving?: boolean;
   /** 这一条现在关联的课程 / 循环提醒（没有就是 0 / 空串） */
   link: NoteLink;
   classes: ClassEntity[];
   rules: RecurringItem[];
   onSave: (n: NoteEntity, link: NoteLink) => void;
   onDelete: (id: number) => void;
+  /** 取消 = 退回详情（新建时 = 收起整个右列） */
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<NoteEntity>(entity);
@@ -700,12 +940,27 @@ function NoteEditorPanel({
   };
 
   return (
-    <div className={`note-panel${leaving ? " leaving" : ""}`}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--on-surface)", paddingBottom: 14 }}>
-        {isNew ? "新建便签" : "编辑便签"}
+    <div
+      className="enter-fade"
+      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", width: "100%" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", paddingBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--on-surface)" }}>
+          {isNew ? "新建便签" : "编辑便签"}
+        </div>
+        <span style={{ flex: 1 }} />
+        {/* 表单里已经有「取消」，这里再给一个 X：详情栏是这么关的，编辑栏不该只有一种关法 */}
+        <button
+          className="icon-btn"
+          style={{ width: 24, height: 24 }}
+          title={isNew ? "放弃新建" : "返回详情"}
+          onClick={onCancel}
+        >
+          <IconClose size={12} />
+        </button>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }} className="note-panel-body">
+      <div className="note-editor-body" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         <PanelLabel>标题</PanelLabel>
         <input
           className="input"

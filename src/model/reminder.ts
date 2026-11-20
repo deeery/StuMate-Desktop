@@ -13,7 +13,7 @@
  *   3. 都没有 → 只更新状态文案，不提醒
  */
 
-import type { ClassEntity } from "./types";
+import type { ClassEntity, ReminderMode } from "./types";
 import {
   ongoingAt,
   remaining,
@@ -26,6 +26,27 @@ import {
 export interface ReminderStatus {
   title: string;
   detail: string;
+}
+
+/**
+ * 当前该用哪种方式呈现提醒。
+ *
+ * 三档之外还兜一层：`reminderMode` 是 v1.7.28 新增的键，旧设置文件里没有，
+ * 磁盘上也可能是被人手改过的字符串/越界数字。这里**永远给出一个合法值**，
+ * 免得 `useReminder` 里出现「三档都不匹配 → 一声不响」的静默失效。
+ *
+ * 迁移口径：没有 `reminderMode` 的老用户，按原来的 `showPopup` 解释
+ * —— 开着就是全局浮窗，关掉就是不弹。这保证升级前后观感一致。
+ */
+export function reminderModeOf(prefs: {
+  reminderMode?: unknown;
+  showPopup?: unknown;
+} | null | undefined): ReminderMode {
+  const raw = prefs?.reminderMode;
+  if (raw === 0 || raw === 1 || raw === 2) return raw;
+  // 字符串数字也认（手改 settings.lite.json 时很常见）
+  if (raw === "0" || raw === "1" || raw === "2") return Number(raw) as ReminderMode;
+  return prefs?.showPopup === false ? 2 : 0;
 }
 
 export interface ReminderAlert {

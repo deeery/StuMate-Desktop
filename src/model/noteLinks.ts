@@ -40,6 +40,31 @@ export function notesOfClass(notes: NoteEntity[], links: NoteLink[], classId: nu
   return notes.filter((n) => ids.has(n.id));
 }
 
+/**
+ * 反查的批量版：一次给「每门课挂着哪些便签」，供课表网格逐块画色点。
+ *
+ * 逐块调 `notesOfClass` 是「课数 × 关联数」的二重扫描，一周几十个块时会白烧
+ * 一遍遍历；这里扫一次关联、扫一次便签就够，结果仍按**便签原顺序**排。
+ */
+export function notesByClass(
+  notes: NoteEntity[],
+  links: NoteLink[],
+): Map<number, NoteEntity[]> {
+  const classOf = new Map<number, number>();
+  for (const l of links) {
+    if (l.classId) classOf.set(l.noteId, l.classId);
+  }
+  const out = new Map<number, NoteEntity[]>();
+  for (const n of notes) {
+    const classId = classOf.get(n.id);
+    if (!classId) continue;
+    const bucket = out.get(classId);
+    if (bucket) bucket.push(n);
+    else out.set(classId, [n]);
+  }
+  return out;
+}
+
 /** 某条循环提醒规则挂着的便签 */
 export function notesOfRule(notes: NoteEntity[], links: NoteLink[], ruleId: string): NoteEntity[] {
   if (!ruleId) return [];

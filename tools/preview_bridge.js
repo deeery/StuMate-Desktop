@@ -128,6 +128,30 @@
       updatedAt: now - 7200000,
       deletedAt: 0,
     },
+    {
+      id: 3,
+      title: "运筹学期中复习提纲",
+      content:
+        "线性规划：单纯形表要会自己排一遍\n对偶问题：强弱对偶定理的证明思路\n运输问题：表上作业法，先找初始基可行解再判最优\n\n老师课上强调过，第三章的对偶理论是重点，简答题必考。",
+      position: 2,
+      createdAt: now - 259200000,
+      colorIndex: 6,
+      typeIndex: 3, // 学习
+      customLabel: "",
+      deadlineAt: 0,
+      uid: "note-3",
+      updatedAt: now - 86400000,
+      deletedAt: 0,
+    },
+  ];
+
+  // 便签 ↔ 课程关联（note_links.json 的假数据）。
+  // 挑「运筹学」（周四）挂两条、「大数据基础」（周二）挂一条 —— 课表块右下角的
+  // 色点才有得看，详情栏里展开也有长正文可读。一条便签最多挂一门课，别写成两条。
+  var noteLinks = [
+    { noteId: 1, classId: 11, ruleId: "" },
+    { noteId: 3, classId: 11, ruleId: "" },
+    { noteId: 2, classId: 5, ruleId: "" },
   ];
 
   var knowledge = [
@@ -166,6 +190,7 @@
   if (params.get("empty")) {
     classes = [];
     notes = [];
+    noteLinks = [];
     knowledge = [];
     vaultScan = [];
   }
@@ -175,13 +200,25 @@
     autoStart: false,
     showPopup: true,
     firstRun: false,
-    themeMode: theme === "dark" ? 2 : 1,
+    // 明暗：?theme=dark 决定基础色，?themeMode=3|4 可以让它走「主题色（亮/暗）」，
+    // 这样「掺色方案」不用真去点设置页也能截。
+    themeMode: params.get("themeMode")
+      ? Number(params.get("themeMode"))
+      : theme === "dark"
+        ? 2
+        : 1,
+    // 主题色：?accent=teal 就能截「换色之后」的样子，不用真去点设置页
+    accent: params.get("accent") || "blue",
     // 第 1 周的周一：截图里的 2026/09/28
     week1Monday: new Date(2026, 8, 28).getTime(),
     weekGrid: true,
     sidebarCollapsed: false,
     closeAction: 1,
     notifyEnabled: true,
+    // 提醒方式：0 全局浮窗 / 1 窗口内横幅 / 2 不提醒。
+    // 用 ?mode=N 切，截图脚本才能分别验三档；缺省 1（窗口内），
+    // 因为设置页「预览提醒」按钮在纯前端里只有这一档看得见效果。
+    reminderMode: params.get("mode") == null ? 1 : Number(params.get("mode")),
     autoCheckUpdate: true,
     notifyUpdate: true,
     vaultRoot: VAULT_BASE,
@@ -189,7 +226,7 @@
   };
 
   var APP_INFO = {
-    version: "1.7.27",
+    version: "1.7.28",
     flavor: "lite",
     dataDir: "C:\\Users\\Administrator\\AppData\\Roaming\\StuMate",
     dbPath: "C:\\Users\\Administrator\\AppData\\Roaming\\StuMate\\class_reminder.db",
@@ -232,6 +269,13 @@
       case "note_save":
         return saveAck(arguments[1] && arguments[1].entity);
       case "notes_reorder":
+        return null;
+      // 便签 ↔ 课程 / 循环提醒关联（v1.7.28）。存不下盘，但返回值要是改完之后的那份，
+      // 否则在预览里「挂上便签」点保存会看起来没反应。
+      case "note_links_load":
+        return { version: 1, links: noteLinks };
+      case "note_links_save":
+        noteLinks = (arguments[1] && arguments[1].links) || [];
         return null;
       case "knowledge_list":
         return knowledge;

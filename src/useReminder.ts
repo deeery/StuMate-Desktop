@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { api, onRecurringSkip } from "./api";
-import { decideReminder, type ReminderAlert } from "./model/reminder";
+import { decideReminder, reminderModeOf, type ReminderAlert } from "./model/reminder";
 import {
   planRecurring,
   recurringAlert,
@@ -50,6 +50,8 @@ export function useReminder(
   toast: (text: string, tone?: "info" | "error") => void,
   recurring: RecurringItem[],
   saveRecurring: (items: RecurringItem[]) => Promise<void>,
+  /** 「窗口内提醒」模式下把这一条交给 App 的横幅（`reminderMode === 1`） */
+  showBanner: (alert: ReminderAlert) => void,
 ) {
   const lastShownId = useRef<number | null>(null);
   const lastCheckAt = useRef(0);
@@ -110,15 +112,22 @@ export function useReminder(
     [commit],
   );
 
-  /** 三通道呈现：置顶卡片 + 系统通知（托盘状态由调用方单独更新） */
+  /** 三通道呈现：浮窗（看 `reminderMode` 决定全局 / 窗口内）+ 系统通知
+   *（托盘状态由调用方单独更新） */
   const present = useCallback(
     async (alert: ReminderAlert, title: string, body: string, p: Prefs) => {
-      if (p.showPopup) {
+      // 0 全局浮窗 / 1 主窗口内横幅 / 2 不弹。三档互斥 —— 同一时刻只该有一种
+      // 「看得见的提醒」，否则用户会看到两张卡片讲同一件事。
+      const mode = reminderModeOf(p);
+      if (mode === 0) {
         try {
           await api.overlayShow(alert);
         } catch (err) {
           toast(`提醒窗口打不开：${String(err)}`, "error");
         }
+      } else if (mode === 1) {
+        // 窗口内横幅由 App 渲染；这里只把「这一条」交上去
+        showBanner(alert);
       }
 
       // 卡片那边 Rust 已经挡了全屏，但通知是这里发的：不挡的话游戏里
@@ -131,7 +140,7 @@ export function useReminder(
         void notifySystem(title, body);
       }
     },
-    [toast],
+    [toast, showBanner],
   );
 
   const check = useCallback(

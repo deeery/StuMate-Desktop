@@ -241,6 +241,20 @@ button {
   text-align: center;
 }
 
+/* v1.7.28 实验性标记：知识库默认藏在设置里，挂出来时得让它自己说出来。
+ * 比条数徽标更轻（10px、无实底），用 warning 色而不是 accent —— 这是提醒
+ * 「可能还会变」，不是当前页的状态。 */
+.nav-tag {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--warning-tint);
+  color: var(--warning);
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+}
+
 /* 选中项左侧的强调条：Fluent 的 NavigationView 就是这个形态 */
 .nav-item.active::before {
   content: "";
@@ -273,6 +287,16 @@ button {
   margin: 0;
   padding: 0;
   border: 0;
+  opacity: 0;
+}
+
+/* 收起态连「实验」一起收掉：48px 宽的栏里只剩图标能用，
+ * 多留两个字会把图标挤到左边、文字露出半截。 */
+.sidebar.rail .nav-tag {
+  max-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
   opacity: 0;
 }
 
@@ -551,6 +575,14 @@ textarea.input {
   font-weight: 600;
 }
 
+/* 对话框自己是 tabIndex=-1 的「焦点容器」（打开时把焦点放进来接 Esc），
+ * 不是一个可操作控件。全局 button/a/[tabindex]:focus-visible 的强调外环
+ * 套在整扇窗口上毫无意义，v1.7.28 起显式关掉 —— 焦点该落在里面的输入框上。 */
+.dialog:focus,
+.dialog:focus-visible {
+  outline: none;
+}
+
 .dialog .dialog-sub {
   color: var(--on-surface-faint);
   font-size: var(--fs-caption);
@@ -747,17 +779,69 @@ textarea.input {
   opacity: 1;
 }
 
-/* 右侧编辑面板（原版 340dp 裸列，不画背景）。
- * 入场只动 opacity + translateX —— 宽度/边距动画会让整张表格每帧重排。 */
-.note-panel {
-  width: 340px;
-  flex: 0 0 340px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  animation: notePanelIn var(--dur-enter) var(--ease-decel) backwards;
+/* ── 便签页右列：详情 268 / 编辑 340（v1.7.28）──────────────────────
+ * 与课表页同一套「宽度抽屉」（长注释见文件后面的 `.week-detail` 那段）：
+ *   · `.note-split` 只过渡 gap；右列宽度从 0 撑到 `--dock-w`，左侧表格因此是
+ *     **连续**变窄/变宽，不会「啪」地跳掉一两百像素；
+ *   · 内容包一层固定宽的 `.note-dock-inner` 让外层裁切 —— 宽度动画期间卡片
+ *     不重排，视觉上是「从右往里推开」，标题不会一行行跳字；
+ *   · 面板已展开时只是换档（详情 268 ↔ 编辑 340）：`.no-enter` 关掉展开动画，
+ *     宽度交给 transition，表格平滑让出/收回那 72px。
+ * 回滚 = 删掉本段的宽度动画 + 还原 NotesPage 里的 `.no-enter` 标记。 */
+.note-split {
+  gap: 0;
+  transition: gap var(--dur-panel) var(--ease-panel);
 }
 
+.note-split.has-panel {
+  gap: 12px;
+}
+
+/* 外层只管宽度：0 → `--dock-w`，并裁掉溢出的固定宽内容 */
+.note-dock {
+  width: 0;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: width var(--dur-panel) var(--ease-panel);
+  animation: note-dock-in var(--dur-panel) var(--ease-panel) both;
+}
+
+/* 已经展开、只是换档：直接落在终态，不重播展开（否则每点一次「编辑」，
+ * 左边表格都会重新缩一圈）。静态宽度是 0，所以 width 必须显式写。 */
+.note-dock.no-enter {
+  animation: none;
+  width: var(--dock-w, 268px);
+}
+
+/* 固定宽内容：宽度动画期间它一动不动，只是被外层裁切 */
+.note-dock-inner {
+  width: var(--dock-w, 268px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* 滚动条贴着圆角边会被裁掉，留 2px（与课表详情面板同一处理） */
+  padding-right: 2px;
+}
+
+@keyframes note-dock-in {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+  to {
+    width: var(--dock-w, 268px);
+    opacity: 1;
+  }
+}
+
+/* 课表详情面板与对话框的淡入曲线（只动 opacity + translateX）。两个右侧面板
+ * 共用这一条，看起来才是一套东西。 */
 @keyframes notePanelIn {
   from {
     opacity: 0;
@@ -770,7 +854,7 @@ textarea.input {
 }
 
 /* 面板里的滚动条不要顶到内容边缘：贴边会显得正文被裁掉一截 */
-.note-panel-body {
+.note-editor-body {
   padding-right: 4px;
 }
 
@@ -1560,6 +1644,10 @@ select.input:hover {
   color: var(--accent);
 }
 
+/* 已上完的课整行降一档到 faint —— 含时间列（v1.7.28 补）。
+ * 之前只压了标题/教室/教师，时间仍留在正文色，一行里还剩一个"亮"的锚点，
+ * 扫视时会先读到已经过去的那格时间，反倒把「进行中」的那节压下去。 */
+.today-row.done .today-time,
 .today-row.done .today-title,
 .today-row.done .today-room,
 .today-row.done .today-teacher {
@@ -1584,7 +1672,7 @@ select.input:hover {
 /* ── 课表右侧详情面板（原版 ClassDetailPanel，268dp 裸列）──────────────
  * 宽度是瞬时的，不做抽屉拉开：每帧改宽度会让课表网格重新布局，
  * 课程块的 top/height 过渡跟着抖。入场只动 opacity + translateX。
- * 复用 .note-panel 的入场曲线，两个右侧面板看起来才是一套东西。 */
+ * 复用 .note-dock 的入场曲线，两个右侧面板看起来才是一套东西。 */
 .week-detail {
   width: 268px;
   flex: 0 0 268px;
@@ -1687,10 +1775,28 @@ select.input:hover {
 }
 
 /* ── 右列面板退场 ────────────────────────────────────────────────
- * 入场沿用原来的 notePanelIn（只动 opacity + translateX），退场是新补的：
- * 之前 `{panelOpen ? <Panel/> : null}` 在关闭的那一帧就把节点摘掉，
- * 面板是「噗」地消失的。`usePresence` 把卸载推迟 --dur-exit。 */
-.note-panel.leaving,
+ * 入场见 `.note-dock.in`（便签，宽度抽屉）与 `notePanelIn`（课表，只淡入）；
+ * 退场是新补的：之前 `{panelOpen ? <Panel/> : null}` 在关闭的那一帧就把节点
+ * 摘掉，面板是「噗」地消失的。`usePresence` 把卸载推迟 --dur-exit。
+ * 便签的退场连宽度一起收回 0，表格同步变宽 —— 与入场对称。 */
+.note-dock.leaving {
+  animation: note-dock-out var(--dur-exit) var(--ease-accel) forwards;
+  pointer-events: none;
+}
+
+/* from 必须显式写 —— 元素的静态 width 是 0，只写 to 的话隐式起点也取 0，
+ * 整条动画等于没动（宽度从 268 一帧掉到 0）。 */
+@keyframes note-dock-out {
+  from {
+    width: var(--dock-w, 268px);
+    opacity: 1;
+  }
+  to {
+    width: 0;
+    opacity: 0;
+  }
+}
+
 .week-detail.leaving {
   animation: panel-out var(--dur-exit) var(--ease-accel) forwards;
   pointer-events: none;
@@ -1808,6 +1914,7 @@ html.theme-switching *::after {
 .brand-row .brand-tag,
 .brand-row .brand-version,
 .nav-label,
+.nav-tag,
 .nav-badge,
 .sidebar-foot > span:not(.status-dot) {
   overflow: hidden;
@@ -3000,7 +3107,9 @@ html.theme-switching *::after {
 
 @media (prefers-reduced-motion: reduce) {
   .week-split,
-  .week-detail {
+  .week-detail,
+  .note-split,
+  .note-dock {
     transition: none;
     animation-duration: 1ms;
   }
@@ -3130,5 +3239,354 @@ html.theme-switching *::after {
 
 /* 浮层里「这一次已经过去」比倒计时弱一档 —— 它是个状态说明，不是催促 */
 .rec-fire-tip-due.is-past {
+  color: var(--on-surface-faint);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   提醒的两处「从上面下来」（v1.7.28）
+
+   动效分工刻意分成两边，因为它们动的不是同一个东西：
+
+   · 全局提醒：整张卡片是**另一个不透明的窗口**，在窗口内部平移只会把内容
+     移出窗口、露出窗底色。所以位移只能由 Rust 侧挪窗口本身完成
+     （`overlay.rs` 的 `slide`），这里只补一层极轻的淡入，用来盖住
+     窗口被高频挪动时 WebView2 可能出现的重绘延迟。
+
+   · 窗口内提醒：横幅就是普通的 DOM 节点，直接给它一条关键帧。
+     落地前有 4px 的过冲再回正 —— 这点回弹是「有分量」的来源，
+     没有它看着像一次生硬的显示切换。
+   ───────────────────────────────────────────────────────────────── */
+
+@keyframes overlay-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 退场只做淡出：位移由窗口负责，内容再动就会跟窗口抢镜头 */
+@keyframes overlay-card-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.overlay-card {
+  animation: overlay-card-in 260ms var(--ease-decel) both;
+}
+
+.overlay-card.leaving {
+  animation: overlay-card-out 180ms var(--ease-accel) both;
+}
+
+/* 入场：从窗口上沿外整条滑下（-100% - 16px 保证完全看不见），
+   落到 4px 过冲再回正。420ms 比浮窗的 380ms 略长 —— 横幅面积大，
+   同样的时长会显得更急。 */
+@keyframes reminder-drop {
+  0% {
+    transform: translateY(calc(-100% - 16px));
+    opacity: 0;
+  }
+  62% {
+    transform: translateY(4px);
+    opacity: 1;
+  }
+  82% {
+    transform: translateY(-1px);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 退场沿原路收回：比入场快一半，用户已经知道发生了什么，不必再看一遍 */
+@keyframes reminder-lift {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(calc(-100% - 16px));
+    opacity: 0;
+  }
+}
+
+/* 自动消失进度：从满格缩到 0，与 JS 里那 14 秒同源 */
+@keyframes reminder-timer {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.reminder-banner {
+  position: fixed;
+  top: 10px;
+  /* 居中不用 translateX：位移全部留给入场动画，两者抢同一个 transform
+     会互相覆盖（横幅会跳到窗口左边去） */
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: min(560px, calc(100vw - 32px));
+  /* 压在页面之上、Toast 之下：提示条不该盖住用户正要点的按钮 */
+  z-index: 85;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  background-image: linear-gradient(180deg, var(--accent-tint), transparent 58%);
+  box-shadow: var(--shadow-flyout);
+  color: var(--on-surface);
+  font-family: var(--font-ui);
+  overflow: hidden;
+  animation: reminder-drop 420ms var(--ease-decel) both;
+  will-change: transform, opacity;
+}
+
+.reminder-banner.leaving {
+  animation: reminder-lift 180ms var(--ease-accel) both;
+}
+
+.reminder-banner-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px 12px;
+}
+
+.reminder-banner-mark {
+  flex: 0 0 30px;
+  margin-top: 1px;
+}
+
+.reminder-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.reminder-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reminder-banner-phase {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--accent);
+}
+
+/* 倒计时靠右：同一行里它是最次要的信息，不该跟「正在上课」抢位置 */
+.reminder-banner-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.reminder-banner-title {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reminder-banner-sub {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reminder-banner-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+  padding-top: 2px;
+}
+
+.reminder-banner-timer {
+  height: 3px;
+  background: var(--surface3);
+}
+
+.reminder-banner-timer-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  animation-name: reminder-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+/* ── v1.7.28 · 收工态 / 关联便签 ─────────────────────────────────
+ * 三样东西：今日主卡收工后的绿底、课表块右下角的便签色点、
+ * 详情栏里点一条关联便签就地展开。
+ *
+ * 回滚：删掉本段（末尾到文件尾），并把 `TodayPage` 的 `is-done` 类、
+ * `WeekPage` 的三处 `.block-note-dots` / `LinkedNotesCard` 的
+ * `linked-note-body` 结构撤掉即可；不涉及任何令牌重命名。
+ */
+
+/* 收工态：只染主卡，页面底色不动（整页铺绿会把右列两张卡压得浮不起来）。
+ * 只过渡 background-color —— 用 background 简写会让渐变/图片也进过渡，
+ * 而那些在 CSS 变量之间不可插值，切换主题时会硬切。 */
+.today-hero {
+  transition:
+    background-color 360ms var(--ease-decel),
+    border-color 360ms var(--ease-decel);
+}
+
+/* 课表块右下角的便签色点：**竖着**排（列尾对齐，从下往上长），
+ * 一个 100px 高的块能码 6 个，横排只放得下 3~4 个。
+ * 点本身不描边（用户口径）：便签色本来就够饱和，加环反而让 5px 的点显小。 */
+.block-note-dots {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+}
+.block-note-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.block-note-more {
+  font: 9px/1 var(--font-mono);
+  color: var(--on-surface-faint);
+}
+
+/* 列表视图：色点跟着课名，不占行尾的教室/教师列 */
+.list-note-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-left: -4px;
+}
+
+/* 关联便签的展开行 ──────────────────────────────────────────────
+ * 高度用 grid-template-rows 0fr→1fr 过渡，不去量也不写死 px：
+ * 正文长短不一，动画高度得跟着内容走，max-height 猜错就会截断或留白。 */
+.linked-note-item > .linked-note {
+  align-items: center;
+}
+.linked-note-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.linked-note-caret {
+  flex: 0 0 auto;
+  color: var(--on-surface-faint);
+  transition: transform var(--dur-enter) var(--ease-decel);
+}
+.linked-note-item.is-open > .linked-note {
+  background: var(--surface2);
+}
+.linked-note-item.is-open .linked-note-caret {
+  transform: rotate(180deg);
+}
+/* 展开时标题允许折行：268px 的栏里长标题一律被省略号截掉，
+ * 而「这条到底是哪一条」正是点开时要确认的第一件事。 */
+.linked-note-item.is-open .linked-note-title {
+  white-space: normal;
+  overflow: visible;
+}
+.linked-note-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--dur-enter) var(--ease-decel),
+    opacity 140ms var(--ease-decel);
+}
+.linked-note-item.is-open .linked-note-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+/* 内层必须 min-height:0 + overflow:hidden，否则 0fr 也能被内容撑开 */
+.linked-note-body > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.linked-note-inner {
+  padding: 2px 8px 8px 22px;
+}
+.linked-note-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.linked-note-text {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--on-surface-variant);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 150px;
+  overflow: auto;
+}
+.linked-note-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* 主题色色块（设置 → 外观）。24px 圆点，选中态用一圈「表面色 + 文字色」的双环
+ * 而不是纯描边 —— 色块本身就是颜色，直接压一条同色描边会看不见。 */
+.accent-swatches {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.accent-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  padding: 0;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--on-surface) 12%, transparent);
+  transition:
+    transform 120ms var(--ease-decel),
+    box-shadow 120ms var(--ease-decel);
+}
+.accent-swatch:hover {
+  transform: scale(1.1);
+}
+/* 选中：外面 2px 底色留缝 + 1.5px 文字色环。留缝是必须的 ——
+ * 不然深色主题下环和色块糊在一起，看不出哪个被选中。 */
+.accent-swatch.is-active {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3.5px var(--on-surface-variant);
+}
+.accent-swatch-label {
+  margin-left: 2px;
+  font-size: 12px;
   color: var(--on-surface-faint);
 }

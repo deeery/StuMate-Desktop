@@ -586,7 +586,7 @@ export function KnowledgePage({
   if (!base) {
     return (
       <>
-        <PageTopBar title="知识库" subtitle="还没选库目录" />
+        <PageTopBar title="知识库" tag="实验性" subtitle="还没选库目录" />
         <div className="page-content">
           <div className="card kb-setup">
             <h3>选一个目录当作知识库</h3>
@@ -636,7 +636,7 @@ export function KnowledgePage({
 
   return (
     <>
-      <PageTopBar title="知识库" subtitle={`${notes.length} 篇`}>
+      <PageTopBar title="知识库" tag="实验性" subtitle={`${notes.length} 篇`}>
         <div className="kb-view-switch" role="group" aria-label="知识库视图">
           <button
             className={`kb-view-btn${viewMode === "tree" ? " on" : ""}`}

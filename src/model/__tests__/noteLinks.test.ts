@@ -4,6 +4,7 @@ import {
   dropNoteLink,
   emptyLink,
   linkOf,
+  notesByClass,
   notesOfClass,
   notesOfRule,
   upsertLink,
@@ -73,5 +74,19 @@ describe("便签关联 · 反查", () => {
   it("id 为空时返回空数组（别把所有便签都倒出来）", () => {
     expect(notesOfClass(notes, links, 0)).toEqual([]);
     expect(notesOfRule(notes, links, "")).toEqual([]);
+  });
+
+  it("批量反查与单门反查结果一致，且保持便签原顺序", () => {
+    const byClass = notesByClass(notes, links);
+    expect([...byClass.keys()].sort()).toEqual([3]);
+    expect(byClass.get(3)?.map((n) => n.id)).toEqual([1, 2]);
+    // 只挂规则、没挂课的便签不该出现在任何课程桶里
+    expect(byClass.get(0)).toBeUndefined();
+    expect(notesOfClass(notes, links, 99)).toEqual([]);
+  });
+
+  it("关联指向已被删掉的便签时静默跳过", () => {
+    const ghosts: NoteLink[] = [{ noteId: 42, classId: 3, ruleId: "" }];
+    expect(notesByClass(notes, ghosts).get(3)).toBeUndefined();
   });
 });

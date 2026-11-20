@@ -11,7 +11,11 @@ import { api, errorText, onCheckNow, onCloseRequested, type AppInfo } from "./ap
 import { Sidebar, WindowControls, type PageKey } from "./components/Chrome";
 import { Checkbox, Dialog, ToastHost, type ToastMessage } from "./components/ui";
 import { usePresence } from "./components/Presence";
+import { ReminderBanner } from "./components/ReminderBanner";
 import { useReminder } from "./useReminder";
+import { reminderModeOf, type ReminderAlert } from "./model/reminder";
+import { accentOf } from "./model/accent";
+import { themeNameOf, tintOf } from "./model/theme";
 import type { RecurringItem } from "./model/recurring";
 import type {
   ClassEntity,
@@ -56,6 +60,11 @@ export interface AppContextValue {
   saveNoteLinks: (links: NoteLink[]) => Promise<void>;
   toast: (text: string, tone?: "info" | "error") => void;
   theme: "light" | "dark";
+  /**
+   * 直接推一条「窗口内提醒」横幅。设置页的「预览」按钮用它在当前模式是
+   * 窗口内时试播一次 —— 否则预览按钮只会弹全局浮窗，看到的不是用户选的东西。
+   */
+  showReminderBanner: (alert: ReminderAlert) => void;
 }
 
 export default function App() {
@@ -68,6 +77,14 @@ export default function App() {
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
   const [noteLinks, setNoteLinks] = useState<NoteLink[]>([]);
   const [page, setPage] = useState<PageKey>("today");
+  /**
+   * v1.7.28：知识库是实验性功能，默认不进侧栏。关掉只是藏入口 ——
+   * 库文件、库根偏好、已选的目录一个都不动，重新打开还是原来那份。
+   *
+   * 声明得比 `prefs` 的正式读取更早：Ctrl+4 的键盘监听和首屏 `?page=` 分发
+   * 都要用它，而那两个 effect 在 `prefs` 判定之前。预加载完成前按 `false` 算。
+   */
+  const knowledgeOn = prefs?.experimentalKnowledge === true;
   /**
    * 跨页定位便签：课程 / 循环提醒详情栏里点一条关联便签时，切到便签页并选中它。
    * 用 `{ id, seq }` 而不是裸 id —— 连点同一条时 seq 变化才能重新触发选中效果。
@@ -227,7 +244,9 @@ export default function App() {
     [dontAskAgain, toast],
   );
 
-  // 提醒轮询：上课提醒与循环提醒共用托盘状态、置顶卡片、系统通知三通道
+  // 提醒轮询：上课提醒与循环提醒共用托盘状态、浮窗/横幅、系统通知三通道
+  // 窗口内提醒的横幅状态放这里 —— 它要跟着主窗口一起渲染，浮窗则完全在另一个窗口里
+  const [banner, setBanner] = useState<ReminderAlert | null>(null);
   const { checkNow } = useReminder(
     classes,
     prefs,
@@ -235,6 +254,7 @@ export default function App() {
     toast,
     recurring,
     saveRecurring,
+    setBanner,
   );
 
   // 关闭确认框的退场：`closeAsk` 变 false 之后还要留 120ms 播收起动画。
@@ -273,11 +293,46 @@ export default function App() {
     // 预览用：环境变量强制主题，优先于偏好设置（截图时不去改用户的 settings 文件）
     if (info?.startTheme === "light") return "light";
     if (info?.startTheme === "dark") return "dark";
-    const mode = prefs?.themeMode ?? 0;
-    if (mode === 1) return "light";
-    if (mode === 2) return "dark";
-    return systemDark ? "dark" : "light";
+    return themeNameOf(prefs?.themeMode, systemDark);
   }, [info?.startTheme, prefs?.themeMode, systemDark]);
+
+  /**
+   * 「颜色正在整体切换」的那 260ms。主题和主题色都用它买时间：
+   * 给 <html> 挂临时类，让全站颜色类属性走一条统一过渡（规则在 app.css 过渡层）。
+   * 共用同一个定时器 —— 两个 effect 各自计时会把对方的类提前摘掉。
+   */
+  const switchTimer = useRef<number | null>(null);
+  const flashSwitching = useCallback(() => {
+    const root = document.documentElement;
+    root.classList.add("theme-switching");
+    if (switchTimer.current !== null) window.clearTimeout(switchTimer.current);
+    switchTimer.current = window.setTimeout(() => {
+      root.classList.remove("theme-switching");
+      switchTimer.current = null;
+    }, 260);
+  }, []);
+  useEffect(
+    () => () => {
+      if (switchTimer.current !== null) window.clearTimeout(switchTimer.current);
+      document.documentElement.classList.remove("theme-switching");
+    },
+    [],
+  );
+
+  /**
+   * 配色方案（v1.7.28）：主题档位为「主题色（亮）/（暗）」时，中性面按 `--accent`
+   * 掺一遍；其余档位保持原来的中性灰。掺色本身全在 tokens.css 里，
+   * 这里只负责把 `data-tint` 挂上去。
+   */
+  const tint = tintOf(prefs?.themeMode);
+  const lastTint = useRef<string | null>(null);
+  useEffect(() => {
+    document.documentElement.dataset.tint = tint;
+    const prev = lastTint.current;
+    lastTint.current = tint;
+    if (prev === null || prev === tint) return;
+    flashSwitching();
+  }, [tint, flashSwitching]);
 
   /**
    * 主题落地。切 data-theme 的那一帧，所有 CSS 变量一起换值 —— 底色、文字、
@@ -295,18 +350,32 @@ export default function App() {
     const prev = lastTheme.current;
     lastTheme.current = theme;
     if (prev === null || prev === theme) return;
+    flashSwitching();
+  }, [theme, flashSwitching]);
 
-    const root = document.documentElement;
-    root.classList.add("theme-switching");
-    const timer = window.setTimeout(() => root.classList.remove("theme-switching"), 260);
-    return () => {
-      window.clearTimeout(timer);
-      root.classList.remove("theme-switching");
-    };
-  }, [theme]);
+  /**
+   * 主题色（v1.7.28）。和主题同一套路：只改 `<html>` 上的 `data-accent`，
+   * 由 tokens.css 里那一组选择器去覆盖 `--accent` / `--on-accent`。
+   *
+   * 换色也要走那条统一过渡 —— 强调色铺在按钮、选中态、正在上课的主卡上，
+   * 硬切会像被人抽掉了一层。所以和主题共用同一个「临时类 + 定时器」，
+   * 谁最后改谁重新计时，不会出现两个定时器互相把类摘掉。
+   */
+  const accentId = accentOf(prefs?.accent).id;
+  const lastAccent = useRef<string | null>(null);
+  useEffect(() => {
+    document.documentElement.dataset.accent = accentId;
+    const prev = lastAccent.current;
+    lastAccent.current = accentId;
+    if (prev === null || prev === accentId) return;
+    flashSwitching();
+  }, [accentId, flashSwitching]);
 
   // Ctrl+1..6 切页：桌面端习惯。1..5 沿用旧映射，新页补在 6，
   // 免得老用户按 Ctrl+5 时设置的落点突然变掉。
+  //
+  // v1.7.28：知识库关着时 Ctrl+4 直接吞掉。不改成「跳到设置」——
+  // 那是把一次误触变成一次跳转，比没反应更烦。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
@@ -319,14 +388,14 @@ export default function App() {
         "6": "recurring",
       };
       const target = map[e.key];
-      if (target) {
-        e.preventDefault();
-        setPage(target);
-      }
+      if (!target) return;
+      if (target === "knowledge" && !knowledgeOn) return;
+      e.preventDefault();
+      setPage(target);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [knowledgeOn]);
 
   if (bootError) {
     return (
@@ -380,19 +449,28 @@ export default function App() {
     saveNoteLinks,
     toast,
     theme,
+    showReminderBanner: setBanner,
   };
 
   // v1.7.21：左下角改回原版口径。Compose 版那一行显示的是**提醒服务状态**
   //（`AppShell.kt`：running → 「提醒服务运行中」，否则「提醒服务未启动」），
   // 不是数据源信息；这里跟着对齐。Lite 没有独立后台进程，提醒轮询就在 WebView
-  // 里跑，所以「服务在不在跑」等价于「允许通知」有没有被关掉（`notifyEnabled`
-  // 是 `useReminder` 唯一的闸门）。
-  // 原「共用原版数据 · schema vN」仍有排障价值，挪到 tooltip 里，不占版面。
-  const remindersOn = prefs.notifyEnabled;
+  // 里跑。
+  // v1.7.28：提醒现在有两个闸门 —— 视觉浮窗（`reminderMode` ≠ 2）与系统通知
+  //（`notifyEnabled`）。任一条通就算「在跑」；只认 notifyEnabled 的话，用户在
+  // 「窗口内提醒」下关掉通知，左下角会写着「未启动」却照样弹横幅。
+  const reminderMode = reminderModeOf(prefs);
+  const remindersOn = prefs.notifyEnabled || reminderMode !== 2;
   const status = remindersOn ? "提醒服务运行中" : "提醒服务未启动";
   const statusHint = `${status} · ${
-    info.sharedWithOriginal ? "共用原版数据" : "独立数据"
-  } · schema v${info.schemaVersion}`;
+    reminderMode === 2
+      ? "不弹提醒"
+      : reminderMode === 1
+        ? "窗口内提醒"
+        : "全局提醒"
+  } · ${info.sharedWithOriginal ? "共用原版数据" : "独立数据"} · schema v${info.schemaVersion}`;
+
+  // v1.7.28：知识库关着时（见 `knowledgeOn`），侧栏不出这一项。
 
   // `?solo=1` = 知识库专用窗口：藏掉侧栏，只留「树 + 编辑器」。
   // 读一次即可 —— 窗口创建之后 URL 不会再变，没必要进响应式状态。
@@ -416,6 +494,7 @@ export default function App() {
             version={info.version}
             noteCount={notes.length}
             recurringCount={recurring.filter((r) => r.enabled).length}
+            experimentalOn={knowledgeOn}
           />
         )}
         <main className="page">
@@ -426,7 +505,14 @@ export default function App() {
             {page === "today" && <TodayPage ctx={ctx} onNavigate={setPage} />}
             {page === "week" && <WeekPage ctx={ctx} onOpenNote={openNote} />}
             {page === "notes" && <NotesPage ctx={ctx} focusNote={noteFocus} />}
-            {page === "knowledge" && <KnowledgePage ctx={ctx} solo={solo} />}
+            {page === "knowledge" &&
+              (knowledgeOn || solo ? (
+                <KnowledgePage ctx={ctx} solo={solo} />
+              ) : (
+                // 兜底：只有从 URL（`?page=knowledge`）或刚关掉开关时才会走到这里。
+                // 直接甩回「今天」会让人以为按错了，给一块说明 + 去设置的入口。
+                <KnowledgeLocked onOpenSettings={() => setPage("settings")} />
+              ))}
             {page === "recurring" && <RecurringPage ctx={ctx} />}
             {page === "settings" && <SettingsPage ctx={ctx} onNavigate={setPage} />}
           </div>
@@ -446,6 +532,18 @@ export default function App() {
         />
       ) : null}
       <ToastHost toasts={toasts} />
+      {/* 窗口内提醒（`reminderMode === 1`）：从主窗口上沿滑下来。
+          全局模式与「不提醒」下 `banner` 恒为 null，这里渲染不出任何东西。 */}
+      <ReminderBanner
+        alert={banner}
+        onDismiss={() => setBanner(null)}
+        onSkip={(ruleId) => {
+          // 与浮窗上的「跳过本次」走同一条路：Rust 只广播 ruleId，
+          // 相位推进仍由 useReminder 落盘（规则只在前端有一份实现）
+          setBanner(null);
+          void api.overlaySkip(ruleId);
+        }}
+      />
     </div>
   );
 }
@@ -497,6 +595,33 @@ function CloseConfirmDialog({
 }
 
 /**
+ * 知识库关着时的落地页（v1.7.28）。
+ *
+ * 只在两种情况下会看到：从 `?page=knowledge`（旧快捷方式 / `--kb` 参数）打开，
+ * 或者刚在设置里把它关掉、页面还停在知识库上。不做静默跳转 —— 那样用户
+ * 只会觉得「手滑点错了」，不知道该去设置里开。
+ */
+function KnowledgeLocked({ onOpenSettings }: { onOpenSettings: () => void }) {
+  return (
+    <>
+      <PageTopBar title="知识库" tag="实验性" subtitle="未启用" />
+      <div className="page-content">
+        <div className="empty" style={{ paddingTop: 56, gap: 10 }}>
+          <strong style={{ fontSize: 15 }}>知识库还没启用</strong>
+          <span style={{ maxWidth: 430, lineHeight: 1.75, textAlign: "center" }}>
+            这是实验性功能：文件树、Markdown 编辑器和思维导图都还在打磨，
+            所以默认不放进侧栏。在设置里打开后会常驻侧栏，库文件仍然放在你自己选的目录里。
+          </span>
+          <button className="btn primary" onClick={onOpenSettings}>
+            去设置里启用
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
  * 页头。它同时充当自绘标题栏（窗口是无边框的）。
  *
  * 从左到右：`[标题 + 副标题]` ── 弹性空白（可拖动、双击最大化）── `[页面操作]` `[窗口按钮]`
@@ -506,10 +631,13 @@ function CloseConfirmDialog({
  */
 export function PageTopBar({
   title,
+  tag,
   subtitle,
   children,
 }: {
   title: string;
+  /** 标题右侧的小标签，例如实验性功能的「实验性」。用 warning 色，比正文弱、比副标题强 */
+  tag?: string;
   subtitle?: string;
   children?: React.ReactNode;
 }) {
@@ -517,6 +645,11 @@ export function PageTopBar({
     <header className="page-topbar">
       <div className="page-title-area">
         <span className="page-title">{title}</span>
+        {tag ? (
+          <span className="chip warn" style={{ alignSelf: "center" }}>
+            {tag}
+          </span>
+        ) : null}
         {subtitle ? <span className="page-sub">{subtitle}</span> : null}
       </div>
       {children ? <div className="page-actions">{children}</div> : null}

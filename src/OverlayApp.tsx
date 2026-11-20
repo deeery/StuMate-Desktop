@@ -13,10 +13,12 @@
  *     点了卡片之后 Esc 才有效（跟原版一致，原版也没写"按 Esc 关闭"的提示）。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, onOverlayUpdate } from "./api";
 import { StuMateMark } from "./components/StuMateMark";
 import { formatClock, overlayView, type ReminderAlert } from "./model/reminder";
+import { accentOf } from "./model/accent";
+import { tintOf } from "./model/theme";
 
 /** 卡片内的时间每 15 秒刷新一次：够用来更新倒计时，又不至于每秒重渲染 */
 const TICK_MS = 15_000;
@@ -24,9 +26,24 @@ const TICK_MS = 15_000;
 export function OverlayApp() {
   const [alert, setAlert] = useState<ReminderAlert | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  /** 正在退场：窗口由 Rust 侧往上滑 200ms，这段里内容要留着，不能先清空 */
+  const [leaving, setLeaving] = useState(false);
+  const alertRef = useRef<ReminderAlert | null>(null);
+  alertRef.current = alert;
 
   const dismiss = useCallback(() => {
+    // 退场动效在 Rust 侧（窗口整块往上滑），这里只负责「别提前把内容抽掉」：
+    // 先标记 leaving 让内容淡出、并请 Rust 开始滑，等它滑完再真正清空。
+    // 留快照是为了这 240ms 里若来了新提醒（alert 已换），就别把新内容清掉。
+    const snapshot = alertRef.current;
+    setLeaving(true);
     void api.overlayHide();
+    window.setTimeout(() => {
+      if (alertRef.current === snapshot) {
+        setAlert(null);
+        setLeaving(false);
+      }
+    }, 240);
   }, []);
 
   // 主题：main.tsx 先按系统偏好给了个同步默认值，这里再按用户的真实设置纠正。
@@ -37,12 +54,18 @@ export function OverlayApp() {
       .prefs()
       .then((p) => {
         if (!alive) return;
-        const mode = p.themeMode ?? 0;
         const dark =
-          mode === 2 ||
-          (mode === 0 &&
+          p.themeMode === 2 ||
+          p.themeMode === 4 ||
+          ((p.themeMode ?? 0) === 0 &&
             (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false));
         document.documentElement.dataset.theme = dark ? "dark" : "light";
+        // 配色方案：主题档位是「主题色（亮）/（暗）」时，浮窗也跟着掺主题色，
+        // 否则主窗口是青底、浮窗却是纯灰，看着像两张不同的皮。
+        document.documentElement.dataset.tint = tintOf(p.themeMode);
+        // 主题色（v1.7.28）：浮窗也用同一盏灯，否则主窗口换了色、浮窗还是蓝的。
+        // `accentOf` 认不出来就回默认，不会让卡片变成无底无边。
+        document.documentElement.dataset.accent = accentOf(p.accent).id;
       })
       .catch(() => {});
     return () => {
@@ -71,7 +94,11 @@ export function OverlayApp() {
   useEffect(() => {
     let alive = true;
     let un: (() => void) | null = null;
-    onOverlayUpdate((next) => setAlert(next))
+    onOverlayUpdate((next) => {
+      // 新提醒接管：就算上一条正在退场，也要把 leaving 收回来
+      setLeaving(false);
+      setAlert(next);
+    })
       .then((fn) => {
         if (alive) un = fn;
         else fn();
@@ -114,6 +141,9 @@ export function OverlayApp() {
 
   return (
     <div
+      // key 跟着「这一条提醒」走：换了一条才重播淡入，同一节课的倒计时刷新不该闪
+      key={`${alert.recurringId ?? alert.classId}-${alert.startMillis}`}
+      className={`overlay-card${leaving ? " leaving" : ""}`}
       style={{
         height: "100vh",
         boxSizing: "border-box",
@@ -182,16 +212,18 @@ export function OverlayApp() {
 
       <div style={{ flex: 1 }} />
 
-      {/* 进度条：只有"正在上课"时才有内容，其余情况留一条空槽，布局不会跳 */}
-      <div
-        style={{
-          height: 4,
-          borderRadius: 2,
-          background: "var(--surface3)",
-          overflow: "hidden",
-        }}
-      >
-        {view.progress > 0 ? (
+      {/* 进度条：只有"正在上课"时才画。灰槽本身没有信息量，
+          循环提醒卡里它更像一条坏掉的进度条，所以干脆不渲染；
+          高度靠上面那个 flex:1 占位吸收，按钮不会跟着跳。 */}
+      {view.progress > 0 ? (
+        <div
+          style={{
+            height: 4,
+            borderRadius: 2,
+            background: "var(--surface3)",
+            overflow: "hidden",
+          }}
+        >
           <div
             style={{
               height: "100%",
@@ -200,8 +232,8 @@ export function OverlayApp() {
               background: "var(--accent)",
             }}
           />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div style={{ height: 14 }} />
 
@@ -214,6 +246,7 @@ export function OverlayApp() {
             className="btn ghost"
             onClick={() => {
               // Rust 侧会广播 ruleId 并顺手收窗；相位推进由主窗口做
+              setAlert(null);
               void api.overlaySkip(alert.recurringId!);
             }}
           >

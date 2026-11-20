@@ -15,6 +15,7 @@ import { PageTopBar, type AppContextValue } from "../App";
 import { Dialog, Field, Select } from "../components/ui";
 import { usePresence } from "../components/Presence";
 import {
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconClose,
@@ -39,9 +40,9 @@ import {
 import { currentWeek, mondayOf, weekContains, weekStart } from "../model/weekSchedule";
 import { DAY_NAMES, dateOf } from "../model/today";
 import { classColorOf } from "../model/classColor";
-import { notesOfClass, notesOfRule } from "../model/noteLinks";
+import { notesByClass, notesOfClass, notesOfRule } from "../model/noteLinks";
 import type { NoteEntity } from "../model/types";
-import { deadlineTimeLabel, hasDeadline } from "../model/notes";
+import { deadlineCountdown, deadlineTimeLabel, hasDeadline, typeLabel } from "../model/notes";
 import {
   describeNext,
   describeRule,
@@ -143,6 +144,16 @@ export function WeekPage({
       return weekContains(c.weeks, week);
     });
   }, [ctx.classes, week, weekMonday]);
+
+  /*
+   * 每门课挂着的便签（v1.7.28）。网格里每个块右下角按便签颜色画小点，
+   * 让人不点开就能看出「这节课有东西要看」。批量反查只扫一遍关联，
+   * 不是逐块调 `notesOfClass`。
+   */
+  const classNotes = useMemo(
+    () => notesByClass(ctx.notes, ctx.noteLinks),
+    [ctx.notes, ctx.noteLinks],
+  );
 
   /*
    * 「现在」单独挂一个 60s 时钟：当前时刻线、今日循环提醒标记、纵轴跨度共用它，
@@ -638,6 +649,12 @@ export function WeekPage({
                       // 同一门课永远同一档身份色（按 id 哈希派生，不存库）；
                       // 临时提醒（有具体日期）仍用警示色 —— 它和常规课不是一个语义
                       const barColor = p.cls.date ? "var(--warning)" : classColorOf(p.cls.id);
+                      // 挂在这节课上的便签：块右下角一排小色点，颜色即便签自己的色号。
+                      // 不点开详情也能看出「这块有东西要交 / 要看」。
+                      const blockNotes = classNotes.get(p.cls.id) ?? [];
+                      // 竖排能放几个：5px 点 + 2px 缝 = 7px 一格，上下各留 6px 呼吸。
+                      // 最矮的 22px 块只剩 1 格 —— 那时宁可只画一个点，也别压到课名。
+                      const dotSlots = Math.max(1, Math.min(6, Math.floor((height - 12) / 7)));
                       return (
                         <button
                           key={p.cls.id}
@@ -742,6 +759,28 @@ export function WeekPage({
                               {p.cls.startTime}–{p.cls.endTime}
                             </span>
                           ) : null}
+                          {/* 关联便签色点（v1.7.28）：右下角**竖排**，颜色取便签自己的
+                              `--note-N`，与便签页那张表里的圆点同一个色号。
+                              竖排比横排能多塞一倍（一个 100px 高的块能码 6 个）；
+                              能放几个由块高算，矮块里宁可少画也不让点压到课名上，
+                              多出来的收成一行 `+n`。 */}
+                          {blockNotes.length > 0 ? (
+                            <span
+                              className="block-note-dots"
+                              title={`关联便签：${blockNotes.map((n) => n.title).join("、")}`}
+                            >
+                              {blockNotes.slice(0, dotSlots).map((n) => (
+                                <span
+                                  key={n.id}
+                                  className="block-note-dot"
+                                  style={{ background: `var(--note-${n.colorIndex % 8})` }}
+                                />
+                              ))}
+                              {blockNotes.length > dotSlots ? (
+                                <span className="block-note-more">+{blockNotes.length - dotSlots}</span>
+                              ) : null}
+                            </span>
+                          ) : null}
                         </button>
                       );
                     })}
@@ -777,6 +816,7 @@ export function WeekPage({
             weekClasses={weekClasses}
             selectedId={selectedId}
             firesByDay={weekFires}
+            classNotes={classNotes}
             now={nowMs}
             onSelect={(c) => {
               setSelectedFire(null);
@@ -1151,7 +1191,14 @@ function RecurringDetailPanel({
 
 /**
  * 「关联便签」卡：课程详情与循环提醒详情共用。
- * 关联关系由便签侧决定（便签编辑面板里的两个下拉），这里只做反查与跳转。
+ * 关联关系由便签侧决定（便签编辑面板里的两个下拉），这里只做反查与展开。
+ *
+ * v1.7.28：点一条**在本卡里展开**，不再直接跳到便签页 —— 详情栏是「看这门课」
+ * 的上下文，跳走等于把人从正在看的课程上拽开。真要编辑整条便签，用展开后
+ * 那颗「在便签页打开」。
+ *
+ * 展开用 `grid-template-rows: 0fr → 1fr`，不量高度、不写死 px：
+ * 正文长短不一，动画高度得跟着内容走；`max-height` 猜错就会截断或留白。
  */
 function LinkedNotesCard({
   notes,
@@ -1162,6 +1209,13 @@ function LinkedNotesCard({
   now: number;
   onOpenNote?: (id: number) => void;
 }) {
+  /**
+   * 一次只展开一条：详情栏本身只有 268px 宽，两条都摊开会把课程信息顶出视野。
+   * 存 id 而不是整条，便签被删/解除关联后 `notes` 里找不到就自动收起。
+   */
+  const [openId, setOpenId] = useState<number | null>(null);
+  const openNote = notes.find((n) => n.id === openId) ?? null;
+
   return (
     <div className="card" style={{ padding: 16 }}>
       <div className="detail-section-label">
@@ -1175,19 +1229,67 @@ function LinkedNotesCard({
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
-          {notes.map((n) => (
-            <button
-              key={n.id}
-              className="linked-note"
-              onClick={() => onOpenNote?.(n.id)}
-              title="在便签页打开"
-            >
-              <span className="linked-note-title">{n.title}</span>
-              {hasDeadline(n) ? (
-                <span className="linked-note-meta">{deadlineTimeLabel(n.deadlineAt, now)}</span>
-              ) : null}
-            </button>
-          ))}
+          {notes.map((n) => {
+            const isOpen = openNote?.id === n.id;
+            const kind = typeLabel(n);
+            const overdue = hasDeadline(n) && n.deadlineAt <= now;
+            return (
+              <div key={n.id} className={`linked-note-item${isOpen ? " is-open" : ""}`}>
+                <button
+                  type="button"
+                  className="linked-note"
+                  aria-expanded={isOpen}
+                  onClick={() => setOpenId(isOpen ? null : n.id)}
+                  title={isOpen ? "收起" : "展开这条便签"}
+                >
+                  <span
+                    aria-hidden
+                    className="linked-note-dot"
+                    style={{ background: `var(--note-${n.colorIndex % 8})` }}
+                  />
+                  <span className="linked-note-title">{n.title}</span>
+                  {hasDeadline(n) ? (
+                    <span
+                      className="linked-note-meta"
+                      style={overdue ? { color: "var(--error)" } : undefined}
+                    >
+                      {deadlineTimeLabel(n.deadlineAt, now)}
+                    </span>
+                  ) : null}
+                  <IconChevronDown size={12} className="linked-note-caret" />
+                </button>
+
+                <div className="linked-note-body">
+                  <div>
+                    <div className="linked-note-inner">
+                      {kind || hasDeadline(n) ? (
+                        <div className="linked-note-tags">
+                          {kind ? <span className="chip">{kind}</span> : null}
+                          {hasDeadline(n) ? (
+                            <span className={`chip${overdue ? " danger" : ""}`}>
+                              {deadlineCountdown(n.deadlineAt, now)}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="linked-note-text">
+                        {n.content.trim() || "（这条便签只有标题）"}
+                      </div>
+                      <div className="linked-note-actions">
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => onOpenNote?.(n.id)}
+                        >
+                          在便签页打开
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1208,6 +1310,7 @@ function ListView({
   weekClasses,
   selectedId,
   firesByDay,
+  classNotes,
   now,
   onSelect,
   onEdit,
@@ -1217,6 +1320,8 @@ function ListView({
   selectedId: number | null;
   /** v1.7.27：整周七组各自的相位点，不再只给「今天」那一组 */
   firesByDay: DayRecurringFire[][];
+  /** v1.7.28：课程 → 关联便签，行尾画色点 */
+  classNotes: Map<number, NoteEntity[]>;
   now: number;
   onSelect: (c: ClassEntity) => void;
   onEdit: (c: ClassEntity) => void;
@@ -1271,9 +1376,40 @@ function ListView({
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, width: 84, flex: "0 0 84px", color: "var(--on-surface-variant)" }}>
                   {c.startTime}–{c.endTime}
                 </span>
-                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {/* 课名不抢满宽度：色点要**紧跟课名**，不能贴到右边的教室上 ——
+                    贴过去会被读成「A216 有个橙色标记」。所以课名 flex 不增长，
+                    后面补一个会长的空隙把教室/教师推到行尾。 */}
+                <span
+                  style={{
+                    flex: "0 1 auto",
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {c.title}
                 </span>
+                {(classNotes.get(c.id) ?? []).length > 0 ? (
+                  <span
+                    className="list-note-dots"
+                    title={`关联便签：${(classNotes.get(c.id) ?? []).map((n) => n.title).join("、")}`}
+                  >
+                    {(classNotes.get(c.id) ?? []).slice(0, 3).map((n) => (
+                      <span
+                        key={n.id}
+                        className="block-note-dot"
+                        style={{ background: `var(--note-${n.colorIndex % 8})` }}
+                      />
+                    ))}
+                    {(classNotes.get(c.id) ?? []).length > 3 ? (
+                      <span className="block-note-more">
+                        +{(classNotes.get(c.id) ?? []).length - 3}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
+                <span style={{ flex: 1, minWidth: 8 }} />
                 <span style={{ fontSize: 11, color: "var(--on-surface-faint)" }}>
                   {[c.room, c.teacher].filter(Boolean).join(" · ")}
                 </span>

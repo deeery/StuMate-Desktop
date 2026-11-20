@@ -31,6 +31,8 @@
 
 use crate::AppState;
 use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL: &str = "overlay";
@@ -216,6 +218,10 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow> {
     .skip_taskbar(true)
     // 不主动抢焦点：正在打字时被弹窗抢走焦点非常烦
     .focused(false)
+    // 建窗时**必须**是隐藏的：`build()` 出来的窗口默认可见，会先在目标位置
+    // 露一下（实测约 60ms）再被挪到屏幕外开始滑入 —— 观感就是「闪一下又顶下来」。
+    // 关掉可见性后，窗口停在屏幕外直到 `slide_in` 主动显示它。
+    .visible(false)
     .position(logical.0, logical.1);
 
     // ⚠️ 必须和主窗口用同一份浏览器参数，否则 WebView2 会去建第二个「环境」
@@ -295,10 +301,24 @@ pub async fn overlay_show(app: AppHandle, state: State<'_, AppState>, alert: Val
 
     if let Some(win) = app.get_webview_window(LABEL) {
         // 每次弹出都重新定位：用户可能刚把主窗口拖到另一块屏
-        reposition(&app, &win);
+        let target = card_target(&app);
         win.emit(EVENT_UPDATE, alert).map_err(|e| e.to_string())?;
-        show_no_activate(&win);
-        crate::trace(&dir, &format!("overlay 已显示：{}", fmt_pos(&win)));
+        match target {
+            Some((physical, _, _)) => {
+                // 窗口是复用的：内容一换就整张卡片从上沿滑下来，跟首次弹出的动效一致
+                let from = slide_in(&win, physical.0, physical.1, 0);
+                crate::trace(
+                    &dir,
+                    &format!("overlay 复用并滑入：y {from} → {}", physical.1),
+                );
+            }
+            None => {
+                // 拿不到显示器信息时退回「就地上屏」：算不出轨迹也照样提醒，
+                // 不能因为动效而丢掉一条提醒。
+                show_no_activate(&win);
+                crate::trace(&dir, &format!("overlay 已显示（无定位信息）：{}", fmt_pos(&win)));
+            }
+        }
         return Ok(());
     }
 
@@ -314,8 +334,21 @@ pub async fn overlay_show(app: AppHandle, state: State<'_, AppState>, alert: Val
                 if let Some(payload) = payload {
                     let _ = win.emit(EVENT_UPDATE, payload);
                 }
-                show_no_activate(&win);
-                crate::trace(&dir2, &format!("overlay 首次创建并显示：{}", fmt_pos(&win)));
+                // 首次建窗时页面还在加载：先让窗口停在屏幕外等内容画完，再滑下来。
+                // 顺序反过来会看到一张空白卡片从上面降下、内容随后才亮。
+                match card_target(&app2) {
+                    Some((physical, _, _)) => {
+                        let from = slide_in(&win, physical.0, physical.1, FIRST_PAINT_DELAY_MS);
+                        crate::trace(
+                            &dir2,
+                            &format!("overlay 首次创建并滑入：y {from} → {}", physical.1),
+                        );
+                    }
+                    None => {
+                        show_no_activate(&win);
+                        crate::trace(&dir2, &format!("overlay 首次创建并显示：{}", fmt_pos(&win)));
+                    }
+                }
             }
             Err(err) => crate::trace(&dir2, &format!("overlay 建窗失败：{err}")),
         }
@@ -323,13 +356,6 @@ pub async fn overlay_show(app: AppHandle, state: State<'_, AppState>, alert: Val
     .map_err(|e| e.to_string())?;
 
     Ok(())
-}
-
-/// 挪到「主窗口所在那块屏」的正上方居中。
-fn reposition(app: &AppHandle, win: &tauri::WebviewWindow) {
-    if let Some((physical, _, size)) = card_target(app) {
-        apply_placement(win, physical, size);
-    }
 }
 
 /// 按物理坐标摆放。
@@ -341,21 +367,151 @@ fn apply_placement(win: &tauri::WebviewWindow, pos: (i32, i32), _size: (u32, u32
     let _ = win.set_position(tauri::PhysicalPosition::new(pos.0, pos.1));
 }
 
+// ── 滑入 / 滑出动画 ────────────────────────────────────────────────
+
+/// 每次滑动都会把代次 +1。正在跑的那条线程发现代次变了立刻退出，
+/// 于是「上一秒还在滑出、这一秒又来一条提醒」不会出现两条线程抢同一个窗口。
+static ANIM_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// 每帧间隔。12ms ≈ 83Hz，比 60Hz 略密 —— 掉帧时观感更接近连续而不是阶梯。
+const FRAME_MS: u64 = 12;
+/// 滑入时长。380ms 是「看得清是从上面下来的」与「不觉得慢」之间的取值。
+const SLIDE_IN_MS: u64 = 380;
+/// 滑出时长。收起要显得干脆，比滑入短一半。
+const SLIDE_OUT_MS: u64 = 200;
+/// 首次建窗后等页面画完再滑入。窗口此时在屏幕外，多等的这几百毫秒
+/// 只是「晚一点出现」，不会出现空白卡片从上面滑下来。
+const FIRST_PAINT_DELAY_MS: u64 = 320;
+
+/// easeOutCubic：单调减速，用在「收回去」这种不需要回弹的动作上。
+fn ease_out_cubic(t: f64) -> f64 {
+    let p = 1.0 - t;
+    1.0 - p * p * p
+}
+
+/// easeOutBack（c1 = 1.1）：冲过目标约 5.5% 再回落。
+/// 152px 的行程对应约 8px 过冲 —— 看得见「砸下来一点又弹回去」，但不会晃。
+fn ease_out_back(t: f64) -> f64 {
+    const C1: f64 = 1.1;
+    const C3: f64 = C1 + 1.0;
+    let p = t - 1.0;
+    1.0 + C3 * p * p * p + C1 * p * p
+}
+
+/// 让窗口沿竖直方向从 `from_y` 滑到 `to_y`（x 不变，物理像素）。
+///
+/// 为什么把动画放在 Rust 而不是 CSS：窗口本身是一块**不透明**的矩形，
+/// 在窗口内用 CSS 平移只会把内容移出窗口、露出窗口底色；要做「整张卡片
+/// 从屏幕上方降下来」，能动的是窗口自己。反过来，透明窗口 + CSS 动画虽然
+/// 更顺，但 Windows 上透明窗一旦失效就是一块黑底，代价更大。
+///
+/// `hide_after = true` 表示这是退场：滑完把窗口藏起来（而不是销毁）。
+fn slide(
+    win: tauri::WebviewWindow,
+    x: i32,
+    from_y: i32,
+    to_y: i32,
+    delay_ms: u64,
+    hide_after: bool,
+) {
+    // 先领号再开线程：线程起来之前就可能已经被下一次滑动作废
+    let generation = ANIM_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let dur = if hide_after { SLIDE_OUT_MS } else { SLIDE_IN_MS };
+    let ease: fn(f64) -> f64 = if hide_after { ease_out_cubic } else { ease_out_back };
+
+    std::thread::spawn(move || {
+        if delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
+        if ANIM_GEN.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let frames = (dur / FRAME_MS).max(1);
+        for i in 1..=frames {
+            if ANIM_GEN.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            let t = i as f64 / frames as f64;
+            let y = from_y as f64 + (to_y - from_y) as f64 * ease(t);
+            let _ = win.set_position(tauri::PhysicalPosition::new(x, y.round() as i32));
+            std::thread::sleep(Duration::from_millis(FRAME_MS));
+        }
+        if ANIM_GEN.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        // 收尾对齐到整数位置：帧循环最后一步可能差 1px，卡片边缘会看着毛
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, to_y));
+        if hide_after {
+            if ANIM_GEN.load(Ordering::SeqCst) == generation {
+                hide_card(&win);
+            }
+        }
+    });
+}
+
+/// 把窗口摆到目标位置**上方**，显示出来，再滑下来。
+///
+/// 返回起点 y，方便调用方记日志。窗口此刻在屏幕外，所以「先显示再滑入」
+/// 不会出现卡片闪一下再跳走。
+fn slide_in(win: &tauri::WebviewWindow, x: i32, to_y: i32, delay_ms: u64) -> i32 {
+    let h = win
+        .outer_size()
+        .map(|s| s.height as i32)
+        .unwrap_or((CARD_H).round() as i32);
+    let from_y = to_y - h;
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, from_y));
+    show_no_activate(win);
+    slide(win.clone(), x, from_y, to_y, delay_ms, false);
+    from_y
+}
+
 /// 页面挂载后取当前应显示的提醒。窗口新建时事件会丢，靠这条补上。
 #[tauri::command]
 pub fn overlay_state(state: State<'_, AppState>) -> Option<Value> {
     state.alert.lock().ok().and_then(|g| g.clone())
 }
 
+/// 收窗：隐藏而不是销毁（销毁了下次还得重建，而重建这条路会卡死）。
+///
+/// ⚠️ 只调 `win.hide()` 在实测里**静默失效**：命令 resolve、`alert` 也清空了，
+/// 卡片却还留在屏幕上（`IsWindowVisible` 仍是 true，截图照样看得见）。
+/// 原因是首次显示走的是裸 `ShowWindow(SW_SHOWNOACTIVATE)`，绕开了 tao 的
+/// 可见性状态机 —— 于是 `set_visible(false)` 认为「本来就是隐藏的」，直接不做事。
+/// 所以这里先顺着 tao 走一遍（跑得通最好），再用 Win32 `SW_HIDE` 兜底；
+/// 与 [`show_no_activate`] 对称，两边都不依赖 tao 的内部状态。
+fn hide_card(win: &tauri::WebviewWindow) {
+    let _ = win.hide();
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+        if let Ok(hwnd) = win.hwnd() {
+            unsafe {
+                ShowWindow(hwnd.0 as *mut core::ffi::c_void, SW_HIDE);
+            }
+        }
+    }
+}
+
 /// 关掉卡片（用户点「知道了」或按 Esc）。
+///
+/// 先延后 200ms 往上滑回去再真藏，让「关掉」也有方向感 —— 卡片是
+/// 从上面下来的，就该从上面收走。代次机制保证这 200ms 里来了新提醒时，
+/// 这次收窗会被作废（由新的滑入接管），不会把刚弹出的卡片藏掉。
 #[tauri::command]
 pub fn overlay_hide(app: AppHandle, state: State<'_, AppState>) {
     if let Ok(mut guard) = state.alert.lock() {
         *guard = None;
     }
-    // 隐藏而不是销毁：窗口要留着复用，销毁了下次还得重建（而重建这条路会卡死）
+    let dir = state.paths.data_dir.clone();
     if let Some(win) = app.get_webview_window(LABEL) {
-        let _ = win.hide();
+        if let Some((pos, size)) = win.outer_position().ok().zip(win.outer_size().ok()) {
+            let to_y = pos.y - size.height as i32;
+            slide(win.clone(), pos.x, pos.y, to_y, 0, true);
+            crate::trace(&dir, &format!("overlay 滑出：y {} → {to_y}", pos.y));
+            return;
+        }
+        hide_card(&win);
+        crate::trace(&dir, &format!("overlay 已隐藏：visible={:?}", win.is_visible()));
     }
 }
 

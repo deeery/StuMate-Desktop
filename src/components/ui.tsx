@@ -30,16 +30,23 @@ export function Dialog({
   leaving?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // onClose 是父组件内联的箭头函数，每次渲染都是新身份。它**不能**进 effect 的
+  // deps：否则每敲一个字都会重跑下面这段，把焦点从输入框抢回 `.dialog` ——
+  // 表现是「对话框里只能输入一个字符」，而且容器吃到 :focus-visible，
+  // 整扇窗口被描上一圈强调色外环（v1.7.28 修）。用 ref 转一手拿最新闭包，
+  // effect 只在挂载时跑一次。
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeRef.current();
     };
     window.addEventListener("keydown", onKey);
     // 打开时把焦点放进对话框，否则 Esc 会被页面上的输入框吞掉
     ref.current?.focus();
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   return createPortal(
     <div
@@ -145,6 +152,12 @@ export function Toggle({
         ) : null}
       </span>
       <span
+        // 纯 div/span 拼的开关，没有原生 checkbox：补上 role/aria 之后
+        // 读屏和自动化脚本（CDP 验收）才能判断它是开还是关；
+        // aria-label 用可见的那行字，省得读屏只念出「开关」。
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
         onClick={(e) => {
           e.preventDefault();
           onChange(!checked);

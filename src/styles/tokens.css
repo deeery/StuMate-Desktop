@@ -108,8 +108,12 @@
   --grid-zebra: rgba(0, 0, 0, 0.04);
   --accent: #0067c0;
   --on-accent: #ffffff;
-  --accent-tint: rgba(0, 103, 192, 0.09);
-  --accent-hover: rgba(0, 103, 192, 0.06);
+  /*
+   * 淡底与悬停底都由 --accent 现算（v1.7.28）：主题色一换，这两个跟着换，
+   * 不用在 accent 表里再登记一遍。`transparent` 混出来的就是带 alpha 的色。
+   */
+  --accent-tint: color-mix(in srgb, var(--accent) 9%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 6%, transparent);
   /*
    * 今日页 Hero 卡（「正在上课」那张）的着色。浅色主题保持原版做法：
    * 整片强调色填充 —— 浅底页面上一块饱和色就是最强的一级标题。
@@ -162,6 +166,14 @@
   --error-tint: rgba(196, 43, 28, 0.13);
   --warning-tint: rgba(157, 93, 0, 0.13);
   --success-tint: rgba(15, 123, 15, 0.12);
+
+  /*
+   * 收工态（v1.7.28）：今天的课上完后，顶部主卡换成淡绿底 + 绿描边。
+   * 只染这一张卡，页面底色不动 —— 一天过完值得被看见，但不该盖过页面上
+   * 还要动手的东西（今日截止、今日循环那两张卡仍然是纯 surface）。
+   */
+  --hero-done-bg: color-mix(in srgb, var(--success) 11%, var(--surface));
+  --hero-done-border: color-mix(in srgb, var(--success) 32%, transparent);
 }
 
 :root[data-theme="dark"] {
@@ -182,8 +194,8 @@
   --grid-zebra: rgba(255, 255, 255, 0.03);
   --accent: #60cdff;
   --on-accent: #003a5c;
-  --accent-tint: rgba(96, 205, 255, 0.12);
-  --accent-hover: rgba(96, 205, 255, 0.07);
+  --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 7%, transparent);
   /*
    * 深色主题不照抄浅色的「整片强调色」：1160px 宽的 #60cdff 亮带会把整页的
    * 视觉重心全吸走，而真正要读的是课程名与结束时间。改成强调色洗进 surface 的
@@ -229,4 +241,130 @@
   --error-tint: rgba(255, 153, 164, 0.16);
   --warning-tint: rgba(252, 225, 0, 0.16);
   --success-tint: rgba(108, 203, 95, 0.16);
+
+  /* 收工态：深色下绿要更浓才看得出来，但仍只当「这张卡的状态」，不当高亮 */
+  --hero-done-bg: color-mix(in srgb, var(--success) 15%, var(--surface2));
+  --hero-done-border: color-mix(in srgb, var(--success) 38%, transparent);
+}
+
+/* ── 主题色（v1.7.28）─────────────────────────────────────────────
+ * 只覆盖 `--accent` / `--on-accent` 两个令牌；`--accent-tint`、`--accent-hover`、
+ * `--hero-bg`、`--hero-border` 都是 color-mix(var(--accent)) 算出来的，自动跟随。
+ *
+ * 深浅各一套：浅色要压得住白字（按钮实心底 + --on-accent 文字），
+ * 深色要能在深底（`--surface #2b2b2b`）上当文字色。同一个 hex 不可能两头合格。
+ * 六个色的对比度都算过 —— 浅色白字 / 深色 on-accent 与 accent-on-surface
+ * 全部 ≥ 4.5:1（最低 5.44，绿那一档）。
+ *
+ * 认不出来的 id 不会命中任何一条 → 回落 `:root` 里的蓝，按钮不会变成无底无边。
+ */
+:root[data-accent="blue"] {
+  --accent: #0067c0;
+  --on-accent: #ffffff;
+}
+:root[data-accent="teal"] {
+  --accent: #026b6e;
+  --on-accent: #ffffff;
+}
+:root[data-accent="green"] {
+  --accent: #0f7b0f;
+  --on-accent: #ffffff;
+}
+:root[data-accent="purple"] {
+  --accent: #7a3cb8;
+  --on-accent: #ffffff;
+}
+:root[data-accent="pink"] {
+  --accent: #b429a6;
+  --on-accent: #ffffff;
+}
+:root[data-accent="orange"] {
+  --accent: #ab4402;
+  --on-accent: #ffffff;
+}
+
+:root[data-theme="dark"][data-accent="blue"] {
+  --accent: #60cdff;
+  --on-accent: #003a5c;
+}
+:root[data-theme="dark"][data-accent="teal"] {
+  --accent: #4cc2c4;
+  --on-accent: #00393b;
+}
+:root[data-theme="dark"][data-accent="green"] {
+  --accent: #6ccb5f;
+  --on-accent: #04320a;
+}
+:root[data-theme="dark"][data-accent="purple"] {
+  --accent: #c39bf0;
+  --on-accent: #2e0f52;
+}
+:root[data-theme="dark"][data-accent="pink"] {
+  --accent: #f0a0e8;
+  --on-accent: #4a0c3f;
+}
+:root[data-theme="dark"][data-accent="orange"] {
+  --accent: #ffab70;
+  --on-accent: #4a1a00;
+}
+
+/* ── 配色方案：直接按主题色生成的单色系（v1.7.28）──────────────────
+ * 主题档位选到「主题色（亮）/（暗）」时挂 `data-tint="accent"`。
+ *
+ * **不是「灰底上盖一层色」**（那是把 `--accent` 混进 #f3f3f3 的 9%，出来
+ * 只是「带点蓝的灰」）。这里用相对颜色语法**直接从主题色派生同一色相、
+ * 不同深浅的一整套面**：
+ *
+ *     oklch(from var(--accent) <L> calc(max(<C下限>, c * <比例>)) h)
+ *
+ * `from var(--accent)` 取的是它的色相 h 与彩度 c，L 和 C 全部重写 ——
+ * 所以底色、卡片、分隔线、网格线、连正文文字都是「这个颜色」的深浅档，
+ * 而不是中性灰上的一层薄色。换主题色 = 整套配色换掉。
+ *
+ * ## 为什么取 `max(C下限, c * 比例)`
+ *
+ * 各主题色的彩度差得远（青 0.081、洋红 0.216）。只按比例缩放的话，青色的面
+ * 几乎还是灰的；设下限保证每个色都「看得出是这个颜色」，设比例上限又避免
+ * 洋红的面艳成一片。两档都写在下面，改一个色不用动这里。
+ *
+ * ## 对比度（都算过，见 README 变更记录）
+ *
+ * 浅色：正文 11.8~12.1、次要 5.3、淡字 4.86~4.94、accent 当文字 4.84~5.85；
+ * 深色：正文 12.2~12.7、次要 7.8~8.1、淡字 4.94~5.06、accent 当文字 7.3~9.0。
+ * 全部 ≥ 4.5:1。**改任何一个 L / 比例都要重算这四个数**。
+ *
+ * 旧浏览器（没有相对颜色语法）不认识这些声明，会整条丢掉 → 退回中性灰，
+ * 界面不会坏。所以用 @supports 兜一层，语义上也更清楚。
+ */
+@supports (color: oklch(from red 0.5 c h)) {
+  /* 浅色：L 从 0.99（卡片）铺到 0.78（强分隔线），文字压到 0.235/0.45/0.47 */
+  :root[data-theme="light"][data-tint="accent"] {
+    --bg: oklch(from var(--accent) 0.950 calc(max(0.030, c * 0.30)) h);
+    --surface: oklch(from var(--accent) 0.985 calc(max(0.014, c * 0.14)) h);
+    --surface2: oklch(from var(--accent) 0.922 calc(max(0.040, c * 0.38)) h);
+    --surface3: oklch(from var(--accent) 0.876 calc(max(0.045, c * 0.42)) h);
+    --outline: oklch(from var(--accent) 0.888 calc(max(0.036, c * 0.34)) h);
+    --outline-strong: oklch(from var(--accent) 0.760 calc(max(0.050, c * 0.46)) h);
+    --border-rest: oklch(from var(--accent) 0.840 calc(max(0.043, c * 0.40)) h);
+    --grid-line: oklch(from var(--accent) 0.916 calc(max(0.032, c * 0.30)) h);
+    --on-surface: oklch(from var(--accent) 0.232 calc(max(0.022, c * 0.26)) h);
+    --on-surface-variant: oklch(from var(--accent) 0.447 calc(max(0.020, c * 0.22)) h);
+    /* 淡字：面变成同色系后要跟着压暗，0.464 在六个色的面上最低 4.76:1。 */
+    --on-surface-faint: oklch(from var(--accent) 0.464 calc(max(0.018, c * 0.20)) h);
+  }
+
+  /* 深色：L 从 0.17（底）铺到 0.43（强分隔线），文字提到 0.975/0.83/0.70 */
+  :root[data-theme="dark"][data-tint="accent"] {
+    --bg: oklch(from var(--accent) 0.170 calc(max(0.030, c * 0.30)) h);
+    --surface: oklch(from var(--accent) 0.245 calc(max(0.026, c * 0.26)) h);
+    --surface2: oklch(from var(--accent) 0.215 calc(max(0.028, c * 0.28)) h);
+    --surface3: oklch(from var(--accent) 0.305 calc(max(0.032, c * 0.30)) h);
+    --outline: oklch(from var(--accent) 0.320 calc(max(0.034, c * 0.32)) h);
+    --outline-strong: oklch(from var(--accent) 0.430 calc(max(0.040, c * 0.36)) h);
+    --border-rest: oklch(from var(--accent) 0.375 calc(max(0.036, c * 0.34)) h);
+    --grid-line: oklch(from var(--accent) 0.295 calc(max(0.030, c * 0.28)) h);
+    --on-surface: oklch(from var(--accent) 0.975 calc(max(0.010, c * 0.10)) h);
+    --on-surface-variant: oklch(from var(--accent) 0.830 calc(max(0.016, c * 0.14)) h);
+    --on-surface-faint: oklch(from var(--accent) 0.700 calc(max(0.014, c * 0.12)) h);
+  }
 }

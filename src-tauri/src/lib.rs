@@ -227,6 +227,13 @@ fn write_pref(state: &AppState, key: &str, value: Value) -> Result<Value, String
     let mut guard = state.prefs.lock().map_err(|_| "偏好锁损坏".to_string())?;
     let mut next = guard.clone();
     if let Some(map) = next.as_object_mut() {
+        // v1.7.28：`showPopup` 已被 `reminderMode`（0 全局 / 1 窗口内 / 2 不弹）
+        // 取代，但旧版本还在读这个键。写新模式时顺手把它镜像成「非 0 即关」，
+        // 这样降级回旧版本也不会出现「设置里关了、旧版却还在弹」。
+        if key == "reminderMode" {
+            let show = value.as_i64().map(|m| m == 0).unwrap_or(true);
+            map.insert("showPopup".into(), Value::from(show));
+        }
         map.insert(key.to_string(), value);
     }
     store::save_prefs(&state.paths, &next)?;

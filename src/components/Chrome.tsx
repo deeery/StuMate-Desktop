@@ -45,12 +45,22 @@ interface IconProps {
  * v1.7.16 起「循环提醒」是第六个一级页：放在知识库之后、设置之前，
  * 设置依旧是侧栏最后一项。**Ctrl+1..5 的老映射一个都不动**，新页用 Ctrl+6 ——
  * 数字与显示顺序在这里不再一一对应，但用户已有的肌肉记忆不会突然改指向。
+ *
+ * v1.7.28：知识库标成**实验性**（`experimental: true`）——默认不进侧栏，
+ * 在设置里打开 `prefs.experimentalKnowledge` 才出现。顺位不变，Ctrl+4 也不变：
+ * 关着的时候按 Ctrl+4 没反应，比「按了跳到设置」更不容易误操作。
  */
-export const NAV: { key: PageKey; label: string; icon: ComponentType<IconProps> }[] = [
+export const NAV: {
+  key: PageKey;
+  label: string;
+  icon: ComponentType<IconProps>;
+  /** 实验性功能：默认隐藏，由设置里的开关决定要不要挂出来 */
+  experimental?: boolean;
+}[] = [
   { key: "today", label: "今天", icon: IconToday },
   { key: "week", label: "课表", icon: IconWeek },
   { key: "notes", label: "便签", icon: IconNote },
-  { key: "knowledge", label: "知识库", icon: IconKnowledge },
+  { key: "knowledge", label: "知识库", icon: IconKnowledge, experimental: true },
   { key: "recurring", label: "循环提醒", icon: IconRecurring },
   { key: "settings", label: "设置", icon: IconSettings },
 ];
@@ -126,6 +136,7 @@ export function Sidebar({
   version,
   noteCount,
   recurringCount,
+  experimentalOn = false,
 }: {
   page: PageKey;
   onNavigate: (page: PageKey) => void;
@@ -139,11 +150,13 @@ export function Sidebar({
   version: string;
   noteCount: number;
   recurringCount: number;
+  /** 实验性功能总开关（当前只有知识库一项）。关着时那一项整个不挂出来。 */
+  experimentalOn?: boolean;
 }) {
   return (
     <nav className={`sidebar${collapsed ? " rail" : ""}`}>
       <BrandRow version={version} collapsed={collapsed} />
-      {NAV.map((item) => {
+      {NAV.filter((item) => !item.experimental || experimentalOn).map((item) => {
         const Icon = item.icon;
         // 条数徽标：便签是总数，循环提醒是「启用中的规则数」（停用的不算待触发）。
         // 收起态由 .sidebar.rail .nav-badge 压成 0 宽，这里不必再判 collapsed。
@@ -166,6 +179,9 @@ export function Sidebar({
           >
             <Icon size={17} />
             <span className="nav-label">{item.label}</span>
+            {/* 实验性标记：收起成图标栏时和 nav-label 一起收掉（见 app.css），
+                否则 48px 的栏里会挤出一截「实」。 */}
+            {item.experimental ? <span className="nav-tag">实验</span> : null}
             {badge ? <span className="nav-badge">{badge}</span> : null}
           </button>
         );
